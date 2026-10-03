@@ -186,6 +186,8 @@ server {
 
 https / wss 说明：页面通过 https 打开时客户端自动连接 `wss://同一域名/ws`；http 时用 `ws://`。服务器本身只提供 http，证书由代理 / 隧道负责。代理与服务器在同一台机器或内网时，`TRUST_PROXY=auto` 会信任它的 `X-Forwarded-For` / `X-Real-IP`；代理在公网另一台机器上时设 `TRUST_PROXY=1`（同时确保游戏端口只对代理开放）。
 
+玩家从公网域名直连进来时，开始界面只显示一行服务器状态（`游戏服务器 game.example.com`）：那排「本机当服务器 / 连接服务器」只在页面来自本机或内网地址（`127.0.0.1`、`192.168.x.x`、`nas` 这类）时出现——那是 Windows 便携版与局域网自建服的玩法，摆给公网访客看只会把人引到自己的 `127.0.0.1`。判定在 `public/js/gameserver.js` 的 `showServerPicker()`。公网页面仍可用 `?server=其他地址` 主动指定别的服务器（指定后那排会重新出现，好让你取消）。
+
 ## 3. Docker
 
 ```bash

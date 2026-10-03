@@ -17,7 +17,7 @@ import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual } from '../store.js';
 import { data, useData } from '../data.js';
 import { FullscreenButton, detectFeatures } from '../ui/device.js';
-import { gameServer, parseServer, switchServerUrl, clearServerUrl, clientConfigUrl, paramOf, PUSH_ONLY_PARAM } from '../gameserver.js';
+import { gameServer, parseServer, switchServerUrl, clearServerUrl, clientConfigUrl, paramOf, PUSH_ONLY_PARAM, showServerPicker } from '../gameserver.js';
 
 // Same character classes as server/net.js sanitizeName (control, zero-width, bidi, BOM), so a name
 // the client accepts is never rejected by the server's hello validation.
@@ -266,6 +266,9 @@ export function TitleScreen() {
   // 页面与游戏服务器不是同一台：提示一下素材来自哪里、对局在哪里跑。
   const remote = !srv.sameOrigin;
   const pageIsLocal = parseServer(srv.pageOrigin)?.local ?? false;
+  // 「本机当服务器 / 连接服务器」只对 Windows 便携版与局域网自建服有意义：公网域名上直连进来的玩家面前
+  // 没有第二台服务器，摆个地址框只会让人以为要跑去别处玩（也不该把访客引到他自己的 127.0.0.1）。判定有单测。
+  const picker = showServerPicker();
 
   const valid = isValidName(name);
   const start = () => {
@@ -333,7 +336,7 @@ export function TitleScreen() {
         ${remote ? html`<div class="title-net__row title-net__note">
           <span>${pageIsLocal ? '页面与素材来自本机' : `页面来自 ${srv.pageOrigin}`} · 对局数据走上面的服务器（最省带宽）</span>
         </div>` : null}
-        <div class="title-net__row title-net__row--pick">
+        ${picker ? html`<div class="title-net__row title-net__row--pick">
           <${Button} size="sm" icon="signal" active=${srv.sameOrigin} disabled=${srv.sameOrigin} title="在这台电脑上开一个服务器（Windows 便携版启动器里选「本机当服务器」）"
             onClick=${() => goTo(localServerUrl())}>本机当服务器<//>
           <${TextField} size="sm" value=${addr} onInput=${setAddr} onEnter=${connectRemote} class="title-net__addr"
@@ -341,7 +344,7 @@ export function TitleScreen() {
           <${Button} size="sm" variant="primary" icon="link" disabled=${!typed} onClick=${connectRemote}>连接<//>
           ${remote ? html`<${Button} size="sm" variant="ghost" square=${true} icon="close" aria-label="不再指定服务器，回到本页面自己的服务器"
             title="取消指定，回到本页面自己的服务器" onClick=${() => goTo(clearServerUrl())} />` : null}
-        </div>
+        </div>` : null}
       </div>
 
       ${blocked ? html`<div class="title-warn" role="alert">

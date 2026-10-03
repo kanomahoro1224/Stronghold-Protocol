@@ -171,3 +171,22 @@ function pageHref(loc) {
 export function clientConfigUrl(srv) {
   return `${srv.origin}/api/client-config`;
 }
+
+/**
+ * 开始界面上那排「本机当服务器 / 连接服务器」该不该出现。
+ *
+ * 那排控件属于 **Windows 便携版**与**局域网自建服**的玩法：页面来自本机或内网时，玩家确实可能想把这台
+ * 机器当服务器、或改连局域网里另一台。反过来，玩家从公网域名（如 `https://game.kafuno.cn/`）直连进来时，
+ * 他面前没有第二台服务器，地址框只会让人以为要跑去别处玩；「本机当服务器」更会把访客指向他自己的
+ * `127.0.0.1`——所以公网页面上一律不显示。
+ *
+ * 已经用 `?server=` 连着远端时仍然显示：否则「取消指定」就没有出口了。
+ * @param {{protocol?: string, host?: string, search?: string, pathname?: string}} [loc]
+ * @returns {boolean}
+ */
+export function showServerPicker(loc = globalThis.location) {
+  const srv = gameServer(loc);
+  if (!srv.sameOrigin) return true;
+  const page = parseServer(srv.pageOrigin);
+  return !!page && (page.local || isPrivateAddress(page.host));
+}

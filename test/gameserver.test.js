@@ -223,4 +223,24 @@ describe('gameserver: 三个使用者', () => {
     assert.equal(isStartBlocked({ pushOnly: true }, { secure: false }), true);
     assert.equal(isStartBlocked({ pushOnly: true }, { secure: true }), false);
   });
+
+  test('title.js showServerPicker：公网域名上不给「换服务器」的入口', async () => {
+    const { showServerPicker } = await mod('gameserver.js');
+    // 公网域名 / 公网 IP：访客面前没有第二台服务器，地址框只会把人引到别处（还有他自己的 127.0.0.1）
+    for (const loc of [at('https:', 'game.kafuno.cn'), at('http:', 'game.example.com'), at('https:', '8.138.253.12')]) {
+      assert.equal(showServerPicker(loc), false, `${loc.host} 上不该出现服务器选择`);
+    }
+    // Windows 便携版「本机当服务器」：页面就在 127.0.0.1 上
+    assert.equal(showServerPicker(at('http:', '127.0.0.1:3000')), true);
+    assert.equal(showServerPicker(at('http:', 'localhost:3000')), true);
+    // 局域网自建服：同宿舍的朋友从 192.168.x 进来，仍然允许改连别的服务器
+    assert.equal(showServerPicker(at('http:', '192.168.1.23:3000')), true);
+    assert.equal(showServerPicker(at('http:', 'nas:3000')), true);
+    // 已经用 ?server= 连着远端：必须留着，否则「取消指定」没有出口
+    assert.equal(showServerPicker(at('http:', '127.0.0.1:3000', '?server=game.example.com')), true);
+    assert.equal(showServerPicker(at('https:', 'game.kafuno.cn', '?server=other.example.com')), true,
+      '公网页面主动指定了别的服务器时，要能取消回来');
+    // ?server= 指回自己：仍是同一台，按公网页面处理
+    assert.equal(showServerPicker(at('https:', 'game.kafuno.cn', '?server=game.kafuno.cn')), false);
+  });
 });
