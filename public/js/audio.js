@@ -31,6 +31,7 @@
 // which follows the store).
 
 import { PHASE } from '../../shared/constants.js';
+import { mediaUrl } from './media.js';
 
 const MAX_VOICES = 8;
 const UNIT_COOLDOWN_MS = 160;
@@ -383,7 +384,10 @@ export class AudioManager {
     }
     const p = (async () => {
       try {
-        const res = await fetch(url);
+        // Extension-less URL first so download managers leave the BGM alone; a host without /media/ still works.
+        const media = mediaUrl(url);
+        let res = await fetch(media);
+        if (!res.ok && media !== url) res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const ab = await res.arrayBuffer();
         return await new Promise((resolve) => {

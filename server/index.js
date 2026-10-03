@@ -311,6 +311,11 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
       res.end(req.method === 'HEAD' ? undefined : shimBody);
       return;
     }
+    // Extension-less audio (download-manager avoidance): /media/bgm/act1 → /assets/audio/bgm/act1.mp3
+    if (decoded.startsWith(MEDIA_PREFIX)) {
+      await serveMedia(req, res, decoded.slice(MEDIA_PREFIX.length), query, publicDir, gzipCache, log);
+      return;
+    }
     // Bare mount paths (e.g. "/data") → treat as the mount directory.
     const mount = mounts.find((m) => decoded.startsWith(m.prefix) || decoded === m.prefix.slice(0, -1)) || mounts[mounts.length - 1];
     const rest = decoded.length > mount.prefix.length ? decoded.slice(mount.prefix.length) : '';
@@ -370,6 +375,53 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
     }
     await serveFile(req, res, absPath, stat, mount.name, segments, query, gzipCache, log);
   };
+}
+
+/**
+ * Extension-less audio route: `/media/bgm/act1` → `public/assets/audio/bgm/act1.mp3`.
+ *
+ * Clients ask for audio through this path because download managers (IDM, 迅雷, FDM …) hijack XHR/fetch whose
+ * URL ends in a media extension and pop a "下载文件信息" dialog for every BGM track — see `public/js/media.js`.
+ * Requests for the direct `/assets/audio/…` URLs keep working (they are the fallback for plain static hosts).
+ */
+const MEDIA_PREFIX = '/media/';
+/** Extensions a `/media/…` request may resolve to, in order. */
+export const AUDIO_EXTS = Object.freeze(['.mp3', '.m4a', '.aac', '.ogg', '.oga', '.opus', '.wav']);
+
+async function serveMedia(req, res, rest, query, publicDir, gzipCache, log) {
+  const root = path.join(path.resolve(publicDir), 'assets', 'audio');
+  const segments = String(rest || '').split('/').filter((s) => s.length > 0);
+  if (!segments.length || rest.endsWith('/')) { sendError(req, res, 404, '页面不存在 · Not found'); return; }
+  if (segments.some((s) => s === '..' || s === '.')) { sendError(req, res, 403, '禁止访问 · Forbidden'); return; }
+  // A leading or trailing dot would address something else (dotfiles, "x..mp3") — and the client never asks for it.
+  if (segments.some((s) => s.startsWith('.') || s.endsWith('.'))) { sendError(req, res, 404, '页面不存在 · Not found'); return; }
+
+  const last = segments[segments.length - 1];
+  const given = path.extname(last).toLowerCase();
+  const wanted = AUDIO_EXTS.includes(given) ? given : '';
+  const stem = wanted ? last.slice(0, -wanted.length) : last;
+  if (!stem || stem.startsWith('.')) { sendError(req, res, 404, '页面不存在 · Not found'); return; }
+  const dir = path.join(root, ...segments.slice(0, -1));
+  if (dir !== root && !dir.startsWith(root + path.sep)) { sendError(req, res, 403, '禁止访问 · Forbidden'); return; }
+
+  // An explicit extension wins (`/media/bgm.ogg` → bgm.ogg), otherwise the usual order decides.
+  const order = wanted ? [wanted, ...AUDIO_EXTS.filter((e) => e !== wanted)] : AUDIO_EXTS;
+  for (const ext of order) {
+    const absPath = path.join(dir, stem + ext);
+    if (!absPath.startsWith(root + path.sep)) continue;
+    let stat;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      stat = await fsp.stat(absPath);
+    } catch { continue; }
+    if (!stat.isFile()) continue;
+    // serveFile decides Content-Type from the resolved name (`.mp3` → audio/mpeg) — Range/ETag handling is shared.
+    // Cache policy is that of the public path the client would otherwise have asked for (`/assets/audio/…`, 1 day).
+    // eslint-disable-next-line no-await-in-loop
+    await serveFile(req, res, absPath, stat, 'public', ['assets', 'audio', ...segments], query, gzipCache, log);
+    return;
+  }
+  sendError(req, res, 404, '页面不存在 · Not found');
 }
 
 async function serveFile(req, res, absPath, stat, mountName, segments, query, gzipCache, log) {
