@@ -37,3 +37,7 @@ desktop.ini
 .idea/
 .vscode/
 .claude/
+
+# --- 启动器 / Windows 便携包 (scripts/launcher.mjs) ----------------------------------------------
+# 每台机器自己的端口 / 局域网共享 / 上次连的地址，不进版本库
+scripts/launcher.config.json
