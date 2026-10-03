@@ -22,6 +22,8 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+// --zip 用自己写的 zip 写入器：系统 tar / Compress-Archive 在中文 Windows 上会按 GBK 写文件名
+import { zipDir } from './zipdir.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const IS_WIN = process.platform === 'win32';
@@ -52,7 +54,7 @@ function parseArgs(argv) {
 const HELP = `node scripts/make-windows-bundle.mjs — 生成 Windows 开箱即用便携包
 
   --out <dir>        产物目录（默认 <仓库上一级>/Stronghold-Protocol-Windows）
-  --zip              额外压成 <out>.zip（用系统 tar/bsdtar）
+  --zip              额外压成 <out>.zip（内置 zip 写入器，文件名 UTF-8，中文不乱码）
   --no-node          不下载便携版 Node（目标机器需自备 Node 22+）
   --with-tests       连 test/ 一起打包（默认不打，省体积）
   --keep-webfonts    保留 index.html 里的 Google Fonts 外链（默认去掉，见下）
@@ -271,12 +273,21 @@ async function main() {
     const zipPath = `${out}.zip`;
     await fsp.rm(zipPath, { force: true });
     console.log(`\n  · 压缩 ${zipPath}（大包，几分钟）…`);
-    let r = spawnSync('tar', ['-a', '-c', '-f', zipPath, '-C', path.dirname(out), path.basename(out)], { stdio: 'inherit' });
-    if (r.error || r.status !== 0) {
-      r = spawnSync('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path '${out}\\*' -DestinationPath '${zipPath}' -Force`], { stdio: 'inherit' });
-    }
-    if (r.error || r.status !== 0) { console.error('✖ 压缩失败'); return 1; }
-    console.log(`  ✔ ${zipPath}（${MB((await fsp.stat(zipPath)).size)}）`);
+    // 自己写 zip：系统 tar / Compress-Archive 在中文 Windows 上按 GBK 写文件名且不置 UTF-8 标志，
+    // 别人下载后（GitHub 预览、macOS、7-Zip）会看到乱码文件名。
+    let last = 0;
+    const t0 = Date.now();
+    const r = await zipDir(out, zipPath, {
+      onProgress: (done, total) => {
+        const now = Date.now();
+        if (now - last < 4000) return;
+        last = now;
+        const pct = Math.floor((done / total) * 100);
+        console.log(`    ${String(pct).padStart(3)}%  ${done}/${total} 个条目（${Math.round((now - t0) / 1000)}s）`);
+      },
+    });
+    const zb = (await fsp.stat(zipPath)).size;
+    console.log(`  ✔ ${zipPath}（${MB(zb)}，${r.files} 个文件 / ${r.dirs} 个目录，压缩率 ${(100 - (zb / r.rawBytes) * 100).toFixed(1)}%）`);
   }
   return 0;
 }

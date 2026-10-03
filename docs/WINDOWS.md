@@ -74,6 +74,10 @@ README-开箱即用.md       给玩家看的说明
 而这条外链在国内通常不可达，留着只是白等几个请求。中文/正文字体退回系统黑体（与没有代理时的效果一致）。
 需要时可以 `--keep-webfonts` 保留。
 
+`--zip` 用内置的 zip 写入器（`scripts/zipdir.mjs`）而不是系统 `tar` / `Compress-Archive`：
+后两者在中文 Windows 上会按 GBK 写文件名且不置 UTF-8 标志位，别人下载后用 GitHub 预览、macOS 或 7-Zip 打开
+会看到「启动游戏.bat」变成乱码。内置写入器一律 UTF-8 + bit 11，各平台解压都正常。
+
 ## 3. 启动器命令行（可跳过菜单）
 
 ```bash
