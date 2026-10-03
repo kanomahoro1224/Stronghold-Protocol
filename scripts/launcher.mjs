@@ -27,6 +27,8 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 // 地址与安全判断只有一套：和开始界面（页面里）共用同一个模块，避免两边规则漂移。
 import { parseServer } from '../public/js/gameserver.js';
+// 打开浏览器的实现也只有一份（scripts/open-browser.mjs）
+import { openBrowser as openInBrowser } from './open-browser.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CONFIG_PATH = path.join(ROOT, 'scripts', 'launcher.config.json');
@@ -120,22 +122,12 @@ async function serverInfo(base) {
   return null;
 }
 
+/** 用玩家自己的默认浏览器打开（scripts/open-browser.mjs：走 shell 关联，从提权终端启动也不会把浏览器拉成提权）。 */
 function openBrowser(url) {
-  try {
-    let cmd; let args;
-    if (IS_WIN) { cmd = 'rundll32'; args = ['url.dll,FileProtocolHandler', url]; }
-    else if (process.platform === 'darwin') { cmd = 'open'; args = [url]; }
-    else {
-      if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
-      cmd = 'xdg-open'; args = [url];
-    }
-    const child = spawn(cmd, args, { stdio: 'ignore', detached: true, windowsHide: true });
-    child.on('error', () => {});
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
+  const used = openInBrowser(url);
+  if (used) return true;
+  // 连启动器都没法启动（无桌面 / 缺系统文件）：交给调用方打印地址
+  return false;
 }
 
 /** 便携版自带的 node（<bundle>\node\node.exe），没有就用当前进程的 node。 */

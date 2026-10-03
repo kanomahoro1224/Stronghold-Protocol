@@ -20,6 +20,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import fs from 'node:fs';
+// 打开浏览器只有一份实现（走 shell 关联 = 默认浏览器，且不会把浏览器拉成提权）
+import { openBrowser as openInBrowser } from './open-browser.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const IS_WIN = process.platform === 'win32';
@@ -69,21 +71,7 @@ export function browserUrl(origin, o = {}) {
 export const localPageUrl = (port) => `http://localhost:${port}`;
 
 function openBrowser(url) {
-  try {
-    let cmd; let args;
-    if (IS_WIN) { cmd = 'rundll32'; args = ['url.dll,FileProtocolHandler', url]; }
-    else if (process.platform === 'darwin') { cmd = 'open'; args = [url]; }
-    else {
-      if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
-      cmd = 'xdg-open'; args = [url];
-    }
-    const child = spawn(cmd, args, { stdio: 'ignore', detached: true, windowsHide: true });
-    child.on('error', () => {});
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
+  return openInBrowser(url) !== null;
 }
 
 function printShare(port, o = {}) {

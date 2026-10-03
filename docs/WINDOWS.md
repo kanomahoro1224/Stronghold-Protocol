@@ -141,7 +141,8 @@ SP_PUSH_ONLY=1 npm start          # Windows 便携包：启动器 [3] 里切换�
 | 双击 `.bat` 一闪而过 | 在里面手动运行 `node app\scripts\launcher.mjs`，或在命令行里跑 `启动游戏.bat` 看报错（`.bat` 会在非 0 退出时暂停） |
 | 提示找不到 node | 便携包应含 `node\node.exe`；没有就用 `--no-node` 的包，并自行安装 Node 22/24 LTS |
 | 端口被占用 | 启动器 [3] 换端口，或关掉占用 3000 的程序（`node tools/doctor.mjs` 会指出是谁） |
-| 浏览器没自动打开 | 手动访问 `http://127.0.0.1:<端口>`；`--no-open` / `SP_NO_BROWSER=1` 会禁用自动打开 |
+| 浏览器没自动打开 | 手动访问 `http://127.0.0.1:<端口>`；`--no-open` / `SP_NO_BROWSER=1` 会禁用自动打开；想指定浏览器就设 `SP_BROWSER`（如 `SP_BROWSER="C:\Program Files\Mozilla Firefox\firefox.exe"`） |
+| 打开时弹出 Edge「现有实例正在以提升的权限运行」 | 启动器把地址交给 shell（`explorer.exe <url>`）转发给**默认浏览器**，不会再把浏览器拉成提权；但如果你之前已经用管理员身份开过 Edge，它自己还会拦一次 —— 在任务管理器里彻底结束 `msedge` 再打开，或答「是」让它以普通权限重启即可 |
 | 连接服务器时地址栏是 `127.0.0.1` | 正常：本机只发页面与素材，对局数据发到 `?server=` 那台服务器 |
 | 朋友连不上 | 防火墙专用网络未放行、或不在同一网段；用 `node tools/doctor.mjs` 诊断 |
 | 局域网 http 打不开游戏（弹警告） | 服务器开了省流量模式 —— 启动器 [3] 关掉，或让每个人用 https 访问 |
