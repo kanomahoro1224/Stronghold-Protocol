@@ -35,7 +35,7 @@ import { promisify } from 'node:util';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { Network, SessionRegistry, NET_DEFAULTS } from './net.js';
+import { Network, SessionRegistry, NET_DEFAULTS, requestSecure } from './net.js';
 import { Lobby } from './lobby.js';
 import { getData, loadData } from './data.js';
 import { PROTOCOL_VERSION, APP_VERSION } from '../shared/constants.js';
@@ -255,11 +255,27 @@ function sendError(req, res, status, title, detail) {
   res.end(req.method === 'HEAD' ? undefined : body);
 }
 
-function sendJson(req, res, status, obj) {
+/**
+ * @param {import('node:http').IncomingMessage} req
+ * @param {import('node:http').ServerResponse} res
+ * @param {number} status
+ * @param {object} obj
+ * @param {Record<string, string>} [headers] extra response headers
+ */
+function sendJson(req, res, status, obj, headers) {
   const body = Buffer.from(JSON.stringify(obj));
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': 'no-store' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': 'no-store', ...headers,
+  });
   res.end(req.method === 'HEAD' ? undefined : body);
 }
+
+/**
+ * The status endpoints (`/healthz`, `/api/client-config`) are public, read-only and carry no per-user data, so they
+ * are readable from any page: the Windows launcher serves the game from the local bundle (`127.0.0.1`) while the match
+ * runs on a remote server, and that page has to ask *that* server whether 省流量模式 is on (docs/WINDOWS.md).
+ */
+const CORS_ANY = Object.freeze({ 'Access-Control-Allow-Origin': '*' });
 
 /** Split an absolute request URL into raw path + query (also accepts absolute-form URLs). */
 function splitUrl(url) {
@@ -468,6 +484,15 @@ export function parseTrustProxy(v) {
   return 'auto';
 }
 
+/**
+ * SP_PUSH_ONLY env → 省流量模式 (server-push-only): the server simulates every battle and streams `b.snap` down, so a
+ * client only sends intents. Unset or 0/false/no/off → off. See server/net.js (a secure context is required).
+ * @param {string | undefined} v
+ */
+export function parsePushOnly(v) {
+  return ['1', 'true', 'yes', 'on', 'always'].includes(String(v ?? '').trim().toLowerCase());
+}
+
 function makeLogger(quiet) {
   if (quiet) return noopLog;
   return {
@@ -503,14 +528,16 @@ export async function startServer(opts = {}) {
 
   // The process-wide singleton serves the default data dir; a custom dir (tests) gets its own copy.
   const data = opts.dataDir ? loadData(dataDir, { log }) : getData({ dir: dataDir, log });
-  const netOptions = {};
+  // 省流量模式 (SP_PUSH_ONLY): the server runs every battle and streams it down (net.js requires a secure context).
+  const pushOnly = opts.pushOnly != null ? !!opts.pushOnly : parsePushOnly(process.env.SP_PUSH_ONLY);
+  const netOptions = { pushOnly };
   for (const k of ['reconnectWindowMs', 'heartbeatMs', 'helloTimeoutMs', 'ratePerSec', 'rateBurst', 'maxConnections', 'abuseDropsPerSec',
     'maxConnectionsPerAddr', 'heavyPerSec', 'heavyBurst', 'trustProxy']) {
     if (opts[k] != null) netOptions[k] = opts[k];
   }
   if (netOptions.trustProxy == null) netOptions.trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
   const registry = new SessionRegistry({ reconnectWindowMs: netOptions.reconnectWindowMs ?? NET_DEFAULTS.reconnectWindowMs });
-  const lobbyOptions = {};
+  const lobbyOptions = { pushOnly };
   for (const k of ['lobbyGraceMs', 'maxRooms', 'maxRoomsPerAddr', 'maxMatchesPerAddr', 'resyncMinGapMs', 'soloReconnectWindowMs']) {
     if (opts[k] != null) lobbyOptions[k] = opts[k];
   }
@@ -542,7 +569,18 @@ export async function startServer(opts = {}) {
       sendJson(req, res, 200, {
         ok: true, version: PROTOCOL_VERSION, app: APP_VERSION, uptimeSec: Math.round((Date.now() - startedAt) / 1000),
         sockets: network.connectionCount, sessions: registry.size, ...lobby.stats(),
-      });
+        // 省流量模式 + whether this very request reached us in a secure context (see public/js/screens/title.js)
+        pushOnly, secure: requestSecure(req, netOptions.trustProxy),
+      }, CORS_ANY);
+      return;
+    }
+    // What the browser needs before it says `hello`: the 省流量模式 flag and the combat mode it implies. The title
+    // screen warns and refuses to start the game when pushOnly is on and the connection to this server is not secure.
+    if (parts.rawPath === '/api/client-config') {
+      sendJson(req, res, 200, {
+        ok: true, version: PROTOCOL_VERSION, app: APP_VERSION,
+        pushOnly, combatMode: pushOnly ? 'server' : 'client', secure: requestSecure(req, netOptions.trustProxy),
+      }, CORS_ANY);
       return;
     }
     await serveStatic(req, res, parts.rawPath, parts.query);
@@ -569,6 +607,8 @@ export async function startServer(opts = {}) {
     if (!parts || parts.rawPath !== '/ws') { reject(404, 'Not Found'); return; }
     const refused = network.admission(req);
     if (refused === 'per-address') { reject(429, 'Too Many Requests'); return; }
+    // 省流量模式 outside a secure context: the browser gets 403 and the title screen explains why (see net.js).
+    if (refused === 'insecure') { reject(403, 'Forbidden'); return; }
     if (refused) { reject(503, 'Service Unavailable'); return; }
     try {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
@@ -612,7 +652,7 @@ export async function startServer(opts = {}) {
     return closing;
   }
 
-  return { port: actualPort, host, url, server, wss, lobby, network, registry, close };
+  return { port: actualPort, host, url, server, wss, lobby, network, registry, pushOnly, close };
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -645,6 +685,10 @@ async function main() {
     for (const u of lanUrls(srv.port)) console.log(`  LAN:     ${u}`);
   }
   console.log('  Internet: cloudflared tunnel --url ' + `http://localhost:${srv.port}` + '\n');
+  if (srv.pushOnly) {
+    console.log('  省流量模式 / push-only: 已开启 — 战斗由服务器模拟并推流（客户端只发操作）。');
+    console.log('  仅接受 https 或本机 (127.0.0.1) 访问；普通 http 的局域网/公网访问会被拒绝（403）。\n');
+  }
 
   let stopping = false;
   const stop = (signal) => {

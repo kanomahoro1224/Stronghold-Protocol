@@ -8,7 +8,7 @@
 // entry/loading illustration names) it is layered under the CSS art; otherwise the screen is
 // pure CSS/SVG (radar, ridgelines, glow), so it never issues a request that can 404.
 
-import { useMemo, useState } from '../../vendor/hooks.module.js';
+import { useMemo, useState, useEffect } from '../../vendor/hooks.module.js';
 import { NAME_MAX_LEN, APP_VERSION } from '../../../shared/constants.js';
 import { html, Button, Icon, MicroLabel, TextField, PingPill } from '../ui/components.js';
 import { GuideButton } from '../ui/guide.js';
@@ -17,6 +17,7 @@ import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual } from '../store.js';
 import { data, useData } from '../data.js';
 import { FullscreenButton, detectFeatures } from '../ui/device.js';
+import { gameServer, parseServer, switchServerUrl, clearServerUrl, clientConfigUrl, paramOf, PUSH_ONLY_PARAM } from '../gameserver.js';
 
 // Same character classes as server/net.js sanitizeName (control, zero-width, bidi, BOM), so a name
 // the client accepts is never rejected by the server's hello validation.
@@ -60,6 +61,64 @@ export function sanitizeName(raw) {
 
 /** @param {any} raw @returns {boolean} */
 export const isValidName = (raw) => sanitizeName(raw).length > 0;
+
+// ---- 开始界面的服务器选择（docs/WINDOWS.md） ------------------------------------------------------------------
+// 「本机当服务器」：这台电脑既发页面又跑对局（页面自己的源，`http://127.0.0.1:3000`）。
+// 「连接服务器」：在**本机页面**上填远端地址，页面与素材仍从本机读，只有游戏数据连远端
+//   （`?server=<host>`，见 public/js/gameserver.js）。这样不必为了连别人的服务器再下载几十 MB 素材，
+//   也正好配合服务器的省流量模式（战斗由服务器模拟并推流，客户端只发操作）。
+// 省流量模式（`SP_PUSH_ONLY`，见 server/net.js）只接受安全连接：https，或浏览器所在的本机。不满足时开始
+// 界面弹黄条警告并禁止开始（服务器侧同时以 403 拒绝 WebSocket 升级）。
+
+/** 上次手填的服务器地址（只用于输入框预填，不影响连哪台服务器）。 */
+export const SERVER_ADDR_KEY = 'sp.serverAddr';
+/** 本机服务器的端口——server/index.js 的 `PORT`，默认 3000。 */
+const LOCAL_PORT = '3000';
+
+/** 本机（页面所在机器）的游戏服务器地址。 */
+export function localServerUrl() {
+  try { return `http://127.0.0.1:${location.port || LOCAL_PORT}/`; } catch { return `http://127.0.0.1:${LOCAL_PORT}/`; }
+}
+
+/** @returns {string} */
+export function loadServerAddr() {
+  try { return localStorage.getItem(SERVER_ADDR_KEY) || ''; } catch { return ''; }
+}
+
+/** @param {string} value */
+export function saveServerAddr(value) {
+  try { localStorage.setItem(SERVER_ADDR_KEY, String(value ?? '')); } catch { /* private mode: ignore */ }
+}
+
+/**
+ * 开始按钮该不该拦下来：开了省流量模式、而这条到游戏服务器的连接又不是安全连接（https，或本机）。
+ * 与 server/net.js 的 requestSecure 同一套判断。
+ * @param {{ pushOnly?: boolean } | null} cfg
+ * @param {ReturnType<typeof gameServer>} srv
+ * @returns {boolean}
+ */
+export const isStartBlocked = (cfg, srv) => !!cfg?.pushOnly && !srv.secure;
+
+/**
+ * `GET <游戏服务器>/api/client-config`：省流量模式与它决定的战斗模式。
+ * 远端服务器未开放跨域时读不到，此时退回启动器预读的 `?pushOnly=` 参数。
+ * 加载中与读不到都返回 null。
+ * @returns {null | { ok: boolean, pushOnly: boolean, combatMode: 'client' | 'server', secure: boolean }}
+ */
+export function useClientConfig() {
+  const [cfg, setCfg] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const srv = gameServer();
+    const asked = paramOf(location.search, PUSH_ONLY_PARAM);
+    if (asked !== '') setCfg({ ok: true, pushOnly: /^(1|true|yes|on)$/i.test(asked), secure: srv.secure, endpoint: 'url' });
+    let req;
+    try { req = fetch(clientConfigUrl(srv), { headers: { accept: 'application/json' }, cache: 'no-store' }); } catch { return undefined; }
+    req.then((r) => (r.ok ? r.json() : null)).then((j) => { if (alive && j && j.ok) setCfg(j); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return cfg;
+}
 
 /**
  * Enter the game shell with a nickname (title → lobby).
@@ -197,10 +256,31 @@ export function TitleScreen() {
   // CSS ridgelines only when there is no ridge art (avoids a swap flash when the art arrives).
   const cssRidges = assetsSettled && (!ridges || ridgesFailed);
 
+  const cfg = useClientConfig();
+  const srv = gameServer();
+  // 省流量模式：服务器模拟战斗并推流，只接受安全连接（https 或本机）——不满足就禁用「开始」。
+  const pushOnly = !!cfg?.pushOnly;
+  const blocked = isStartBlocked(cfg, srv);
+  const [addr, setAddr] = useState(() => loadServerAddr());
+  const typed = parseServer(addr);
+  // 页面与游戏服务器不是同一台：提示一下素材来自哪里、对局在哪里跑。
+  const remote = !srv.sameOrigin;
+  const pageIsLocal = parseServer(srv.pageOrigin)?.local ?? false;
+
   const valid = isValidName(name);
   const start = () => {
+    if (blocked) { toast('游戏服务器已开启省流量模式，请通过 https（或本机）访问后再开始游戏', 'warn'); return; }
     if (!valid) { toast('请输入博士代号', 'warn'); return; }
     enterSession(name);
+  };
+  const goTo = (url) => { if (url) { try { location.href = url; } catch { /* ignore */ } } };
+  // 「连接」：不跳转到对方网页，而是让**当前这个页面**去连它（素材仍从本机读）。
+  const connectRemote = () => {
+    if (!typed) { toast('请输入有效的服务器地址，例如 game.example.com', 'warn'); return; }
+    saveServerAddr(addr);
+    const url = switchServerUrl(addr);
+    if (!url) { toast('服务器地址无法识别', 'warn'); return; }
+    goTo(url);
   };
 
   const online = conn.status === 'online' || conn.status === 'connected';
@@ -244,6 +324,36 @@ export function TitleScreen() {
       <h1 class="title-cn">卫戍协议<span class="title-cn__colon">：</span><em>盟约</em></h1>
       <p class="title-tag">调配资金与干员，与同伴协同布防，抵御多波次进攻，直至击败敌方领袖。</p>
 
+      <div class="title-net">
+        <div class="title-net__row">
+          <span class="title-net__label">游戏服务器</span>
+          <span class="title-net__host">${srv.sameOrigin ? `${srv.local ? '本机 ' : ''}${srv.host}` : `${srv.origin}`}</span>
+          ${pushOnly ? html`<span class="title-net__badge" title="省流量模式：战斗由服务器模拟并推流，本机只发送操作"><${Icon} name="signal" class="title-net__badge-icon" />省流量模式<//>` : null}
+        </div>
+        ${remote ? html`<div class="title-net__row title-net__note">
+          <span>${pageIsLocal ? '页面与素材来自本机' : `页面来自 ${srv.pageOrigin}`} · 对局数据走上面的服务器（最省带宽）</span>
+        </div>` : null}
+        <div class="title-net__row title-net__row--pick">
+          <${Button} size="sm" icon="signal" active=${srv.sameOrigin} disabled=${srv.sameOrigin} title="在这台电脑上开一个服务器（Windows 便携版启动器里选「本机当服务器」）"
+            onClick=${() => goTo(localServerUrl())}>本机当服务器<//>
+          <${TextField} size="sm" value=${addr} onInput=${setAddr} onEnter=${connectRemote} class="title-net__addr"
+            placeholder="连接服务器：game.example.com" />
+          <${Button} size="sm" variant="primary" icon="link" disabled=${!typed} onClick=${connectRemote}>连接<//>
+          ${remote ? html`<${Button} size="sm" variant="ghost" square=${true} icon="close" aria-label="不再指定服务器，回到本页面自己的服务器"
+            title="取消指定，回到本页面自己的服务器" onClick=${() => goTo(clearServerUrl())} />` : null}
+        </div>
+      </div>
+
+      ${blocked ? html`<div class="title-warn" role="alert">
+        <${Icon} name="warn" class="title-warn__icon" />
+        <div class="title-warn__body">
+          <b>游戏服务器已开启省流量模式</b>
+          <span>该模式由服务器模拟战斗并推流，要求加密连接，当前到 <b>${srv.host}</b> 的连接不安全，无法开始游戏。${srv.encrypted
+            ? ''
+            : html`请改用 <a href=${`https://${srv.host}/`}>https://${srv.host}/</a>（本机 127.0.0.1 不受影响）。`}</span>
+        </div>
+      </div>` : null}
+
       <div class="title-login">
         ${pendingJoin ? html`<div class="title-invite">
           <${Icon} name="key" />
@@ -252,7 +362,7 @@ export function TitleScreen() {
         <${TextField} label="博士代号" micro="CALLSIGN" size="lg" icon="user" value=${name} maxLength=${NAME_MAX_LEN}
           placeholder="输入你的代号（最多 ${NAME_MAX_LEN} 字）" autoFocus=${!touchUi}
           onInput=${setName} onEnter=${start} />
-        <${Button} variant="primary" size="xl" block=${true} iconRight="chevrons" disabled=${!valid} onClick=${start}>开始<//>
+        <${Button} variant="primary" size="xl" block=${true} iconRight="chevrons" disabled=${!valid || blocked} onClick=${start}>开始<//>
         <div class="title-conn">
           <span class=${`status-dot ${dotClass}`}></span>
           <span>${STATUS_TEXT[conn.status] || conn.status}</span>

@@ -16,6 +16,7 @@ import { toast, toastError } from '../ui/toasts.js';
 import { GuideButton } from '../ui/guide.js';
 import { LoadoutButton } from './loadout.js';
 import { net } from '../net.js';
+import { gameServer } from '../gameserver.js';
 import { store, useStore, shallowEqual, emptyMatch } from '../store.js';
 import { difficultyInfo } from './lobby.js';
 
@@ -60,10 +61,17 @@ export function roomFacts(room, myId) {
   };
 }
 
-/** Invite link for a room code (current page URL with ?room=CODE). */
+/**
+ * Invite link for a room code (`?room=CODE` on the page of the server being played on).
+ *
+ * With `?server=` the page itself is not where the match runs (the local bundle serves the page while the match runs
+ * on a remote server), so the link points at that server instead — otherwise a friend would be invited to 127.0.0.1.
+ * @param {string} code
+ */
 export function inviteLink(code) {
   const loc = globalThis.location;
-  const base = loc ? `${loc.origin}${loc.pathname}` : '';
+  const srv = gameServer(loc);
+  const base = loc ? `${srv.sameOrigin ? loc.origin : srv.origin}${loc.pathname}` : '';
   return `${base}?room=${encodeURIComponent(code)}`;
 }
 

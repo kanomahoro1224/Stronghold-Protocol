@@ -15,6 +15,18 @@
 
 服务器**无状态**：房间和对局只存在内存里，没有数据库和存档，**不需要备份**。重启服务器会结束正在进行的对局（包括断线后本可在 24 小时内回来继续的独立模拟）。
 
+### 省流量模式（`SP_PUSH_ONLY=1`）
+
+默认每位玩家的浏览器自己模拟战斗，服务器每回合只转发很小的结果。把 `SP_PUSH_ONLY=1` 打开后**战斗全部由服务器模拟并推流**（`b.snap`），客户端只发送操作意图，玩家侧上行几乎为零；代价是服务器 CPU 与下行带宽上升，小主机建议先自己试一局。它把 `m.public.combatMode` 置为 `server`（网页标题界面会显示「省流量模式」徽标），省流量模式下的每一局都走服务器推流。
+
+因为流量集中在服务器上，该模式**只接受安全上下文**（`server/net.js` 的 `requestSecure`）：
+
+* https（反向代理要带 `X-Forwarded-Proto: https`，第 4 节的 nginx 示例已包含）→ 允许；
+* 浏览器所在的本机 `http://127.0.0.1:3000` / `http://localhost:3000` → 允许（浏览器视为安全上下文）；
+* 其他 http（局域网 `http://192.168.x.x:3000`、裸域名）→ 拒绝：网页开始界面弹警告并禁用「开始」，WebSocket 升级返回 `403`，绕过网页的 `hello` 也会收到 `INSECURE` 并被断开（close 4003）。
+
+排查：`curl -s https://<域名>/api/client-config` 应返回 `{"ok":true,"pushOnly":true,"combatMode":"server","secure":true}`；`/healthz` 同样带 `pushOnly` / `secure` 两个字段。Docker / systemd 部署把 `SP_PUSH_ONLY=1` 加进环境变量；Windows 便携包在启动器 [3] 里切换（见 [WINDOWS.md](WINDOWS.md)）。
+
 ## 1. Windows 小主机：一步步
 
 ### 1.1 安装与首次启动

@@ -86,6 +86,9 @@
 // published as m.public.deadline — AI seats pick at once and a turn that runs out takes the highlighted strategy
 // (g.bandFocus → timeoutBand); g.unitStats answers m.unitStats: the stats the board's units start their next battle with.
 //   opts.clientCombat  default true (env SP_COMBAT=server → false: the legacy server-run + snapshot streaming mode)
+//   opts.pushOnly      default false (env SP_PUSH_ONLY → true): 省流量模式 — the same server-run + streaming mode, offered
+//                      as a server setting (see server/net.js: https / localhost only). Forces clientCombat off unless it
+//                      is passed explicitly; published as m.public.pushOnly / combatMode 'server'
 //   opts.verify        'off' | 'sample' | 'all' (env SP_VERIFY, default 'off'): re-simulate accepted client results
 //                      ('sample': ~1 in 8, in a later callback, mismatches logged; 'all': before accepting — the
 //                      server's result wins on a mismatch)
@@ -151,6 +154,8 @@ const GAME_TYPES = new Set(Object.keys(C2S).filter((t) => Object.hasOwn(C2S, t) 
 const env = (k) => (typeof process !== 'undefined' && process.env ? process.env[k] : undefined);
 /** Default combat mode: client-side unless SP_COMBAT=server. */
 const envClientCombat = () => String(env('SP_COMBAT') || '').toLowerCase() !== 'server';
+/** 省流量模式 (SP_PUSH_ONLY): the server runs every battle and streams it down; clients only send intents. */
+const envPushOnly = () => ['1', 'true', 'yes', 'on', 'always'].includes(String(env('SP_PUSH_ONLY') ?? '').trim().toLowerCase());
 /** SP_VERIFY → 'off' | 'sample' | 'all'. */
 export function parseVerify(v) {
   const s = String(v ?? '').trim().toLowerCase();
@@ -245,7 +250,9 @@ export class Match {
     this.botSliceMs = Number.isFinite(opts.botSliceMs) && opts.botSliceMs > 0 ? opts.botSliceMs : this.sched.virtual ? Infinity : BOT_SLICE_MS;
     this.ds = dataSourceFor(this.data);
     /** client-side combat (DESIGN §14) — see the header */
-    this.clientCombat = opts.clientCombat != null ? !!opts.clientCombat : envClientCombat();
+    /** 省流量模式 (SP_PUSH_ONLY / opts.pushOnly): server-run simulation streamed to the clients (published in m.public) */
+    this.pushOnly = opts.pushOnly != null ? !!opts.pushOnly : envPushOnly();
+    this.clientCombat = opts.clientCombat != null ? !!opts.clientCombat : (this.pushOnly ? false : envClientCombat());
     this.verifyMode = parseVerify(opts.verify ?? env('SP_VERIFY'));
     /** wall-clock ms per slice of a server-run normal / 联防 field (virtual time: at once) */
     this.headlessSliceMs = Number.isFinite(opts.headlessSliceMs) && opts.headlessSliceMs > 0 ? opts.headlessSliceMs : this.sched.virtual ? Infinity : HEADLESS_SLICE_MS;
@@ -798,6 +805,8 @@ export class Match {
       spRound: this.gd.spRounds().includes(this.round),
       // DESIGN §14: 'client' = battles are simulated by the browsers (b.start specs), 'server' = legacy streaming
       combatMode: this.clientCombat ? 'client' : 'server',
+      // 省流量模式: the server streams every field and the client only sends intents (see the constructor)
+      pushOnly: this.pushOnly,
       // solo pause (g.pause, DESIGN §14): the battle, its field clock and every deadline are frozen while true
       paused: !!this.paused,
       players: this.order.map((ps) => ({

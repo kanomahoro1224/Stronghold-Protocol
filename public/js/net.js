@@ -1,6 +1,7 @@
 // WebSocket client for the game server (DESIGN §8).
 //
-// - One socket at ws(s)://<host>/ws, JSON text frames `{ t, ...payload }`.
+// - One socket at ws(s)://<host>/ws, JSON text frames `{ t, ...payload }`. <host> is this page's origin, or the
+//   server named by `?server=` (a local page playing on a remote server: public/js/gameserver.js, docs/WINDOWS.md).
 // - Auto-reconnect with exponential backoff + jitter; a heartbeat (`ping`) measures latency and
 //   detects dead sockets (a ping left unanswered — no inbound frame at all — for DEAD_AFTER_MS ⇒
 //   close ⇒ reconnect). Measured from the oldest unanswered ping, not from the last inbound frame,
@@ -31,6 +32,7 @@
 
 import { PROTOCOL_VERSION, ERR_TEXT } from '../../shared/constants.js';
 import { validateC2S } from '../../shared/protocol.js';
+import { gameServer } from './gameserver.js';
 
 export const REQUEST_TIMEOUT_MS = 8000;
 export const HELLO_TIMEOUT_MS = 8000;
@@ -93,12 +95,16 @@ export function backoffDelay(attempt, rand = Math.random) {
 
 /**
  * WebSocket URL for the current page (`ws(s)://host/ws`).
- * @param {{protocol: string, host: string}} [loc]
+ *
+ * The host is the page's own origin, unless the page was told to play on another server (`?server=`, see
+ * public/js/gameserver.js and docs/WINDOWS.md: the local bundle serves the page and the assets while the match runs
+ * on a remote server). Then it is `wss://` for anything but the local machine.
+ * @param {{protocol?: string, host?: string, search?: string}} [loc]
  * @returns {string}
  */
 export function defaultWsUrl(loc = globalThis.location) {
   if (!loc || !loc.host) return 'ws://localhost:3000/ws';
-  return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/ws`;
+  return `${gameServer(loc).ws}/ws`;
 }
 
 const WS_OPEN = 1;

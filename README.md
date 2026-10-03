@@ -64,6 +64,13 @@ English summary: [below](#english).
 
 整合包里已经包含代码、运行依赖和全部美术 / 音频（含官方 3D 棋盘贴图），解压就能玩，不需要再下载任何东西。
 
+Windows 上还可以用 `node scripts/make-windows-bundle.mjs --zip` 打一份**零安装便携包**：内置官方 Windows x64 便携版 Node、依赖与全部素材，目标机器什么都不用装，解压双击 `启动游戏.bat` 就是一个**开始界面**：
+
+* **本机当服务器**：在这台电脑开服，浏览器自动打开，局域网地址可以直接发给朋友；
+* **连接服务器**：输入别人的服务器地址后，**页面与素材仍从本机读**（`http://127.0.0.1:3000/?server=对方地址`），只有游戏数据连对方服务器 —— 不用再下载几十 MB 素材，也正好配合服务器的**省流量模式**。
+
+两种模式的差别、命令行参数、常见问题见 **[docs/WINDOWS.md](docs/WINDOWS.md)**。
+
 1. **安装 Node.js 22 或 24（LTS）**
    - Windows：在 PowerShell 里运行 `winget install OpenJS.NodeJS.LTS`，或到 <https://nodejs.org/zh-cn/download> 下载安装包。
    - macOS：`brew install node@22`，或到官网下载安装包。
@@ -109,6 +116,7 @@ npm start          # 启动服务器：http://localhost:3000
 | `PORT` | `3000` | 监听端口 |
 | `HOST` | `0.0.0.0` | 监听地址（`127.0.0.1` = 只允许本机，放在反向代理后面时使用） |
 | `SP_COMBAT` | `client` | `client`：各玩家浏览器模拟自己的战斗（服务器负载极低）；`server`：由服务器模拟并推流 |
+| `SP_PUSH_ONLY` | `off` | **省流量模式**：`1` 时服务器模拟全部战斗并推流，客户端只发操作（上行≈0，服务器 CPU / 带宽上升）。只接受安全上下文——https 或浏览器本机 `http://127.0.0.1`；局域网/公网的普通 http 打开会弹警告且无法开始（服务器同时返回 403）。见 [docs/WINDOWS.md](docs/WINDOWS.md) |
 | `SP_VERIFY` | `off` | 服务器复算客户端上报的战斗结果：`off` / `sample`（约 1/8 抽查）/ `all`（全部复算，更耗 CPU） |
 | `TRUST_PROXY` | `auto` | 是否信任 `X-Forwarded-For` 等转发头：`auto` 只信任来自本机 / 内网的代理；`1` 总是；`0` 从不 |
 | `DEBUG` | 空 | 设为任意值输出详细日志 |

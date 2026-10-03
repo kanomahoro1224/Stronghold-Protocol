@@ -9,6 +9,11 @@
 //     reply echoing the request id (`rid`). Intents whose answer is a large state resend (`g.watch` →
 //     m.field) also draw from a second, much smaller bucket (2/s, burst 6), so one socket cannot turn
 //     40 tiny requests per second into hundreds of KB/s of downstream traffic.
+//   * 省流量模式 / server-push-only (env `SP_PUSH_ONLY`, option `pushOnly`): the server simulates every battle and
+//     streams `b.snap` down, so a client only ever sends intents (no battle traffic upstream). It spends the host's
+//     uplink, so it is refused outside a secure context (`requestSecure`: https seen through a trusted proxy, or a
+//     browser-local address such as 127.0.0.1 — a browser treats those as secure). At upgrade the socket is rejected
+//     with 403, and a `hello` on any socket that got through is answered with the INSECURE error.
 //   * Client address per connection (`clientAddress`): the socket peer, or — when the peer is a local
 //     reverse proxy (loopback / private address, e.g. `cloudflared tunnel --url http://localhost:3000`) —
 //     the address it forwards (CF-Connecting-IP, X-Real-IP, rightmost X-Forwarded-For). Its `key` (IPv4
@@ -56,6 +61,7 @@ export const NET_DEFAULTS = Object.freeze({
   heavyPerSec: 2,               // refill of the bucket for resend-heavy intents (HEAVY_TYPES)
   heavyBurst: 6,
   trustProxy: 'auto',           // forwarding headers: 'auto' = from loopback/private peers only, true = always, false = never
+  pushOnly: false,              // 省流量模式 (SP_PUSH_ONLY): server-run combat streamed to clients; https only (see requestSecure)
 });
 
 /**
@@ -65,7 +71,7 @@ export const NET_DEFAULTS = Object.freeze({
 export const HEAVY_TYPES = new Set(['g.watch', 'room.loadout']);
 
 /** Close codes (see header). */
-export const CLOSE = Object.freeze({ REPLACED: 4001, HELLO_TIMEOUT: 4002, POLICY: 1008, SHUTDOWN: 1001 });
+export const CLOSE = Object.freeze({ REPLACED: 4001, HELLO_TIMEOUT: 4002, INSECURE: 4003, POLICY: 1008, SHUTDOWN: 1001 });
 
 const WS_OPEN = 1;
 const MAX_RID = 2 ** 31;
@@ -410,6 +416,23 @@ export function isLocalIp(ip) {
 }
 
 /**
+ * The browser's own machine (loopback only). Browsers treat `http://127.0.0.1:3000` as a *secure context* but
+ * `http://192.168.1.23:3000` as insecure, so 省流量模式 allows exactly these addresses over plain http.
+ * @param {string} ip normalized
+ */
+export function isLoopbackIp(ip) {
+  if (isIP(ip) === 4) {
+    const a = Number(ip.split('.')[0]);
+    return a === 127 || a === 0;
+  }
+  if (isIP(ip) === 6) {
+    const g = ipv6Groups(ip);
+    return !!g && g.slice(0, 7).every((x) => x === 0) && g[7] <= 1; // ::1 and ::
+  }
+  return false;
+}
+
+/**
  * The key per-network limits count against: the IPv4 address, or the /64 prefix of an IPv6 address
  * (one subscriber typically owns a whole /64).
  * @param {string} ip normalized
@@ -457,18 +480,40 @@ export function clientAddress(req, trustProxy = NET_DEFAULTS.trustProxy) {
   return { ip: peer, key: limitKeyOf(peer) };
 }
 
+/**
+ * Is this request reaching the player through a secure context? True when a trusted proxy says the browser used
+ * https (`X-Forwarded-Proto`, e.g. the nginx in front of the game), or when the peer is the browser's own machine
+ * (loopback: `http://127.0.0.1:3000` is a secure context in every modern browser). A LAN or internet peer over
+ * plain http is *not* secure. 省流量模式 only accepts secure contexts — see the header.
+ * @param {import('node:http').IncomingMessage | undefined} req
+ * @param {'auto' | boolean} [trustProxy]
+ * @returns {boolean}
+ */
+export function requestSecure(req, trustProxy = NET_DEFAULTS.trustProxy) {
+  const peer = normalizeIp(req?.socket?.remoteAddress);
+  const local = !peer || isLocalIp(peer);
+  if (trustProxy === true || (trustProxy !== false && local)) {
+    const raw = req?.headers?.['x-forwarded-proto'];
+    const xfp = Array.isArray(raw) ? raw[raw.length - 1] : raw;
+    if (typeof xfp === 'string' && xfp.trim()) return xfp.split(',')[0].trim().toLowerCase() === 'https';
+  }
+  return isLoopbackIp(peer);
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Network: per-socket pipeline
 // ---------------------------------------------------------------------------------------------------
 
 /** Per-socket state. */
 class Connection {
-  /** @param {import('ws').WebSocket} ws @param {{ ip: string, key: string | null }} addr @param {number} now @param {typeof NET_DEFAULTS} opts */
+  /** @param {import('ws').WebSocket} ws @param {{ ip: string, key: string | null, secure?: boolean }} addr @param {number} now @param {typeof NET_DEFAULTS} opts */
   constructor(ws, addr, now, opts) {
     this.ws = ws;
     this.ip = addr.ip;
     /** @type {string | null} per-network limit key (see clientAddress) */
     this.key = addr.key;
+    /** secure context (https, or the browser's own machine): required by 省流量模式 (see requestSecure) */
+    this.secure = addr.secure !== false;
     this.openedAt = now;
     this.alive = true;
     /** @type {Session | null} */
@@ -526,10 +571,12 @@ export class Network {
   /**
    * Upgrade-time admission check (server/index.js): null to accept, otherwise the reason to refuse.
    * @param {import('node:http').IncomingMessage} req
-   * @returns {null | 'shutdown' | 'full' | 'per-address'}
+   * @returns {null | 'shutdown' | 'full' | 'per-address' | 'insecure'}
    */
   admission(req) {
     if (this.closed) return 'shutdown';
+    // 省流量模式 spends the host's uplink, so it never accepts a browser that is not in a secure context.
+    if (this.opts.pushOnly && !requestSecure(req, this.opts.trustProxy)) return 'insecure';
     if (this.conns.size >= this.opts.maxConnections) return 'full';
     const { key } = clientAddress(req, this.opts.trustProxy);
     const cap = this.opts.maxConnectionsPerAddr;
@@ -544,7 +591,9 @@ export class Network {
    */
   handleConnection(ws, req) {
     if (this.closed) { try { ws.close(CLOSE.SHUTDOWN, 'server shutdown'); } catch { /* ignore */ } return; }
-    const conn = new Connection(ws, clientAddress(req, this.opts.trustProxy), this.now(), this.opts);
+    const addr = clientAddress(req, this.opts.trustProxy);
+    addr.secure = requestSecure(req, this.opts.trustProxy);
+    const conn = new Connection(ws, addr, this.now(), this.opts);
     this.conns.set(ws, conn);
     if (conn.key) this.connsPerKey.set(conn.key, (this.connsPerKey.get(conn.key) || 0) + 1);
     ws.on('message', (data, isBinary) => {
@@ -623,6 +672,12 @@ export class Network {
   /** @param {Connection} conn @param {any} msg @param {number} now */
   onHelloMsg(conn, msg, now) {
     const rid = msg.rid;
+    // 省流量模式: a socket that slipped past the upgrade check may not enter the game either (see admission).
+    if (this.opts.pushOnly && !conn.secure) {
+      this.reply(conn, errorMsg(ERR.INSECURE, rid, 'push-only mode requires https (or localhost)'));
+      conn.close(CLOSE.INSECURE, 'insecure context');
+      return;
+    }
     if (msg.version != null && msg.version !== PROTOCOL_VERSION) {
       this.reply(conn, errorMsg(ERR.BAD_MSG, rid, `version mismatch: server ${PROTOCOL_VERSION}`));
       return;

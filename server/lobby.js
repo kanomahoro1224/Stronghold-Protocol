@@ -75,6 +75,7 @@ export const LOBBY_DEFAULTS = Object.freeze({
   maxMatchesPerAddr: 8,   // matches started from one client network that may run at once (0 = unlimited)
   resyncMinGapMs: 1000,   // heavy resyncs (match state / result replay) per session at most this often on repeated hellos
   soloReconnectWindowMs: null, // a dropped solo run stays resumable this long (null = data singleReconnectTime, 24 h)
+  pushOnly: false,        // 省流量模式 (SP_PUSH_ONLY): every match runs server-side and streams b.snap to clients
 });
 
 /** Official `singleReconnectTime` (s) when the data lacks it (constData, research 01 §1). */
@@ -496,6 +497,8 @@ export class Lobby {
         modeId: modeIdFor(room.mode, room.difficulty),
         seats,
         seed,
+        // 省流量模式 (server/index.js SP_PUSH_ONLY): handed to the match so it can run the server-side simulation
+        pushOnly: !!this.opts.pushOnly,
         // the room's match number: with the seed it keeps battleIds unique across the room's matches (DESIGN §14)
         matchNo: room.matchCount + 1,
         data: this.safeData(),

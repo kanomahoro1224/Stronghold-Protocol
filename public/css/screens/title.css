@@ -251,3 +251,62 @@
   font-size: .13rem;
   color: var(--text-dim);
 }
+
+/* ---- 服务器选择 / 省流量模式 (public/js/screens/title.js) ------------------------------------------------
+   The start screen is also the "which server am I on / may I start" panel: 本机当服务器 (this machine runs a
+   copy) vs 连接服务器 (a remote host). A server with SP_PUSH_ONLY refuses plain http, so the warning below
+   replaces the start button. */
+.title-net {
+  width: 4.9rem;
+  margin-top: .3rem;
+  padding: .1rem .14rem;
+  display: flex;
+  flex-direction: column;
+  gap: .08rem;
+  background: rgba(10, 14, 13, .5);
+  border: 1px solid rgba(23, 249, 183, .16);
+  border-left: 2px solid var(--mint-500);
+  font-size: .14rem;
+  color: var(--text-lo);
+}
+.title-net__row { display: flex; align-items: center; gap: .08rem; min-height: .26rem; }
+.title-net__label { font-family: var(--font-display); font-size: .12rem; letter-spacing: .18em; color: var(--text-dim); }
+.title-net__host { color: var(--text-hi); letter-spacing: .04em; }
+.title-net__badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: .05rem;
+  padding: .01rem .08rem;
+  border: 1px solid rgba(246, 163, 41, .45);
+  background: rgba(246, 163, 41, .08);
+  color: #ffd08a;
+  font-size: .12rem;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+.title-net__badge-icon { width: .14rem; height: .14rem; }
+.title-net__row--pick { gap: .06rem; }
+.title-net__row--pick .title-net__addr { flex: 1 1 auto; min-width: 0; }
+/* 本机页面 + 远端对局：说明「界面/素材来自本机，只有游戏数据走上面的服务器」 */
+.title-net__note { color: var(--text-dim); font-size: .12rem; letter-spacing: .02em; }
+.title-net__note span { line-height: 1.5; }
+
+.title-warn {
+  width: 4.9rem;
+  margin-top: .12rem;
+  padding: .1rem .12rem;
+  display: flex;
+  align-items: flex-start;
+  gap: .1rem;
+  background: rgba(246, 163, 41, .08);
+  border: 1px solid rgba(246, 163, 41, .35);
+  font-size: .13rem;
+  line-height: 1.6;
+  color: #ffd08a;
+  text-align: left;
+}
+.title-warn__icon { width: .2rem; height: .2rem; flex: 0 0 auto; color: #f6a329; }
+.title-warn__body { display: flex; flex-direction: column; gap: .04rem; }
+.title-warn__body b { font-size: .15rem; letter-spacing: .06em; }
+.title-warn__body a { color: #17f9b7; text-decoration: underline; word-break: break-all; }
