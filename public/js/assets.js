@@ -417,6 +417,7 @@ export function loadImageElement(url) {
     if (typeof Image === 'undefined') { reject(new Error('no Image in this environment')); return; }
     const img = new Image();
     img.decoding = 'async';
+    img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error(`image failed: ${url}`));
     img.src = url;
