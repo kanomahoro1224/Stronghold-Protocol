@@ -14,7 +14,9 @@
 // talents / traits read the resolved record, so a module choice ('none' ⇒ traitBase / talentsBase, module.active
 // false) is honoured. Per-skill triggers come from data (the official 技能策略: every MANUAL 重装 skill ⇒ TAKE_DAMAGE, a
 // MANUAL skill with its own 技能范围 ⇒ SKILL_RANGE, AUTO skills keep their own rule); the few spec overrides are documented
-// at the skill (冲锋号令 AUTO ⇒ SP_FULL, 花香疗法 heal-type DEFAULT). Tests: test/content/kits_alt_t1.test.js.
+// at the skill (冲锋号令 AUTO ⇒ SP_FULL, 花香疗法 heal-type DEFAULT; the two 哨戒铁卫 S2s 深巡 行动能力剥夺 and 雷蛇 反击电弧
+// override the 重装 TAKE_DAMAGE row ⇒ DEFAULT — an offensive skill fires with an enemy in range, research 03 §1.4).
+// Tests: test/content/kits_alt_t1.test.js.
 //
 // fx kinds emitted (battle.fx(kind, {x, y, …})): aoe {radius, id, skill} · zone {radius, dur, id, skill} ·
 // counter {id} · crit {id} · dp {n, id} · heal {id} · taunt {id} · summon {id, token} · pull {id} · sonic {radius} ·
@@ -394,6 +396,10 @@ export default {
   // ---------------------------------------------------------------------------------------------------------------
   // 1_04 深巡 行动能力剥夺: longer line range (skill grid), ATK +atk, ASPD +attack_speed, fin darts pierce
   // attack@max_target enemies on the line and cause attack@sluggish s of 停顿.
+  // 技能策略 override → DEFAULT: the official class row hands a 重装 S2 TAKE_DAMAGE, which makes a 2-2 ranged 哨戒铁卫
+  // wait until something hits her — in practice until she blocks (issue #4). 行动能力剥夺 is an offensive ranged skill,
+  // so the basic strategy (SP ready + about to attack + an enemy inside the initial range) is the right rule. Only the
+  // rule changes: spCost / initSp / spType still come from data.
   // 细胞活性抑制剂: attacks inflict `damage` arts per `interval` s for `duration` s (damage_seamonster vs 【海怪】).
   // Elite module (SPT-X): stealth of enemies inside the range is cancelled.
   // Alternate S1 侵袭破坏应对 (重装 ⇒ TAKE_DAMAGE trigger from data): ATK +atk, DEF +def.
@@ -402,6 +408,7 @@ export default {
     const s1 = skillBbOf(chess, 'skchr_udflow_1');
     return {
       skill: {
+        trigger: 'DEFAULT',
         kind: 'duration', mods: { atkPct: num(bb.atk), aspd: num(bb.attack_speed) },
         targeting: { rangeGrid: def?.skill?.rangeGrid ?? null, maxTargets: num(bb['attack@max_target'], 1) },
         attack: { onHitStatus: { key: 'sluggish', duration: num(bb['attack@sluggish'], 1) } },
@@ -985,6 +992,10 @@ export default {
   // 1_20 雷蛇 反击电弧 (hurt SP): attack interval ×(1 + base_attack_time) (PRTS "攻击间隔增大(+70%)": a RATIO for this skill,
   // 1.2 → 2.04 s — not +0.7 s), ATK +atk, arts attacks on up to attack@max_target enemies,
   // attack@buff_prob to stun attack@stun s; afterwards 雷蛇 is stunned `stun` s.
+  // 技能策略 override → DEFAULT: 反击电弧 is an offensive skill (ATK +125 %, arts hits on up to 3 enemies, stun), and the
+  // mode's rule is "offensive skills activate when an enemy is in their skill range" (research 03 §1.4, the in-game
+  // help). The TANK row is a TAKE_DAMAGE row documented for skillIndex 0; reading it as a wildcard made this S2 — and
+  // 深巡's — wait for a hit instead (issue #4). Both 哨戒铁卫 S2s therefore override it here.
   // 战术防御: when attacked, +sp SP to herself and to one random ally in the talent grid. Elite 雷抗: RES +magic_resistance.
   // Elite module (SPT-X): stealth of enemies inside the range is cancelled.
   // Alternate S1 充能防御 (AUTO, hurt SP, "技能自动开启" — an AUTO skill takes no 技能策略: SP_FULL, so the hit that fills SP
@@ -1018,6 +1029,7 @@ export default {
         }, { owner: unit, priority: 50 });
       },
       skill: {
+        trigger: 'DEFAULT',
         kind: 'duration', mods: { atkPct: num(bb.atk), batPct: Math.max(0, num(bb.base_attack_time)) },
         targeting: { maxTargets: Math.max(1, Math.floor(num(bb['attack@max_target'], 1))) },
         attack: {

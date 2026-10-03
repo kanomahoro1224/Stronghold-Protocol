@@ -132,9 +132,11 @@ test('1_04 深巡: fin darts pierce attack@max_target enemies on the line + 1 s 
   });
   const u = h.unit(id);
   h.step();
-  h.b.dealDamage(h.enemies()[0], u, { amount: 10, type: 'phys' }); // 重装: TAKE_DAMAGE
+  // 技能策略 (issue #4): an enemy inside her initial 2-2 range is enough — the basic strategy casts it, no hit required
+  assert.equal(u.skill.rule, 'DEFAULT', '行动能力剥夺 is an offensive ranged skill, not a 重装 TAKE_DAMAGE one');
   h.run(3.5);
   assert.ok(u.skill.active);
+  assert.equal(h.hooksOf('skillStart').find((c) => c.unit === u).reason, 'DEFAULT', 'cast by the basic strategy');
   approx(u.s.atk, u.base.atk * (1 + bb.atk));
   const firstAtk = h.hooksOf('attack').find((c) => c.attacker === u && c.isSkill);
   assert.equal(firstAtk.targets.length, bb['attack@max_target'], 'hits every enemy of the line');
@@ -145,6 +147,20 @@ test('1_04 深巡: fin darts pierce attack@max_target enemies on the line + 1 s 
   assert.ok(dots.some((c) => !c.target.defId.endsWith('e_sea') && Math.abs(c.amount - t.damage) < 1e-6), 'normal DoT');
   assert.ok(dots.every((c) => Math.abs(c.amount - (c.target.defId.endsWith('e_sea') ? t.damage_seamonster : t.damage)) < 1e-6));
   done(h);
+});
+
+test('1_04 深巡 / 1_20 雷蛇 S2 技能策略: both 哨戒铁卫 S2s cast with an enemy in range, no hit needed (issue #4)', () => {
+  // both S2s are offensive (深巡: range up + ATK/ASPD + piercing darts; 雷蛇: ATK +125 % + arts on 3 + stun), and the
+  // mode's rule is "offensive skills activate when an enemy is in their skill range". The 重装 TAKE_DAMAGE row is
+  // documented for skillIndex 0 only — reading it as a wildcard made both wait for a hit.
+  for (const id of ['chess_char_1_04_a', 'chess_char_1_04_b', 'chess_char_1_20_a', 'chess_char_1_20_b']) {
+    const h = run({ units: [{ chessId: id, row: 9, col: 4, carryState: READY }], enemies: [{ key: 'e', pos: [9, 6] }] });
+    const u = h.unit(id);
+    assert.equal(u.skill.rule, 'DEFAULT', `${id}: an offensive skill, not the 重装 TAKE_DAMAGE row`);
+    assert.ok(h.runUntil(() => u.skill.activations >= 1, 5), `${id}: casts while an enemy is in range and untouched`);
+    assert.equal(h.hooksOf('skillStart').find((c) => c.unit === u).reason, 'DEFAULT', `${id}: cast by the basic strategy`);
+    done(h);
+  }
 });
 
 test('1_04 深巡 / 1_20 雷蛇 elite module: stealthed enemies inside the range are revealed', () => {
@@ -590,7 +606,7 @@ test('1_20 雷蛇: 反击电弧 arts on up to 3 enemies, self-stun `stun` s afte
   const u = h.unit(id);
   h.run(3);
   assert.ok(u.skill.active);
-  assert.equal(h.hooksOf('skillStart').find((c) => c.unit === u).reason, 'TAKE_DAMAGE', '重装: cast by the hit');
+  assert.equal(h.hooksOf('skillStart').find((c) => c.unit === u).reason, 'DEFAULT', 'an offensive skill: cast with an enemy in range');
   approx(u.s.atk, u.base.atk * (1 + bb.atk));
   approx(u.s.interval, u.base.bat * (1 + bb.base_attack_time) * 100 / u.s.aspd, 'attack interval +70 % (PRTS 增大(+70%): a ratio, not +0.7 s)');
   const a0 = h.hooksOf('attack').find((c) => c.attacker === u && c.isSkill);
