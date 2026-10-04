@@ -660,7 +660,7 @@ export async function startServer(opts = {}) {
   const registry = new SessionRegistry({ reconnectWindowMs: netOptions.reconnectWindowMs ?? NET_DEFAULTS.reconnectWindowMs });
   const lobbyOptions = {};
   for (const k of ['lobbyGraceMs', 'maxRooms', 'maxRoomsPerAddr', 'maxMatchesPerAddr', 'resyncMinGapMs', 'soloReconnectWindowMs',
-    'matchQueueMax', 'matchQueueMaxPerAddr']) {
+    'matchQueueMax', 'matchQueueMaxPerAddr', 'idlePauseMs', 'idleCheckMs']) {
     if (opts[k] != null) lobbyOptions[k] = opts[k];
   }
   const lobby = new Lobby({ registry, log, MatchClass: opts.MatchClass, getData: () => data, seedFn: opts.seedFn, options: lobbyOptions });

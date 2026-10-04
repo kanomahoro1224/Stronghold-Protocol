@@ -155,6 +155,39 @@ const BOT_SLICE_MS = 8;
 export const FLOW_TICKER_PRIORITY = 25;
 const GAME_TYPES = new Set(Object.keys(C2S).filter((t) => Object.hasOwn(C2S, t) && (t.startsWith('g.') || t.startsWith('b.'))));
 const env = (k) => (typeof process !== 'undefined' && process.env ? process.env[k] : undefined);
+
+/**
+ * Idle suspension (DESIGN §23, P1b): when every human of a running match is disconnected, the server keeps stepping
+ * their takeover fields for up to the reconnect window (`lobby.soloReconnectWindowMs` / data `singleReconnectTime`) —
+ * CPU nobody is watching. After `IDLE_PAUSE_MS` of that, the clocks freeze exactly like a solo pause; a reconnect (or
+ * a leave) resumes them, and because the sim is deterministic and nothing advanced while frozen there is nothing to
+ * reconcile. `SP_IDLE_PAUSE_MS` overrides it, `0` disables it.
+ */
+export const IDLE_PAUSE_MS = 20_000;
+
+/** How often a match checks whether anybody is still connected (one pass over its seats). */
+export const IDLE_CHECK_MS = 5_000;
+
+/** SP_IDLE_PAUSE_MS → ms (0 = never suspend); anything unreadable keeps the default. */
+export function parseIdlePause(v) {
+  if (v == null || v === '') return IDLE_PAUSE_MS;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : IDLE_PAUSE_MS;
+}
+
+/**
+ * SP_BOT_REHEARSAL → candidate layouts a bot rehearses per prep (0..8), or null to use `BOT_REHEARSAL_DEFAULT`.
+ * Each candidate is a whole simulated battle (bot.js) — the most expensive thing a bot does, and the knob to turn
+ * down on a box that is short of CPU (DESIGN §23).
+ */
+export function parseBotRehearsal(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 ? Math.min(n, 8) : null;
+}
+
+/** How long a paused match waits before it looks again at work it skipped (bot prep / rehearsal slices). */
+export const PAUSED_RETRY_MS = 250;
 /** Default combat mode: client-side unless SP_COMBAT=server. */
 const envClientCombat = () => String(env('SP_COMBAT') || '').toLowerCase() !== 'server';
 /** SP_VERIFY → 'off' | 'sample' | 'all'. */
@@ -246,7 +279,8 @@ export class Match {
     this.timerScale = Number.isFinite(opts.timerScale) && opts.timerScale >= 0 ? opts.timerScale : 1;
     this.gameSpeed = Number.isFinite(opts.combatSpeed) && opts.combatSpeed > 0 ? Math.min(opts.combatSpeed, 200) : GAME_SPEED;
     /** layouts a bot rehearses per prep with the real simulation (bot.js; 0 = heuristic placement only) */
-    this.botRehearsal = Number.isInteger(opts.botRehearsal) && opts.botRehearsal >= 0 ? Math.min(opts.botRehearsal, 8) : BOT_REHEARSAL_DEFAULT;
+    this.botRehearsal = Number.isInteger(opts.botRehearsal) && opts.botRehearsal >= 0 ? Math.min(opts.botRehearsal, 8)
+      : (parseBotRehearsal(env('SP_BOT_REHEARSAL')) ?? BOT_REHEARSAL_DEFAULT);
     /** wall-clock budget of one rehearsal slice (scheduleBotPrep) */
     this.botSliceMs = Number.isFinite(opts.botSliceMs) && opts.botSliceMs > 0 ? opts.botSliceMs : this.sched.virtual ? Infinity : BOT_SLICE_MS;
     this.ds = dataSourceFor(this.data);
@@ -262,6 +296,22 @@ export class Match {
     this._pausedAt = 0;
     /** real ms spent paused this match (diagnostics) */
     this.pausedMs = 0;
+    /** whether the owner asked for this pause (g.pause — solo only) */
+    this.soloPaused = false;
+    /** whether this pause was started because nobody was connected any more (idle suspension) */
+    this.idlePaused = false;
+    /**
+     * grace before an unwatched match freezes. The idle watch is a live-server concern: a virtual-clock run (tests,
+     * tools/matchrun, the balance sims) drives its own time and must never be frozen by wall-clock idleness, so only
+     * a real scheduler picks up SP_IDLE_PAUSE_MS — a caller that passes `idlePauseMs` explicitly wins either way.
+     */
+    this.idlePauseMs = opts.idlePauseMs != null ? parseIdlePause(opts.idlePauseMs)
+      : (this.sched.virtual ? 0 : parseIdlePause(env('SP_IDLE_PAUSE_MS')));
+    /** how often the idle watch runs */
+    this.idleCheckMs = Number.isFinite(opts.idleCheckMs) && opts.idleCheckMs > 0 ? opts.idleCheckMs : IDLE_CHECK_MS;
+    /** when the last connected human went away (0 = somebody is watching) */
+    this.idleSince = 0;
+    this._idleTimer = null;
     /** boss rounds (client-side combat): the throttled m.public refresh (_bossPublic) */
     this._bossPubTimer = null;
     this._bossPubAt = -Infinity;
@@ -379,6 +429,7 @@ export class Match {
         return;
       }
       this.enterInfoCheck();
+      this._watchIdle();
     });
   }
 
@@ -445,6 +496,8 @@ export class Match {
     this.guard(() => {
       const was = ps.connected;
       ps.connected = true;
+      // somebody is watching again: an idle suspension (nobody connected) ends here, before the resync below is built
+      this._resumeIdle();
       this.sendTo(playerId, this.publicView());
       if (!this.ended) {
         ps._lastPriv = null;
@@ -1088,11 +1141,22 @@ export class Match {
    */
   setPause(ps, on) {
     void ps;
+    if (!on) { this.soloPaused = false; this._maybeResume(); return OK; }
     if (!this.isSolo) return fail(ERR.WRONG_PHASE, 'co-op battles never pause');
-    if (!on) { this._resume(); return OK; }
-    if (this.paused) return OK;
+    if (this.soloPaused) return OK;
     const battlePhase = this.phase === PHASE.COMBAT || this.phase === PHASE.FINAL_ASSAULT || this.phase === PHASE.HIDDEN_CORE;
     if (!battlePhase || this._finalEnding || !this.fields.some((f) => f.live && !f.done)) return fail(ERR.WRONG_PHASE, 'no battle running');
+    this.soloPaused = true;
+    this._freeze();
+    return OK;
+  }
+
+  /**
+   * Freeze the field clocks, the cc deadlines and the boss clock. Shared by the owner's solo pause and the idle
+   * suspension (a match nobody is connected to). No-op when already frozen.
+   */
+  _freeze() {
+    if (this.paused) return;
     this.paused = true;
     this._pausedAt = this.sched.now();
     for (const f of this.fields) {
@@ -1102,11 +1166,32 @@ export class Match {
     }
     if (this._bossClock) { this.cancel(this._bossClock); this._bossClock = null; }
     this.markPublic();
-    return OK;
   }
 
   /** End a solo pause: every clock and deadline moves on by the paused time (no-op when not paused). */
   _resume() {
+    this.soloPaused = false;
+    this.idlePaused = false;
+    this.idleSince = 0;
+    this._maybeResume();
+  }
+
+  /** A human is back: drop the idle suspension only (an owner-requested pause is theirs to end). */
+  _resumeIdle() {
+    if (!this.idlePaused) { this.idleSince = 0; return; }
+    this.idlePaused = false;
+    this.idleSince = 0;
+    this._maybeResume();
+  }
+
+  /** Unfreeze only when no reason is left. */
+  _maybeResume() {
+    if (this.soloPaused || this.idlePaused) return;
+    this._unfreeze();
+  }
+
+  /** The actual resume: every clock / deadline moves on by the paused time. */
+  _unfreeze() {
     if (!this.paused) return;
     const d = Math.max(0, this.sched.now() - this._pausedAt);
     this.paused = false;
@@ -1130,8 +1215,52 @@ export class Match {
     this.markPublic();
   }
 
+  /**
+   * Idle watch (DESIGN §23, P1b): freeze a running match once no human has been connected for `idlePauseMs`. The
+   * fields of such a match are the server's most expensive no-op — the lobby keeps the seat for the reconnect window,
+   * so a four-player match whose players all dropped still burns a core for minutes. A match with **no human seat at
+   * all** (a bot-only room, if one is ever started) waits for nobody and freezes on the first check. Runs on the match
+   * scheduler, so a virtual clock in tests drives it; `later` timers are tracked and cleared by dispose.
+   */
+  _watchIdle() {
+    if (this._idleTimer || !(this.idlePauseMs > 0)) return;
+    this._idleTimer = this.later(this.idleCheckMs, () => this._idleTick());
+  }
+
+  _idleTick() {
+    this._idleTimer = null;
+    if (this.disposed || this.ended) return;
+    const now = this.sched.now();
+    // A match with no human seat at all can never be watched again — every seat is a genuine bot and a running match
+    // takes no new humans — so it ends here exactly like a room whose last human quit, instead of burning a core
+    // until the lobby reaps the room. (Only armed on a real scheduler: a virtual-clock run drives its own time.)
+    if (!this.order.some((p) => !p.isBot)) {
+      try {
+        this.log.info?.(`[match ${this.roomCode}] ended: no human seat (${this.fields.filter((f) => f.live).length} field(s) were live)`);
+      } catch { /* logging must never break the watch */ }
+      this.finish({ victory: false, reason: 'abandoned' });
+      return;
+    }
+    const watching = this.liveHumans() > 0;
+    if (watching) this.idleSince = 0;
+    else if (!this.idleSince) this.idleSince = now;
+    if (!watching && !this.idlePaused && this.idleSince && now - this.idleSince >= this.idlePauseMs) {
+      this.idlePaused = true;
+      const idleMs = now - this.idleSince;
+      this._freeze();
+      try {
+        this.log.info?.(`[match ${this.roomCode}] suspended: no connected human for ${Math.round(idleMs / 1000)}s `
+          + `(${this.fields.filter((f) => f.live).length} field(s) frozen)`);
+      } catch { /* logging must never break the watch */ }
+    }
+    this._watchIdle();
+  }
+
   /** The battle phase is over: drop the pause without shifting anything (its timers are gone). */
   _clearPause() {
+    this.soloPaused = false;
+    this.idlePaused = false;
+    this.idleSince = 0;
     if (!this.paused) return;
     this.pausedMs += Math.max(0, this.sched.now() - this._pausedAt);
     this.paused = false;
@@ -1635,10 +1764,15 @@ export class Match {
     const valid = () => this.phase === PHASE.PREP && this.round === round && ps.alive && !ps.ready && ps.botControlled && ps._botPrepToken === token;
     const bounded = Number.isFinite(this.botSliceMs);
     const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    /** Step a generator until done or the slice budget is used; `then(value)` once it is done (null on an error). */
+    /**
+     * Step a generator until done or the slice budget is used; `then(value)` once it is done (null on an error). A
+     * frozen match (solo pause / idle suspension) does no bot work at all — it re-arms and continues after a resume,
+     * so a suspended match costs nothing and still finishes its prep for whoever comes back.
+     */
     const drive = (gen, label, then) => {
       const t0 = now();
       let r = null;
+      if (this.paused) { this.later(PAUSED_RETRY_MS, () => { if (valid()) drive(gen, label, then); }); return; }
       try {
         do r = gen.next(); while (!r.done && !(bounded && now() - t0 >= this.botSliceMs));
       } catch (e) {
@@ -1667,6 +1801,9 @@ export class Match {
         if (!job) { end(null); return; }
         const slice = () => {
           if (!valid()) return;
+          // whole simulated battles per candidate layout: never while the match is frozen (nobody is watching, or
+          // the owner paused a solo run) — re-arm so the prep still completes after the resume
+          if (this.paused) { this.later(PAUSED_RETRY_MS, slice); return; }
           let done = true;
           try { done = job.run(this.botSliceMs); } catch (e) { this.reportError(`bot ${ps.playerId} rehearsal`, e); }
           if (done) { if (bounded) this.later(0, () => { if (valid()) end(job); }); else end(job); }

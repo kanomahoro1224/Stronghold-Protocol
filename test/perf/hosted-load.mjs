@@ -17,6 +17,7 @@ import { loopStats } from '../../server/index.js';
 
 const seconds = Number(process.argv[2]) > 0 ? Number(process.argv[2]) : 4;
 const fieldsPerMatch = Number(process.argv[3]) > 0 ? Number(process.argv[3]) : 4;
+const rehearsalOnly = process.argv.includes('--rehearsal');
 
 const ds = getDefaultSource();
 const quiet = { error() {}, warn() {} };
@@ -60,6 +61,28 @@ function benchPerTick(name, count, hpMul) {
   const us = (r.ms / r.n) * 1000;
   console.log(`${name.padEnd(22)} ${String(count).padStart(3)} spawns  ${String(r.n).padStart(4)} ticks  ${us.toFixed(1).padStart(8)} µs/tick`);
   return us;
+}
+
+if (rehearsalOnly) {
+  // --- C. bot layout rehearsal: whole simulated battles per bot per prep round (Match.botRehearsal / SP_BOT_REHEARSAL).
+  // A full 4-bot match on a virtual clock (battles run to their end synchronously) costs the same CPU as on the real
+  // one, so the difference between the rows is the rehearsal's share of a match. That share is what a box short of
+  // CPU can turn down without touching anything else.
+  const { makeMatch } = await import('../match/harness.js');
+  const cpuMs = (fn) => { const c0 = process.cpuUsage(); fn(); const c = process.cpuUsage(c0); return (c.user + c.system) / 1000; };
+  console.log('\n--- C. CPU of one full 4-bot match by rehearsal setting (virtual clock, real battles) ---');
+  let base = null;
+  for (const n of [0, 1, 3]) {
+    const ms = cpuMs(() => {
+      const h = makeMatch({ mode: 'coop', humans: 0, bots: 4, seed: 900 + n, botRehearsal: n });
+      h.m.start();
+      try { h.runToEnd({ maxSteps: 5e6 }); } finally { h.m.dispose(); }
+    });
+    if (n === 0) base = ms;
+    const share = base && n !== 0 ? `  (+${(ms - base).toFixed(0)} ms, ${(((ms - base) / ms) * 100).toFixed(0)}% of the match)` : '';
+    console.log(`botRehearsal=${n}: ${ms.toFixed(0)} ms CPU per match${share}`);
+  }
+  process.exit(0);
 }
 
 console.log(`TICK=${TICK.toFixed(5)}s (${(1 / TICK).toFixed(0)} ticks/game-second)  GAME_SPEED=${GAME_SPEED}  pump=${INTERVAL_MS.toFixed(1)}ms  cap=${maxTicksPerInterval(GAME_SPEED)} ticks/pump`);

@@ -113,9 +113,11 @@ export class FieldRunner {
   /**
    * Battles this runner is stepping right now. `/healthz` sums it over every match: it is the server's own
    * simulation load (DESIGN §23), and the number that predicts event-loop delay — a single-threaded process
-   * pays for each hosted battle on the same core that answers players.
+   * pays for each hosted battle on the same core that answers players. A frozen match (solo pause, or the idle
+   * suspension of a match nobody is connected to) steps nothing, so it counts nothing.
    */
   get hosted() {
+    if (this.m.paused) return 0;
     let n = 0;
     for (const f of this.fields) if (f.live) n++;
     return n;

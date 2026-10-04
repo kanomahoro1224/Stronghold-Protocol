@@ -67,6 +67,11 @@ export function makeMatch(o = {}) {
     onEnd: (s) => { h.ended = s; h.endedCount++; },
     scheduler: sched,
     registry: o.registry,
+    // idle suspension (DESIGN §23, P1b): opt-in for tests. A test that drives the watch passes a short grace on the
+    // virtual clock; every other test keeps the old behaviour (a bot-only or fully-disconnected harness match would
+    // otherwise freeze after IDLE_PAUSE_MS of virtual time, which `runUntil` covers in milliseconds).
+    idlePauseMs: o.idlePauseMs ?? 0,
+    idleCheckMs: o.idleCheckMs,
     BattleClass: o.fake ? FakeBattle : undefined,
     battleContent: o.battleContent,
     timerScale: o.timerScale,

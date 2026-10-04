@@ -78,6 +78,10 @@ export const LOBBY_DEFAULTS = Object.freeze({
   // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §23)
   matchQueueMaxPerAddr: 8,      // queue entries from one client network at once (0 = unlimited)
   matchQueueMax: 128,           // entries per difficulty pool
+  // Idle suspension (DESIGN §23, P1b): freeze a match whose humans are all disconnected — its takeover fields burn
+  // a core for nobody. 0 disables it (Match.IDLE_PAUSE_MS / IDLE_CHECK_MS are the shared defaults).
+  idlePauseMs: null,
+  idleCheckMs: null,
 });
 
 /** Official `singleReconnectTime` (s) when the data lacks it (constData, research 01 §1). */
@@ -208,20 +212,23 @@ export class Lobby {
     let bots = 0;
     let fields = 0;
     let fieldsIdle = 0;
+    let paused = 0;
     for (const r of this.rooms.values()) {
       if (r.match) {
         matches++;
         // The server's own simulation load: battles it steps on its single core (DESIGN §23). `fieldsIdle` is the
-        // subset nobody is watching — a match whose humans are all disconnected still steps their takeover fields.
+        // subset nobody is watching — a match whose humans are all disconnected still steps their takeover fields
+        // until the idle suspension (P1b) freezes it, which `paused` counts.
         if (typeof r.match.hostedFields === 'function') {
           const n = r.match.hostedFields();
           fields += n;
           if (typeof r.match.liveHumans === 'function' && r.match.liveHumans() === 0) fieldsIdle += n;
         }
+        if (r.match.paused) paused++;
       }
       for (const s of r.seats) if (s && !s.left) (s.isBot ? bots++ : humans++);
     }
-    return { rooms: this.rooms.size, matches, humans, bots, fields, fieldsIdle, queued: this.queueSize() };
+    return { rooms: this.rooms.size, matches, humans, bots, fields, fieldsIdle, paused, queued: this.queueSize() };
   }
 
   // ---------------------------------------------------------------------------------------------------
@@ -779,6 +786,9 @@ export class Lobby {
         seed,
         // the room's match number: with the seed it keeps battleIds unique across the room's matches (DESIGN §14)
         matchNo: room.matchCount + 1,
+        // idle suspension (DESIGN §23, P1b); null lets Match fall back to SP_IDLE_PAUSE_MS / its defaults
+        idlePauseMs: this.opts.idlePauseMs,
+        idleCheckMs: this.opts.idleCheckMs,
         data: this.safeData(),
         log: this.log,
         now: this.now,

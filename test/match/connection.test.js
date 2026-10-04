@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PHASE, ERR } from '../../shared/constants.js';
-import { Match } from '../../server/match/Match.js';
+import { Match, parseIdlePause, parseBotRehearsal } from '../../server/match/Match.js';
 import { StubMatch } from '../../server/match/StubMatch.js';
 import { DATA, makeMatch, checkInvariants, give, chessOfTier } from './harness.js';
 import { bossPoolHp } from '../../server/match/finalAssault.js';
@@ -107,6 +107,125 @@ test('disconnect: the seat keeps playing; draft turns / prep auto-resolve at dea
   assert.ok(got.includes('m.public') && got.includes('m.private') && got.includes('m.field') && got.includes('b.snap'), got.join());
   assert.equal(m.publicView().players.find((p) => p.playerId === 'p_1').connected, true);
   m.dispose();
+});
+
+test('idle suspension: a match nobody is connected to stops stepping its fields, and a reconnect resumes them', () => {
+  // P1b (DESIGN §23): the seats are kept for the reconnect window, so a four-player match whose players all dropped
+  // used to keep simulating every takeover field — the server's most expensive no-op. `instant: false` gives a paced
+  // (not instant-combat) runner so the freeze is observable as a field clock that stands still.
+  const h = makeMatch({ mode: 'coop', humans: 2, seed: 64, fake: true, instant: false, script: () => ({ duration: 600 }), idlePauseMs: 1_000, idleCheckMs: 100 }).start();
+  const m = h.m;
+  h.m.handle('p_0', { t: 'g.infoReady' });
+  h.m.handle('p_1', { t: 'g.infoReady' });
+  h.drive(() => m.phase === PHASE.PREP && m.round === 1);
+  h.m.handle('p_0', { t: 'g.ready', ready: true });
+  h.m.handle('p_1', { t: 'g.ready', ready: true });
+  h.run(() => m.phase === PHASE.COMBAT && m.runner && m.runner.hosted > 0);
+  assert.equal(m.paused, false);
+  const stepping = m.hostedFields();
+  assert.ok(stepping > 0, `the server steps ${stepping} field(s)`);
+
+  // both humans drop: the fields keep running through the grace period, then freeze
+  m.onDisconnect('p_0');
+  m.onDisconnect('p_1');
+  assert.equal(m.liveHumans(), 0);
+  const ticksAtDrop = m.runner.ticks;
+  m.sched.advance(500);
+  assert.equal(m.paused, false, 'still inside the grace');
+  assert.ok(m.runner.ticks > ticksAtDrop, 'the fields still step during the grace');
+  m.sched.advance(1_200);
+  assert.equal(m.idlePaused, true);
+  assert.equal(m.paused, true);
+  assert.equal(m.hostedFields(), 0, 'a suspended match steps nothing');
+  assert.equal(m.runner.hosted, 0);
+
+  // ... and the clock really stands still: no tick lands while suspended, however long nobody is there
+  const frozenTicks = m.runner.ticks;
+  m.sched.advance(5_000);
+  assert.equal(m.runner.ticks, frozenTicks, 'the field clock stands still while suspended');
+  assert.equal(m.idlePaused, true);
+
+  // a human comes back (same token, new socket): the suspension ends before the resync is built, and time moves on
+  m.onReconnect('p_0');
+  assert.equal(m.paused, false);
+  assert.equal(m.idlePaused, false);
+  assert.ok(m.hostedFields() > 0, 'the fields are stepping again');
+  m.sched.advance(300);
+  assert.ok(m.runner.ticks > frozenTicks);
+  m.dispose();
+});
+
+test('idle suspension: a leave (not a drop) still ends an abandoned match at once, and 0 disables the watch', () => {
+  const h = makeMatch({ mode: 'coop', humans: 2, seed: 65, fake: true, instant: false, script: () => ({ duration: 600 }), idlePauseMs: 0 }).start();
+  const m = h.m;
+  h.m.handle('p_0', { t: 'g.infoReady' });
+  h.m.handle('p_1', { t: 'g.infoReady' });
+  h.drive(() => m.phase === PHASE.PREP && m.round === 1);
+  m.onDisconnect('p_0');
+  m.onDisconnect('p_1');
+  m.sched.advance(10_000);
+  assert.equal(m.paused, false, 'idlePauseMs 0 keeps the old behaviour');
+  assert.equal(m.idlePaused, false);
+  m.dispose();
+
+  // a permanent quit (g.leave) is not a drop: the lobby's abandoned rule ends the match right away
+  const q = makeMatch({ mode: 'coop', humans: 1, bots: 1, seed: 66, fake: true, instant: false, script: () => ({ duration: 600 }), idlePauseMs: 100, idleCheckMs: 10 }).start();
+  q.m.onLeave('p_0');
+  assert.ok(q.ended, 'the last human leaving ends the match');
+  q.m.dispose();
+});
+
+test('a match with no human seat at all is ended (not just frozen): nobody could ever come back to it', () => {
+  // Every seat is a genuine bot and a running match takes no new humans, so the match is pure CPU: the idle watch
+  // ends it like a room whose last human quit. (Only armed on a real scheduler, so tools/matchrun is untouched.)
+  const h = makeMatch({ mode: 'coop', humans: 0, bots: 2, seed: 67, fake: true, instant: false, botRehearsal: 3, idlePauseMs: 1_000, idleCheckMs: 50 }).start();
+  const m = h.m;
+  h.drive(() => m.phase === PHASE.PREP && m.round === 1);
+  const bots = [...m.players.values()];
+  assert.ok(bots.every((p) => p.isBot));
+  m.sched.advance(200); // first idle check: no human seat -> ended at once, no grace needed
+  assert.ok(h.ended, 'the match ended');
+  assert.equal(h.ended.reason, 'abandoned');
+  assert.equal(m.ended, true);
+  assert.equal(m.runner ? m.runner.hosted : 0, 0, 'nothing is stepped any more');
+  m.dispose();
+});
+
+test('a suspended match does no bot work: no prep, no layout rehearsal, until somebody is back', () => {
+  // Every bot prep rehearses whole simulated battles (BOT_REHEARSAL_DEFAULT), so a frozen match must not run them:
+  // the bots re-arm and finish their prep after the resume instead. One disconnected human keeps the seat.
+  const h = makeMatch({ mode: 'coop', humans: 1, bots: 2, seed: 68, fake: true, instant: false, botRehearsal: 3, idlePauseMs: 1_000, idleCheckMs: 50 }).start();
+  const m = h.m;
+  h.drive(() => m.phase === PHASE.PREP && m.round === 1);
+  m.onDisconnect('p_0');
+  m.sched.advance(1_200);
+  assert.equal(m.idlePaused, true, 'frozen once the grace passed, the seat kept for the reconnect');
+  assert.equal(m.ended, false, 'a drop never ends somebody else\'s match');
+  const bots = [...m.players.values()].filter((p) => p.isBot);
+  // whatever the bots had done at the moment of the freeze is all they will ever have done
+  const snapshot = `${m.phase}:${m.round}:${bots.map((p) => (p.ready ? 1 : 0)).join('')}:${m.runner ? m.runner.ticks : -1}`;
+  m.sched.advance(60_000);
+  assert.equal(`${m.phase}:${m.round}:${bots.map((p) => (p.ready ? 1 : 0)).join('')}:${m.runner ? m.runner.ticks : -1}`, snapshot,
+    'a frozen match advances nothing: no phase, no prep, no rehearsal, no tick');
+  m.onReconnect('p_0');
+  assert.equal(m.paused, false);
+  assert.equal(m.idlePaused, false);
+  m.sched.advance(5_000);
+  assert.ok(bots.every((p) => p.ready), 'the bots finish their prep after the resume');
+  assert.equal(m.ended, false);
+  m.dispose();
+});
+
+test('parseIdlePause / parseBotRehearsal: the env knobs keep the documented defaults on junk', () => {
+  assert.equal(parseIdlePause(undefined), 20_000);
+  assert.equal(parseIdlePause('0'), 0);
+  assert.equal(parseIdlePause('5000'), 5_000);
+  assert.equal(parseIdlePause('nonsense'), 20_000);
+  assert.equal(parseBotRehearsal(undefined), null, 'null = keep BOT_REHEARSAL_DEFAULT');
+  assert.equal(parseBotRehearsal('1'), 1);
+  assert.equal(parseBotRehearsal('0'), 0);
+  assert.equal(parseBotRehearsal('99'), 8);
+  assert.equal(parseBotRehearsal('x'), null);
 });
 
 test('g.autoplay lets the bot play a human seat (buys, places, readies); turning it off returns control', () => {

@@ -987,6 +987,7 @@ describe('websocket lobby', () => {
     const h = JSON.parse((await httpReq(srv.port, '/healthz')).body.toString());
     assert.equal(typeof h.fields, 'number');
     assert.equal(typeof h.fieldsIdle, 'number');
+    assert.equal(typeof h.paused, 'number', 'matches suspended for being unwatched (DESIGN §23, P1b)');
     assert.ok(h.fields >= 0 && h.fieldsIdle >= 0 && h.fieldsIdle <= h.fields);
     assert.equal(typeof h.loop.p99, 'number');
     assert.equal(typeof h.loop.windowMs, 'number');
