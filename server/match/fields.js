@@ -110,6 +110,17 @@ export class FieldRunner {
   /** Game seconds elapsed on the master clock (all fields step in lockstep). */
   get time() { return this.ticks * TICK; }
 
+  /**
+   * Battles this runner is stepping right now. `/healthz` sums it over every match: it is the server's own
+   * simulation load (DESIGN §23), and the number that predicts event-loop delay — a single-threaded process
+   * pays for each hosted battle on the same core that answers players.
+   */
+  get hosted() {
+    let n = 0;
+    for (const f of this.fields) if (f.live) n++;
+    return n;
+  }
+
   start() {
     if (this.fields.every((f) => !f.live)) { this._finish(); return; }
     if (this.m.sched.instant) {

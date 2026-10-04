@@ -206,11 +206,22 @@ export class Lobby {
     let matches = 0;
     let humans = 0;
     let bots = 0;
+    let fields = 0;
+    let fieldsIdle = 0;
     for (const r of this.rooms.values()) {
-      if (r.match) matches++;
+      if (r.match) {
+        matches++;
+        // The server's own simulation load: battles it steps on its single core (DESIGN §23). `fieldsIdle` is the
+        // subset nobody is watching — a match whose humans are all disconnected still steps their takeover fields.
+        if (typeof r.match.hostedFields === 'function') {
+          const n = r.match.hostedFields();
+          fields += n;
+          if (typeof r.match.liveHumans === 'function' && r.match.liveHumans() === 0) fieldsIdle += n;
+        }
+      }
       for (const s of r.seats) if (s && !s.left) (s.isBot ? bots++ : humans++);
     }
-    return { rooms: this.rooms.size, matches, humans, bots, queued: this.queueSize() };
+    return { rooms: this.rooms.size, matches, humans, bots, fields, fieldsIdle, queued: this.queueSize() };
   }
 
   // ---------------------------------------------------------------------------------------------------

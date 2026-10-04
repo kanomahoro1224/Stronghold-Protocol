@@ -626,6 +626,27 @@ export class Match {
   humans() { return this.order.filter((p) => !p.isBot && !p.left); }
 
   /**
+   * Non-bot players still connected. A match with none of them is one the server simulates for nobody: its hosted
+   * fields are pure CPU burn (`/healthz` `fieldsIdle`) and the first thing P1b is allowed to suspend.
+   */
+  liveHumans() {
+    let n = 0;
+    for (const p of this.order) if (!p.isBot && !p.left && p.connected) n++;
+    return n;
+  }
+
+  /**
+   * Battles the server itself is stepping for this match: a FieldRunner steps every live field in lockstep, and a
+   * HeadlessPacer fast-forwards one more while a takeover catches up to the wall clock. `/healthz` sums this over all
+   * matches — it is the server's simulation load (DESIGN §23), the input to the multi-core work.
+   */
+  hostedFields() {
+    let n = this.runner ? this.runner.hosted : 0;
+    if (this.pacer && !this.pacer.stopped) n += 1;
+    return n;
+  }
+
+  /**
    * The boss-round group of a player (`bossWaves`: the seat pairs of finalAssault.js pairPlayers, planned in startRound
    * before the players' round start) and its side — 'L', or 'R' for the second player of a pair (the mirrored right
    * half) — or null outside a boss round / for a player without a field.
