@@ -74,7 +74,7 @@ const MODE_CARDS = [
     points: [`1–${MAX_SEATS} 名博士 · 可由 AI 队友补位`, '联防阶段 · 最终攻势合并生命值'],
   },
   {
-    // 搜寻队友 (official mode group 同盟模拟 → 搜寻队友, research 06 §3.3; DESIGN §22). The official 精确搜寻
+    // 搜寻队友 (official mode group 同盟模拟 → 搜寻队友, research 06 §3.3; DESIGN §23). The official 精确搜寻
     // (match by trophy level) needs progression data this build does not keep, so there is one fast search only.
     id: 'match', name: '同盟匹配', en: 'ALLIANCE MATCH', icon: 'search',
     desc: `搜寻其他博士组成同盟，凑齐 ${MAX_SEATS} 人即刻开始；暂时无人时由 AI 队友补位。`,
@@ -185,7 +185,7 @@ function TipsPanel() {
 }
 
 /**
- * 搜寻队友 panel (matchmaking, DESIGN §22): what the left column shows while the server keeps this session in a
+ * 搜寻队友 panel (matchmaking, DESIGN §23): what the left column shows while the server keeps this session in a
  * pool. The wait counts up locally from the server's snapshot (`queue.since`), so no extra traffic is needed.
  * Only 取消搜寻 is offered — nobody may cut another doctor's search short by starting the pool with AI, so a lone
  * searcher is pointed at 同盟模拟 (+ AI teammates) instead (the owner, 2026-10-04).
@@ -283,7 +283,7 @@ export function LobbyScreen() {
 
   const online = conn.status === 'online';
   const codeOk = CODE_RE.test(code);
-  const q = useStore((s) => s.queue, shallowEqual); // 搜寻队友 search state, or null (DESIGN §22)
+  const q = useStore((s) => s.queue, shallowEqual); // 搜寻队友 search state, or null (DESIGN §23)
   const searching = roomMode === 'match';
 
   const pickMode = (m) => { setRoomMode(m); savePref('lobby.mode', m); };

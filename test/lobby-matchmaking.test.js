@@ -1,4 +1,4 @@
-// test/lobby-matchmaking.test.js — 搜寻队友 (matchmaking, DESIGN §22) end to end over a real server: four connected
+// test/lobby-matchmaking.test.js — 搜寻队友 (matchmaking, DESIGN §23) end to end over a real server: four connected
 // doctors in one pool form a full room at once, a smaller pool keeps searching forever (the owner removed the 120 s
 // deadline: "不要那个120s超时了，如果没匹配到就一直匹配" — no AI fill either), and nothing may start a pool by hand.
 // Also covers the sharp edges: a refused room.create / room.join must not end the search silently, the difficulty is
@@ -19,7 +19,7 @@ const KEEP_WAITING = 400;
 /** srv.url is the HTTP origin; the socket lives at /ws. */
 const wsUrl = (s) => `ws://127.0.0.1:` + s.port + `/ws`;
 
-describe('搜寻队友 / matchmaking (DESIGN §22)', () => {
+describe('搜寻队友 / matchmaking (DESIGN §23)', () => {
   let srv;
   /** @type {string} */
   let WS;

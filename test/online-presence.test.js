@@ -33,10 +33,17 @@ async function harness(t, options = {}) {
 }
 
 /**
- * Wait until this socket is told the expected number (earlier frames it saw while the count was lower are
- * skipped), then check the frame carries nothing but the aggregate.
+ * Wait until this socket is told the expected number, after the server itself reports it: the count is pushed on
+ * connect, on hello and on close (coalesced), so a frame the socket already buffered can be from an earlier moment
+ * — on a loaded machine a delayed close used to let such a stale frame satisfy the wait.
+ * @param {any} c @param {any} srv @param {number} expected @param {string} [message]
  */
-async function count(c, expected) {
+async function count(c, srv, expected, message) {
+  const deadline = Date.now() + 5000;
+  while (srv.network.onlineCount !== expected) {
+    if (Date.now() > deadline) throw new Error(`${message ?? 'presence'}: the server never reported ${expected} online (now ${srv.network.onlineCount})`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
   const msg = await c.waitFor('presence', (m) => m.onlineCount === expected);
   assert.deepEqual(Object.keys(msg).sort(), ['onlineCount', 't'], 'only an aggregate is exposed');
   return msg;
@@ -45,19 +52,19 @@ async function count(c, expected) {
 test('only players who said hello are counted, and everyone is told the number', async (t) => {
   const { srv, connect } = await harness(t);
   const title = await connect();
-  await count(title, 0);
+  await count(title, srv, 0);
   assert.equal(srv.network.onlineCount, 0, 'a socket that never helloed is not online');
 
   await title.hello('Player');
-  await count(title, 1);
+  await count(title, srv, 1);
   assert.equal(srv.network.onlineCount, 1);
 
   const second = await connect();
-  await count(second, 1);
+  await count(second, srv, 1);
   assert.equal(srv.network.onlineCount, 1, 'a new socket is told the number without joining it');
 
   await second.hello('Second');
-  await Promise.all([count(title, 2), count(second, 2)]);
+  await Promise.all([count(title, srv, 2), count(second, srv, 2)]);
   assert.equal(srv.network.onlineCount, 2);
 });
 
@@ -65,18 +72,18 @@ test('retiring a title-screen socket never moves the number', async (t) => {
   const { srv, connect } = await harness(t);
   const player = await connect();
   await player.hello('Player');
-  await count(player, 1);
+  await count(player, srv, 1);
 
   // what the server's hello watchdog does to a visitor that never sent hello
   const visitor = await connect();
-  await count(visitor, 1);
+  await count(visitor, srv, 1);
   const visitorConn = [...srv.network.conns.values()].find((c) => !c.session);
   assert.ok(visitorConn, 'the visitor holds an un-helloed socket');
   visitorConn.close(4002, 'hello timeout');
   await visitor.closed;
 
   const fresh = await connect();
-  await count(fresh, 1, 'the replacement is told the unchanged number');
+  await count(fresh, srv, 1, 'the replacement is told the unchanged number');
   const playerConn = [...srv.network.conns.values()].find((c) => c.session);
   assert.equal(playerConn.presenceSent, 1, 'the player was not resent a number it already knows');
   assert.equal(srv.network.onlineCount, 1, 'rotating un-helloed sockets never moves the number');
@@ -86,17 +93,17 @@ test('a player with several tabs counts once and keeps playing after a tab is re
   const { srv, connect } = await harness(t);
   const observer = await connect();
   await observer.hello('Watcher');
-  await count(observer, 1);
+  await count(observer, srv, 1);
 
   const firstTab = await connect();
   const welcome = await firstTab.hello('Player');
-  await Promise.all([count(firstTab, 2), count(observer, 2)]);
+  await Promise.all([count(firstTab, srv, 2), count(observer, srv, 2)]);
 
   const secondTab = await connect();
   const resumed = await secondTab.hello('Player', welcome.token);
   assert.equal(resumed.playerId, welcome.playerId, 'the second tab takes over the same session');
   assert.equal((await firstTab.closed).code, 4001, 'the first tab is closed as replaced');
-  await count(secondTab, 2);
+  await count(secondTab, srv, 2);
   assert.equal(srv.network.onlineCount, 2, 'two tabs of one player are one player');
 });
 
@@ -106,17 +113,17 @@ test('a disconnected session stops counting even though it stays resumable', asy
   await observer.hello('Watcher');
   const player = await connect();
   const welcome = await player.hello('Player');
-  await Promise.all([count(observer, 2), count(player, 2)]);
+  await Promise.all([count(observer, srv, 2), count(player, srv, 2)]);
 
   await player.close();
-  await count(observer, 1);
+  await count(observer, srv, 1);
   assert.equal(srv.registry.byToken(welcome.token).connected, false, 'the session is still resumable');
   assert.equal(srv.network.onlineCount, 1);
 
   const back = await connect();
   const resumed = await back.hello('Player', welcome.token);
   assert.equal(resumed.playerId, welcome.playerId);
-  await count(back, 2);
+  await count(back, srv, 2);
   assert.equal(srv.network.onlineCount, 2, 'resuming does not count the retained session twice');
 });
 
@@ -124,7 +131,7 @@ test('AI teammates and room membership do not change the online browser count', 
   const { srv, connect } = await harness(t);
   const player = await connect();
   await player.hello('Host');
-  await count(player, 1);
+  await count(player, srv, 1);
   assert.equal((await player.request({ t: 'room.create', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
   await player.waitFor('room.state');
   assert.equal((await player.request({ t: 'room.addBot' })).t, 'ok');

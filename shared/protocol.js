@@ -249,7 +249,7 @@ export const C2S = {
   // operator loadout (DESIGN §16): stored per session/seat; accepted until the match leaves INFO_CHECK
   'room.loadout': { entries: isLoadoutEntries },
 
-  // 搜寻队友 (matchmaking, research 06 §3.3, DESIGN §22): one entry per session, one pool per difficulty. The server
+  // 搜寻队友 (matchmaking, research 06 §3.3, DESIGN §23): one entry per session, one pool per difficulty. The server
   // forms a co-op room from the pool once 4 connected humans wait in it; the free seats (only reachable through a
   // reconnect) go to AI teammates and the match starts right away (no ready check). A smaller pool just keeps
   // searching — there is no deadline and no AI fill — and nothing else starts it: nobody gets to cut another
@@ -309,7 +309,7 @@ export const S2C = [
   // presence { onlineCount } — currently connected browsers, including title visitors before hello; excludes AI.
   'presence',
   'room.state', 'room.closed',
-  // 搜寻队友 (DESIGN §22): queue.state { active, difficulty, size, max, waitedMs, solo } — pushed to a queued
+  // 搜寻队友 (DESIGN §23): queue.state { active, difficulty, size, max, waitedMs, solo } — pushed to a queued
   // session on join / pool change (solo: true ⇒ nobody else is waiting right now, so the client says so and points
   // at 同盟模拟 + AI instead). active: false ⇒ this session left the queue. The search has no deadline: it runs
   // until four connected doctors are in the pool or the searcher cancels. The room a matchmade pool forms arrives as
@@ -353,8 +353,8 @@ export const EV = Object.freeze({
 
 /**
  * The model form a `b.ev` 'fx' tuple ['fx', kind, x, y, extra] puts its unit in: `extra.form` (sim content/enemies.js
- * setForm — 转译基底·α's forms, a 逐火 余烬 and its revival, a leader's 重生, 守墓石像's modes, 掠海漂移体's crawl; a string is
- * that clip set, null the base one), undefined for any other tuple. A form is state, not decoration: a view that misses
+ * setForm — 转译基底·α's forms, a 逐火 余烬 and its revival, a leader's 重生, 守墓石像's modes, 掠海漂移体's crawl; a 傀儡师's 替身,
+ * sim professions.js; a string is that clip set, null the base one), undefined for any other tuple. A form is state, not decoration: a view that misses
  * the fx keeps drawing the old model (player report #5 after 0.1.0), so the client's catch-up frames, its hidden-tab
  * backlog (battle/runner.js) and the events buffered before a field is entered (screens/game.js) keep these tuples.
  */

@@ -5,7 +5,7 @@
 //   me          – { playerId, name, token } from `welcome`
 //   session     – { entered } (the player pressed 开始 on the title screen in this tab)
 //   room        – last `room.state` payload (without `t`) or null
-//   queue       – 搜寻队友 (matchmaking, DESIGN §22) search state, or null when not searching
+//   queue       – 搜寻队友 (matchmaking, DESIGN §23) search state, or null when not searching
 //   match       – { public, private, field, result } from the `m.*` pushes; `battle` = the local battle runner's
 //                 state (client-side combat, public/js/battle/runner.js): { battleId, fieldId, kind, authoritative,
 //                 watch, done, own, members, loading, speed, paused, leaks } | null — `paused`: the solo pause holds
@@ -79,7 +79,7 @@ export const initialState = Object.freeze({
   me: { playerId: null, name: '', token: null },
   session: { entered: false },
   room: null,
-  // 搜寻队友 (DESIGN §22): the last `queue.state` (searching for teammates) or null when not searching —
+  // 搜寻队友 (DESIGN §23): the last `queue.state` (searching for teammates) or null when not searching —
   // { difficulty, size, max, solo, since }. `since` is a local Date.now() anchor (the server's `waitedMs` is a
   // snapshot), so the panel can count the search up without asking the server again. There is no deadline.
   queue: null,
@@ -87,7 +87,7 @@ export const initialState = Object.freeze({
   ticker: [],
   emotes: [],
   clock: { offset: 0, rtt: null, synced: false },
-  ui: { pendingJoin: null, restoring: false },
+  ui: { pendingJoin: null, restoring: false, buildStale: false },
 });
 
 /** The app-wide store singleton. */

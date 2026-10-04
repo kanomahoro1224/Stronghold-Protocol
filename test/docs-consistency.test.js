@@ -747,9 +747,11 @@ test('batch 6 QA residuals (DESIGN §21.21–§21.25): the lock per deployment f
   assert.ok(!/the carrier's own non-initial `deploy` re-arms it/.test(SIM), 'SIM: the per-grant deploy hook is gone');
   assert.match(PLAYING, /被 M3茧甲 \/ 埃芒加德复活）后又能锁一次，娜仁图亚策略借来的锤子也一样/);
   assert.ok(!/First time per battle carrier would take lethal damage/.test(doc('docs/research/04-items.md')), 'research 04: once per deployment');
-  // F3: 卢西恩 / 锏 count only the allies they can hurt; the player text keeps auras and counters
-  assert.match(doc('server/sim/content/bosses.js'), /LUCIEN_AOE_RADIUS\)\.some\(\(u\) => !evadesGround\(e, u\)\)/);
-  assert.match(doc('server/sim/content/enemies.js'), /const inR = \(b, e, s\) => b\.alliesInRadius\([^\n]*\.some\(\(u\) => !evadesGround\(e, u\)\)/);
+  // F3: 卢西恩 / 锏 count only the allies they can hurt — since 0.1.2 (§22.12) the targets of their trigger selection
+  // (targetsNear → canTargetAlly, which skips an airborne 起飞 ally for a ground enemy); the player text keeps auras and counters
+  assert.match(doc('server/sim/content/bosses.js'), /cond: \(b\) => targetsNear\(b, e, LUCIEN_AOE_RADIUS\)\.length > 0/);
+  assert.match(doc('server/sim/content/enemies.js'), /const inR = \(b, e, s\) => targetsNear\(b, e, [^\n]*\)\.length > 0/);
+  assert.match(doc('server/sim/targeting.js'), /if \(f\.liftoff && evadesGround\(e, a\)\) return false;/);
   assert.match(sub(22), /they count only the allies they can hurt \(`!evadesGround`\)/);
   assert.match(sub(20), /an area skill cast because allies are near counts only those it can hurt/);
   assert.ok(!/燃烧区域和减益都落不到她身上/.test(PLAYING), 'PLAYING: no blanket 减益 claim');
@@ -830,9 +832,9 @@ test('the deliberate trigger deviation (DESIGN §21.29): six 重装 skills DEFAU
   assert.match(doc('CHANGELOG.md'), /深巡、雷蛇的二技能，号角的二、三技能，灰毫的一、二技能改为攻击范围内有敌人时就释放/);
 });
 
-test('同盟匹配 / 搜寻队友 (DESIGN §22): the protocol lists, the pool rules and the client agree with the code', () => {
-  const S22 = DESIGN.slice(DESIGN.indexOf('## 22. 同盟匹配'));
-  assert.ok(S22.length > 500, 'DESIGN has a §22');
+test('同盟匹配 / 搜寻队友 (DESIGN §23): the protocol lists, the pool rules and the client agree with the code', () => {
+  const S22 = DESIGN.slice(DESIGN.indexOf('## 23. 同盟匹配'));
+  assert.ok(S22.length > 500, 'DESIGN has a §23');
   // §8.1 lists the two intents and the push; C2S/S2C know them and nothing else queue-shaped exists.
   for (const t of ['queue.join', 'queue.leave']) {
     assert.match(DESIGN, new RegExp(`\`${t.replace('.', '\\.')}`), `DESIGN §8.1 lists ${t}`);
@@ -853,7 +855,7 @@ test('同盟匹配 / 搜寻队友 (DESIGN §22): the protocol lists, the pool ru
   // The owner removed the deadline (2026-10-04: "不要那个120s超时了，如果没匹配到就一直匹配"): a pool waits forever, so
   // neither the option, the timer helpers nor the deadline field exist anywhere.
   assert.equal(LOBBY_DEFAULTS.matchQueueMaxWaitMs, undefined, 'the pool has no deadline option');
-  assert.ok(!/matchQueueMaxWaitMs/.test(S22), 'DESIGN §22 does not pin a deadline');
+  assert.ok(!/matchQueueMaxWaitMs/.test(S22), 'DESIGN §23 does not pin a deadline');
   assert.match(S22, /一直匹配|no deadline/);
   const lobbySrc = doc('server/lobby.js');
   for (const gone of ['armQueue', 'onQueueDeadline', 'matchQueueMaxWaitMs', 'MATCH_QUEUE_RETRY_MS']) {
