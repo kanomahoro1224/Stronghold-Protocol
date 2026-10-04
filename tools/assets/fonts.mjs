@@ -66,9 +66,12 @@ export async function buildFonts(fontsDir, log = console.log) {
       errors.push(`${f.name}: ${e.message}`);
     }
     files[f.name] = entry;
+    // Relative URLs on purpose: fonts.css sits next to the font files, so this resolves both when the app
+    // serves /fonts/* itself and when the whole tree is mirrored to a CDN under a path prefix. An absolute
+    // '/fonts/…' would silently lose that prefix — the CSS is resolved against its own URL, not the page.
     const srcs = [];
-    if (entry.woff2) srcs.push(`url('${entry.woff2}') format('woff2')`);
-    srcs.push(`url('${entry.original}') format('${f.ext === 'ttf' ? 'truetype' : 'opentype'}')`);
+    if (entry.woff2) srcs.push(`url('${f.name}.woff2') format('woff2')`);
+    srcs.push(`url('${f.name}.${f.ext}') format('${f.ext === 'ttf' ? 'truetype' : 'opentype'}')`);
     faces.push(`@font-face {\n  font-family: '${f.family}';\n  font-style: ${f.style};\n  font-weight: ${f.weight};\n` +
       `  font-display: swap;\n  src: ${srcs.join(',\n       ')};\n}`);
   }

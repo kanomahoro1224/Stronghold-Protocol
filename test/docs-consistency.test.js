@@ -29,9 +29,9 @@ import { fileURLToPath } from 'node:url';
 import { GameData } from '../server/match/gamedata.js';
 import { helperOrder } from '../server/match/unite.js';
 import { NET_DEFAULTS } from '../server/net.js';
-import { SOLO_RECONNECT_FALLBACK_SEC } from '../server/lobby.js';
+import { SOLO_RECONNECT_FALLBACK_SEC, LOBBY_DEFAULTS } from '../server/lobby.js';
 import { moduleTypeIconUrl } from '../public/js/ui/assetUrls.js';
-import { validateC2S } from '../shared/protocol.js';
+import { validateC2S, C2S, S2C } from '../shared/protocol.js';
 import { ERR, PHASE } from '../shared/constants.js';
 import { PROJECTILE_SPEEDS, BOOMERANG_RETURN_SPEED, ELEMENT, ELEMENT_ORDER, DOWN_STATE, BLOCK_RADIUS, FORCED_EXIT, ASPD_MIN, BOSS_POOL_MIN_HP, AUTO_OP_COOLDOWN, ALLY_COLLIDER_RADIUS } from '../server/sim/constants.js';
 import { SKILL_SUMMON_START_DEPLOY, BOND_LAYER_CAP, BOSS_HIT_LIMIT, layerGainRoom } from '../shared/constants.js';
@@ -828,4 +828,46 @@ test('the deliberate trigger deviation (DESIGN §21.29): six 重装 skills DEFAU
   assert.match(SIM, /the six of DESIGN §21\.29/);
   assert.match(PLAYING, /深巡、雷蛇的二技能，号角的二、三技能，灰毫的一、二技能按玩家反馈改为攻击范围内有敌人时就释放/);
   assert.match(doc('CHANGELOG.md'), /深巡、雷蛇的二技能，号角的二、三技能，灰毫的一、二技能改为攻击范围内有敌人时就释放/);
+});
+
+test('同盟匹配 / 搜寻队友 (DESIGN §22): the protocol lists, the pool rules and the client agree with the code', () => {
+  const S22 = DESIGN.slice(DESIGN.indexOf('## 22. 同盟匹配'));
+  assert.ok(S22.length > 500, 'DESIGN has a §22');
+  // §8.1 lists the two intents and the push; C2S/S2C know them and nothing else queue-shaped exists.
+  for (const t of ['queue.join', 'queue.leave']) {
+    assert.match(DESIGN, new RegExp(`\`${t.replace('.', '\\.')}`), `DESIGN §8.1 lists ${t}`);
+    assert.ok(Object.hasOwn(C2S, t), `C2S has ${t}`);
+  }
+  // Nobody may start a pool by hand (the owner, 2026-10-04): the intent does not exist at all.
+  assert.ok(!Object.hasOwn(C2S, 'queue.startAi'));
+  assert.ok(!/queue\.startAi/.test(DESIGN), 'DESIGN does not document a queue.startAi either');
+  assert.ok(!/queue\.startAi/.test(doc('public/js/screens/lobby.js')));
+  assert.match(DESIGN, /`queue\.state \{active, difficulty, size, max, waitedMs, solo\}`/);
+  assert.equal(validateC2S({ t: 'queue.join', difficulty: 'HARD' }), null);
+  assert.equal(validateC2S({ t: 'queue.join', difficulty: 'NOPE' }), 'bad field difficulty', 'difficulty is validated');
+  assert.equal(validateC2S({ t: 'queue.leave' }), null);
+  assert.ok(S2C.includes('queue.state'), 'S2C pushes the queue state');
+  // §0 no longer calls the matchmaking queue out of scope.
+  assert.match(DESIGN, /Out of scope v1: training\/tutorial/);
+  assert.ok(!/Out of scope v1: matchmaking queue/.test(DESIGN));
+  // The owner removed the deadline (2026-10-04: "不要那个120s超时了，如果没匹配到就一直匹配"): a pool waits forever, so
+  // neither the option, the timer helpers nor the deadline field exist anywhere.
+  assert.equal(LOBBY_DEFAULTS.matchQueueMaxWaitMs, undefined, 'the pool has no deadline option');
+  assert.ok(!/matchQueueMaxWaitMs/.test(S22), 'DESIGN §22 does not pin a deadline');
+  assert.match(S22, /一直匹配|no deadline/);
+  const lobbySrc = doc('server/lobby.js');
+  for (const gone of ['armQueue', 'onQueueDeadline', 'matchQueueMaxWaitMs', 'MATCH_QUEUE_RETRY_MS']) {
+    assert.ok(!lobbySrc.includes(gone), `server/lobby.js has no ${gone}`);
+  }
+  assert.ok(!doc('server/index.js').includes('matchQueueMaxWaitMs'), 'the lobby option allow-list has no deadline');
+  assert.match(lobbySrc, /solo: size < 2/, 'solo is recomputed from the live pool size');
+  assert.equal(LOBBY_DEFAULTS.matchQueueMaxPerAddr, 8);
+  // The client sends exactly those two intents, and the third mode card exists.
+  const screen = doc('public/js/screens/lobby.js');
+  for (const t of ['queue.join', 'queue.leave']) assert.match(screen, new RegExp(`net\\.request\\('${t.replace('.', '\\.')}'`));
+  assert.match(screen, /id: 'match', name: '同盟匹配'/);
+  assert.match(doc('public/js/main.js'), /net\.on\('queue\.state'/);
+  assert.match(doc('public/css/screens/lobby.css'), /repeat\(3, minmax\(0, 1fr\)\)/);
+  // CHANGELOG tells players about it (the release-version test reads its first entry).
+  assert.match(doc('CHANGELOG.md'), /同盟匹配/);
 });

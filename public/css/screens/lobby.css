@@ -2,6 +2,8 @@
    screens/lobby.css — mode cards (独立/同盟), difficulty cards, create button, join panel.
    ========================================================================================== */
 
+.lobby-screen .topbar__left { flex-wrap: wrap; gap: .1rem; }
+
 .lobby-body {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
@@ -15,7 +17,7 @@
 .lobby-left, .lobby-right { display: flex; flex-direction: column; min-width: 0; }
 
 /* ---- mode cards ------------------------------------------------------------------------------------ */
-.mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: .24rem; margin-bottom: .34rem; }
+.mode-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .24rem; margin-bottom: .34rem; }
 .mode-card {
   --bk-c: transparent;
   --bk-l: .2rem;
@@ -238,3 +240,26 @@
 .create-box { margin-top: .3rem; display: flex; flex-direction: column; gap: .12rem; }
 .create-box .btn--xl { height: .92rem; font-size: .32rem; letter-spacing: .3em; }
 .create-box__hint { display: flex; align-items: center; justify-content: center; min-height: .3rem; font-size: .14rem; color: var(--text-lo); }
+
+/* ---- 搜寻队友 (matchmaking, DESIGN §22) --------------------------------------------------------------- */
+/* The left column while the server keeps this session in a queue pool; the create button becomes a status strip. */
+.match-panel { margin-bottom: .34rem; }
+.match-panel__clock { font-size: .34rem; font-weight: 900; color: var(--mint-400); letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+.match-panel__status { display: flex; align-items: center; gap: .22rem; margin-bottom: .2rem; }
+.match-panel__meta { display: flex; flex-direction: column; gap: .05rem; min-width: 0; }
+.match-panel__count { font-size: .32rem; font-weight: 900; color: var(--text-hi); }
+.match-panel__count .t-dim { font-size: .2rem; }
+.match-panel__note { margin: .2rem 0 0; font-size: .16rem; color: var(--text-md); line-height: 1.7; }
+.match-panel__actions { display: flex; gap: .12rem; margin-top: .22rem; }
+.match-panel__actions .btn { flex: 1; min-width: 0; }
+.match-panel__facts { display: flex; flex-direction: column; gap: .06rem; margin: .2rem 0 0; padding: 0; list-style: none; font-size: .15rem; color: var(--text-lo); }
+.match-panel__facts li::before { content: '·'; margin-right: .06rem; color: var(--mint-400); font-weight: 900; }
+.create-box__searching {
+  display: flex; align-items: center; justify-content: center; gap: .14rem; min-height: .92rem; padding: 0 .24rem;
+  text-align: left; font-size: .18rem; color: var(--text-md);
+  background: linear-gradient(180deg, rgba(78, 216, 175, .07), rgba(13, 16, 15, .5));
+  border: 1px dashed var(--mint-800);
+}
+/* Difficulty is locked while the pool is keyed by it (re-pick after 取消搜寻). */
+.diff-card:disabled { cursor: not-allowed; opacity: .5; }
+.diff-card:disabled:hover { border-color: var(--line); }

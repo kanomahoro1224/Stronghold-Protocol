@@ -236,8 +236,11 @@
 }
 .title-invite .icon { width: .2rem; height: .2rem; }
 .title-invite b { font-size: .2rem; letter-spacing: .2em; color: #ffd08a; }
-.title-conn { display: flex; align-items: center; justify-content: center; gap: .1rem; min-height: .32rem; font-size: .14rem; color: var(--text-lo); }
+.title-conn { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .08rem .1rem; min-height: .32rem; font-size: .14rem; color: var(--text-lo); }
+.title-conn__status, .title-conn__metrics, .title-conn__actions { display: inline-flex; align-items: center; gap: .08rem; white-space: nowrap; }
 .title-conn .ping { height: .26rem; font-size: .15rem; }
+.title-conn .online-pill { height: .26rem; }
+.title-conn .online-pill__value { font-size: .15rem; }
 
 .title-foot {
   position: absolute;

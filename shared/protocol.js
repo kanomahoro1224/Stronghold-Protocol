@@ -249,6 +249,14 @@ export const C2S = {
   // operator loadout (DESIGN §16): stored per session/seat; accepted until the match leaves INFO_CHECK
   'room.loadout': { entries: isLoadoutEntries },
 
+  // 搜寻队友 (matchmaking, research 06 §3.3, DESIGN §22): one entry per session, one pool per difficulty. The server
+  // forms a co-op room from the pool once 4 connected humans wait in it; the free seats (only reachable through a
+  // reconnect) go to AI teammates and the match starts right away (no ready check). A smaller pool just keeps
+  // searching — there is no deadline and no AI fill — and nothing else starts it: nobody gets to cut another
+  // doctor's search short.
+  'queue.join': { difficulty: (v) => DIFFICULTIES.includes(v) },
+  'queue.leave': {},
+
   // match
   'g.infoReady': {},
   'g.band': { bandId: isId },
@@ -298,7 +306,15 @@ export const C2S = {
 // Server → client message types (documentation + client dispatch table keys).
 export const S2C = [
   'welcome', 'ok', 'error', 'pong',
+  // presence { onlineCount } — currently connected browsers, including title visitors before hello; excludes AI.
+  'presence',
   'room.state', 'room.closed',
+  // 搜寻队友 (DESIGN §22): queue.state { active, difficulty, size, max, waitedMs, solo } — pushed to a queued
+  // session on join / pool change (solo: true ⇒ nobody else is waiting right now, so the client says so and points
+  // at 同盟模拟 + AI instead). active: false ⇒ this session left the queue. The search has no deadline: it runs
+  // until four connected doctors are in the pool or the searcher cancels. The room a matchmade pool forms arrives as
+  // a normal room.state, so the client switches to the room screen by itself.
+  'queue.state',
   'm.public', 'm.private', 'm.field', 'm.toast', 'm.ticker', 'm.emote', 'm.result',
   // m.unitStats { seq, round, units: [unitStatsEntry] } — the answer to g.unitStats (the requester only)
   'm.unitStats',

@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from '../../vendor/hooks.module.js';
 import { NAME_MAX_LEN, APP_VERSION } from '../../../shared/constants.js';
-import { html, Button, Icon, MicroLabel, TextField, PingPill } from '../ui/components.js';
+import { html, Button, Icon, MicroLabel, TextField, PingPill, OnlinePill } from '../ui/components.js';
 import { GuideButton } from '../ui/guide.js';
 import { toast } from '../ui/toasts.js';
 import { net, identity } from '../net.js';
@@ -254,11 +254,18 @@ export function TitleScreen() {
           onInput=${setName} onEnter=${start} />
         <${Button} variant="primary" size="xl" block=${true} iconRight="chevrons" disabled=${!valid} onClick=${start}>开始<//>
         <div class="title-conn">
-          <span class=${`status-dot ${dotClass}`}></span>
-          <span>${STATUS_TEXT[conn.status] || conn.status}</span>
-          ${conn.status === 'online' ? html`<${PingPill} ms=${conn.ping} />` : null}
-          <${GuideButton} class="title-guide" />
-          <${FullscreenButton} class="title-fs" />
+          <span class="title-conn__status">
+            <span class=${`status-dot ${dotClass}`}></span>
+            <span>${STATUS_TEXT[conn.status] || conn.status}</span>
+          </span>
+          <span class="title-conn__metrics">
+            ${conn.status === 'online' ? html`<${PingPill} ms=${conn.ping} />` : null}
+            <${OnlinePill} count=${conn.onlineCount} />
+          </span>
+          <span class="title-conn__actions">
+            <${GuideButton} class="title-guide" />
+            <${FullscreenButton} class="title-fs" />
+          </span>
         </div>
       </div>
     </main>

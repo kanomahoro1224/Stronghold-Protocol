@@ -147,7 +147,9 @@ html:not(.sp-in-match) .toast-host { margin-top: var(--sa-t); }
   .mode-card { min-height: 0; gap: .12rem; padding: .22rem .26rem .2rem; }
   .mode-card__icon { width: .66rem; height: .66rem; }
   .mode-card__name { font-size: .4rem; }
-  .mode-card__points, .diff-card__effects, .tips, .create-box__hint { display: none; }
+  .mode-card__points, .mode-card__desc, .diff-card__effects, .tips, .create-box__hint, .match-panel__facts, .match-panel__note { display: none; }
+  .match-panel__actions .btn { height: .8rem; }
+  .create-box__searching { min-height: .8rem; }
   .diff-list { gap: .1rem; }
   .diff-card { padding-top: .12rem; padding-bottom: .12rem; }
   .create-box { margin-top: .18rem; }

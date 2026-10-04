@@ -128,7 +128,7 @@ function backToLobby() {
   clearTimeout(restoreTimer);
   const s = store.get();
   if (s.room || s.match.public) closeAllDialogs();
-  store.set({ room: null, match: emptyMatch(), ticker: [], emotes: [] });
+  store.set({ room: null, match: emptyMatch(), ticker: [], emotes: [], queue: null });
   store.patch('ui', { restoring: false });
 }
 
@@ -192,7 +192,7 @@ function wireNet() {
     const cur = store.get().connection;
     store.set({
       connection: {
-        status: snap.status, ping: snap.ping, attempt: snap.attempt, retryAt: snap.retryAt,
+        status: snap.status, ping: snap.ping, onlineCount: snap.onlineCount, attempt: snap.attempt, retryAt: snap.retryAt,
         lastError: snap.lastError, everOnline: cur.everOnline || snap.status === 'online',
       },
     });
@@ -203,6 +203,21 @@ function wireNet() {
   net.on('replaced', () => toast('该身份已在其他页面登录，本页已断开', 'warn', { ttl: 6000 }));
   net.on('unhandledError', (err) => toastError(err));
   net.on('room.state', onRoomState);
+  // 搜寻队友 / matchmaking (DESIGN §22). `active: false` = this session is out of the pool (cancelled, or the room it
+  // was formed into is arriving as a room.state right after). `since` anchors the local elapsed counter on the
+  // server's snapshot, so counting up needs no further traffic.
+  net.on('queue.state', (msg) => {
+    if (!msg.active) { store.set({ queue: null }); return; }
+    store.set({
+      queue: {
+        difficulty: msg.difficulty,
+        size: msg.size,
+        max: msg.max,
+        solo: !!msg.solo,
+        since: Date.now() - (Number(msg.waitedMs) || 0),
+      },
+    });
+  });
   net.on('room.closed', (msg) => {
     backToLobby();
     toast(CLOSE_REASON[msg.reason] || (typeof msg.reason === 'string' && msg.reason.length < 60 ? `同盟已关闭：${msg.reason}` : '同盟已关闭'), 'warn');

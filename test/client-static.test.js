@@ -454,6 +454,81 @@ describe('net.js', () => {
     assert.equal(ws().last('hello').token, undefined);
   });
 
+  test('presence is available before hello, updates live and survives the handshake', async () => {
+    const { net, ws } = await makeNet();
+    const counts = [];
+    net.on('status', (snap) => counts.push(snap.onlineCount));
+    assert.equal(net.snapshot().onlineCount, null, 'unknown is distinct from zero');
+    net.connect();
+    ws().open();
+    ws().recv({ t: 'presence', onlineCount: 3 });
+    assert.equal(net.status, 'connected');
+    assert.equal(net.snapshot().onlineCount, 3, 'title screen can read the count before entering');
+    ws().recv({ t: 'presence', onlineCount: 4 });
+    assert.equal(counts.at(-1), 4, 'new count reaches the store via the status event');
+    net.setName('A');
+    ws().recv({ t: 'welcome', rid: ws().last('hello').rid, playerId: 'p', token: 't', name: 'A', serverNow: 1 });
+    assert.equal(net.snapshot().onlineCount, 4, 'welcome does not erase presence');
+    ws().recv({ t: 'presence', onlineCount: 0 });
+    assert.equal(net.snapshot().onlineCount, 0, 'zero is a valid known count');
+    net.close();
+  });
+
+  test('malformed presence does not overwrite a valid count', async () => {
+    const { net, ws } = await onlineNet();
+    ws().recv({ t: 'presence', onlineCount: 12 });
+    for (const onlineCount of [null, undefined, '2', -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      ws().recv({ t: 'presence', onlineCount });
+      assert.equal(net.snapshot().onlineCount, 12);
+    }
+    net.close();
+  });
+
+  test('duplicate presence does not emit redundant status updates', async () => {
+    const { net, ws, statuses } = await onlineNet();
+    ws().recv({ t: 'presence', onlineCount: 3 });
+    const before = statuses.length;
+    ws().recv({ t: 'presence', onlineCount: 3 });
+    assert.equal(statuses.length, before);
+    assert.equal(net.snapshot().onlineCount, 3);
+  });
+
+  test('quiet title socket rotation clears the visible count before the next socket opens', async () => {
+    const { net, ws, timers } = await makeNet();
+    let visibleCount;
+    net.on('status', (snap) => { visibleCount = snap.onlineCount; });
+    net.connect();
+    ws().open();
+    ws().recv({ t: 'presence', onlineCount: 5 });
+    for (let i = 0; i < 10; i++) { ws0Pong(ws()); timers.advance(4000); }
+    ws0Pong(ws());
+    ws().drop(4002);
+    assert.equal(net.status, 'connected', 'quiet rotation does not show a reconnect banner');
+    assert.equal(ws().readyState, 0, 'the replacement socket has not opened');
+    assert.equal(visibleCount, null, 'subscribers must not display the old count during the quiet swap');
+    ws().open();
+    ws().recv({ t: 'presence', onlineCount: 4 });
+    assert.equal(visibleCount, 4);
+  });
+
+  test('disconnect clears stale presence until a new socket supplies a count', async () => {
+    const { net, ws, timers } = await onlineNet();
+    ws().recv({ t: 'presence', onlineCount: 7 });
+    const oldReceive = ws().onmessage;
+    ws().drop();
+    assert.equal(net.status, 'reconnecting');
+    assert.equal(net.snapshot().onlineCount, null);
+    timers.advance(501);
+    ws().open();
+    assert.equal(net.snapshot().onlineCount, null, 'opening a new socket does not restore stale presence');
+    oldReceive({ data: JSON.stringify({ t: 'presence', onlineCount: 999 }) });
+    assert.equal(net.snapshot().onlineCount, null, 'late frames from the old socket are ignored');
+    ws().recv({ t: 'presence', onlineCount: 2 });
+    assert.equal(net.snapshot().onlineCount, 2);
+    net.close();
+    assert.equal(net.snapshot().onlineCount, null, 'manual close clears presence too');
+  });
+
   test('request resolves on ok, rejects on error with ERR text', async () => {
     const { net, ws } = await onlineNet();
     const p1 = net.request('room.create', { mode: 'coop', difficulty: 'HARD' });

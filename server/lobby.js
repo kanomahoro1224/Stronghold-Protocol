@@ -75,6 +75,9 @@ export const LOBBY_DEFAULTS = Object.freeze({
   maxMatchesPerAddr: 8,   // matches started from one client network that may run at once (0 = unlimited)
   resyncMinGapMs: 1000,   // heavy resyncs (match state / result replay) per session at most this often on repeated hellos
   soloReconnectWindowMs: null, // a dropped solo run stays resumable this long (null = data singleReconnectTime, 24 h)
+  // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §22)
+  matchQueueMaxPerAddr: 8,      // queue entries from one client network at once (0 = unlimited)
+  matchQueueMax: 128,           // entries per difficulty pool
 });
 
 /** Official `singleReconnectTime` (s) when the data lacks it (constData, research 01 §1). */
@@ -185,6 +188,12 @@ export class Lobby {
     this.graceTimers = new Map();
     /** @type {Map<string, NodeJS.Timeout>} deferred (coalesced) resyncs by playerId */
     this.resyncTimers = new Map();
+    /**
+     * 搜寻队友 pools by difficulty (DESIGN §22): `{ difficulty, entries: [{ session, at }] }`. A pool has no timer —
+     * the search runs until four connected doctors are in it (or the searcher cancels), so nothing expires by itself.
+     * @type {Map<string, { difficulty: string, entries: { session: any, at: number }[] }>}
+     */
+    this.queues = new Map();
     /** per-network limit warnings: at most one log line per 10 s (the rest are counted) */
     this.limitLog = { at: -Infinity, suppressed: 0 };
   }
@@ -201,12 +210,19 @@ export class Lobby {
       if (r.match) matches++;
       for (const s of r.seats) if (s && !s.left) (s.isBot ? bots++ : humans++);
     }
-    return { rooms: this.rooms.size, matches, humans, bots };
+    return { rooms: this.rooms.size, matches, humans, bots, queued: this.queueSize() };
   }
 
   // ---------------------------------------------------------------------------------------------------
   // net.js handler interface
   // ---------------------------------------------------------------------------------------------------
+
+  /** Entries waiting in every 搜寻队友 pool (healthz + the per-network cap). */
+  queueSize() {
+    let n = 0;
+    for (const pool of this.queues.values()) n += pool.entries.length;
+    return n;
+  }
 
   /**
    * After `welcome`: resend room state / match state for resumed (or repeated) hellos.
@@ -215,6 +231,14 @@ export class Lobby {
    */
   onHello(session, { resumed, repeat }) {
     if (!resumed && !repeat) return;
+    const pool = this.queueOf(session);
+    if (pool) {
+      // Reconnected while searching: bring the 搜寻 panel back. The reconnect may also be the fourth doctor the pool
+      // was waiting for — the pool has no timer, so a group only ever forms on an event like this one.
+      this.pruneQueue(pool);
+      if (this.connectedIn(pool) >= MAX_SEATS && this.formQueue(pool, 2)) return;
+      this.sendQueue(pool, session);
+    }
     const room = this.roomOf(session);
     if (!room) {
       if (session.notice) {
@@ -259,6 +283,8 @@ export class Lobby {
       case 'room.removeBot': return this.removeBot(session, msg);
       case 'room.start': return this.start(session);
       case 'room.loadout': return this.loadout(session, msg);
+      case 'queue.join': return this.queueJoin(session, msg);
+      case 'queue.leave': return this.queueLeave(session);
       default:
         if (typeof msg.t === 'string' && msg.t.startsWith('g.')) return this.routeGame(session, msg);
         return fail(ERR.BAD_MSG, `unhandled type ${String(msg.t).slice(0, 32)}`);
@@ -268,6 +294,14 @@ export class Lobby {
   /** The session's socket closed. @param {import('./net.js').Session} session */
   onDisconnect(session) {
     this.clearResync(session.playerId); // the next resume resyncs immediately
+    // A searcher who drops keeps their pool entry (a reconnect resumes the search), but the doctors still waiting
+    // must see the smaller count — and the solo hint — right away: with no deadline timer there is nothing else that
+    // would tell them (DESIGN §22).
+    const waiting = this.queueOf(session);
+    if (waiting) {
+      this.pruneQueue(waiting);
+      this.broadcastQueue(waiting);
+    }
     const room = this.roomOf(session);
     // a solo run may be resumed within singleReconnectTime (24 h); everything else keeps the registry's window
     session.resumeWindowMs = room && room.match && room.mode === 'solo' ? this.soloResumeWindowMs() : null;
@@ -284,6 +318,7 @@ export class Lobby {
     session.notice = null;
     session.pendingResult = null;
     this.clearResync(session.playerId);
+    this.dequeue(session, { notify: false }); // a search does not outlive the session that started it
     const code = session.roomCode;
     session.roomCode = null;
     const room = code ? this.rooms.get(code) : null;
@@ -300,6 +335,7 @@ export class Lobby {
     this.graceTimers.clear();
     for (const t of this.resyncTimers.values()) clearTimeout(t);
     this.resyncTimers.clear();
+    for (const pool of [...this.queues.values()]) this.clearPool(pool);
   }
 
   // ---------------------------------------------------------------------------------------------------
@@ -321,6 +357,9 @@ export class Lobby {
     }
     const code = this.genCode();
     if (!code) return fail(ERR.INTERNAL, 'no room code available');
+    // Only once the create can no longer fail: a refused create must not silently end a 搜寻队友 search, or the
+    // client would be left showing a search panel the server has already forgotten (DESIGN §22).
+    this.dequeue(session, { notify: false });
     if (cur) this.removeMember(cur, session.playerId);
     const room = new Room(code, mode, difficulty, this.now());
     room.ownerKey = key;
@@ -346,6 +385,8 @@ export class Lobby {
     if (room.mode === 'solo') return fail(ERR.ROOM_FULL, 'solo room');
     const idx = room.freeSeat();
     if (idx < 0) return fail(ERR.ROOM_FULL);
+    // Only once the join can no longer fail: a refused join must not silently end a 搜寻队友 search (DESIGN §22).
+    this.dequeue(session, { notify: false });
     if (cur) this.removeMember(cur, session.playerId);
     room.seats[idx] = this.humanSeat(idx, session);
     session.roomCode = room.code;
@@ -397,15 +438,25 @@ export class Lobby {
     if (room.match) return fail(ERR.ROOM_STARTED);
     this.dropReplay(room, session.playerId);
     if (room.mode === 'solo') return fail(ERR.ROOM_FULL, 'solo rooms cannot have AI teammates');
+    if (this.seatBot(room) < 0) return fail(ERR.ROOM_FULL);
+    this.broadcastState(room);
+    return OK;
+  }
+
+  /**
+   * Seat one AI teammate in the room's lowest free seat (room.addBot and 搜寻队友's fill-up, DESIGN §22).
+   * @param {Room} room
+   * @returns {number} the seat index, or -1 when the room has no free seat
+   */
+  seatBot(room) {
     const idx = room.freeSeat();
-    if (idx < 0) return fail(ERR.ROOM_FULL);
+    if (idx < 0) return -1;
     const used = new Set(room.seats.filter((s) => s && s.isBot).map((s) => s.name));
     const name = BOT_NAMES.find((n) => !used.has(n)) || `AI·${idx + 1}`;
     let playerId;
     do playerId = 'ai_' + randomBytes(4).toString('hex'); while (room.seatOf(playerId));
     room.seats[idx] = { seat: idx, playerId, name, isBot: true, ready: true, connected: true, left: false };
-    this.broadcastState(room);
-    return OK;
+    return idx;
   }
 
   removeBot(session, { seat }) {
@@ -469,6 +520,221 @@ export class Lobby {
       return fail(isErrCode(r.error) ? r.error : ERR.INTERNAL, typeof r.detail === 'string' ? r.detail : undefined);
     }
     return OK;
+  }
+
+  // ---------------------------------------------------------------------------------------------------
+  // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §22)
+  // ---------------------------------------------------------------------------------------------------
+
+  /**
+   * `queue.join {difficulty}`: search for teammates in that difficulty's pool. One entry per session — an existing
+   * lobby room is left first (like room.create) and searching while a match runs is refused. Four connected doctors
+   * form a room at once; with fewer the pool simply keeps waiting (no deadline, no AI fill — the searcher cancels or
+   * keeps waiting, DESIGN §22).
+   */
+  queueJoin(session, { difficulty }) {
+    const cur = this.roomOf(session);
+    if (cur && cur.match) return fail(ERR.ROOM_STARTED, 'leave your running match first');
+    const had = this.queueOf(session);
+    if (had && had.difficulty === difficulty) { this.sendQueue(had, session); return OK; } // repeated click / reconnect
+    if (had) this.dequeue(session, { notify: false });
+    let entries = 0;
+    let mine = 0;
+    const key = session.limitKey || null;
+    for (const pool of this.queues.values()) {
+      this.pruneQueue(pool); // ghosts would count against the caps and could refuse a real searcher
+      entries += pool.entries.length;
+      if (key) for (const e of pool.entries) if (e.session.limitKey === key) mine++;
+    }
+    if (entries >= this.opts.matchQueueMax) return fail(ERR.RATE, 'the matchmaking queue is full');
+    if (key && this.opts.matchQueueMaxPerAddr > 0 && mine >= this.opts.matchQueueMaxPerAddr) {
+      this.limitWarn(`matchmaking queue limit (${this.opts.matchQueueMaxPerAddr}) reached for ${session.addr}`);
+      return fail(ERR.RATE, 'too many search requests from your network');
+    }
+    if (cur) this.removeMember(cur, session.playerId);
+    const pool = this.poolOf(difficulty);
+    pool.entries.push({ session, at: this.now() });
+    this.log.info(`[lobby] queue/${difficulty}: +${session.name} (${this.connectedIn(pool)}/${MAX_SEATS} 真人)`);
+    // Four connected humans start at once. Fewer than that keep waiting: there is no deadline and no AI fill, so a
+    // failed formation (room cap, code space) just leaves the pool for the next join / reconnect to retry.
+    if (this.connectedIn(pool) >= MAX_SEATS && this.formQueue(pool, 2)) return OK;
+    this.broadcastQueue(pool);
+    return OK;
+  }
+
+  /**
+   * `queue.leave`: cancel the search. Idempotent — the client may click twice, or cancel after a formation.
+   */
+  queueLeave(session) {
+    this.dequeue(session, { notify: true });
+    return OK;
+  }
+
+  /** The pool a session waits in, or null. Pools are tiny (≤ MAX_SEATS) and there is at most one per difficulty. */
+  queueOf(session) {
+    for (const pool of this.queues.values()) if (pool.entries.some((e) => e.session === session)) return pool;
+    return null;
+  }
+
+  /** Humans still connected in a pool: what `queue.state.size` reports and who fills the room. */
+  connectedIn(pool) {
+    let n = 0;
+    for (const e of pool.entries) if (e.session.connected) n++;
+    return n;
+  }
+
+  /** The pool of a difficulty, created on demand. */
+  poolOf(difficulty) {
+    let pool = this.queues.get(difficulty);
+    if (!pool) {
+      pool = { difficulty, entries: [] };
+      this.queues.set(difficulty, pool);
+    }
+    return pool;
+  }
+
+  /**
+   * Earliest join time among the pool's **connected** members, or Infinity when nobody is connected. A member who
+   * dropped keeps their entry (a reconnect resumes the search) but must not drive the count-up: otherwise a stale
+   * entry would show the next searcher a wait that started before they arrived.
+   */
+  firstAt(pool) {
+    let first = Infinity;
+    for (const e of pool.entries) if (e.session.connected && e.at < first) first = e.at;
+    return first;
+  }
+
+  /**
+   * Drop entries whose session is gone from the registry. The registry evicts an old, disconnected, roomless
+   * session without calling `onExpire`, so a queued ghost would otherwise keep counting against `matchQueueMax`
+   * and `matchQueueMaxPerAddr` forever. Callers are the pool's write paths (join, formation, reconnect).
+   * @returns {number} entries dropped
+   */
+  pruneQueue(pool) {
+    const live = pool.entries.filter((e) => e.session.connected || this.registry.byId(e.session.playerId) === e.session);
+    const dropped = pool.entries.length - live.length;
+    if (dropped) pool.entries = live;
+    return dropped;
+  }
+
+  /** Take a session out of its pool (cancel, room switch, expiry). */
+  dequeue(session, { notify = true } = {}) {
+    const pool = this.queueOf(session);
+    if (!pool) {
+      if (notify) sendSession(session, { t: 'queue.state', active: false });
+      return false;
+    }
+    pool.entries = pool.entries.filter((e) => e.session !== session);
+    if (pool.entries.length) this.broadcastQueue(pool);
+    else this.clearPool(pool);
+    if (notify) sendSession(session, { t: 'queue.state', active: false });
+    return true;
+  }
+
+  /** Drop every entry (the pool formed a room, or emptied). */
+  clearPool(pool) {
+    pool.entries = [];
+    this.queues.delete(pool.difficulty);
+  }
+
+  /**
+   * `queue.state` for a pool: `waitedMs` lets the client count the search up without extra traffic. There is no
+   * deadline — `solo` is just "you are the only one searching right now", recomputed on every send.
+   * @returns {object | null} null when nobody in the pool is connected (nothing to report)
+   */
+  queueState(pool) {
+    const first = this.firstAt(pool);
+    if (first === Infinity) return null;
+    const size = this.connectedIn(pool);
+    return {
+      t: 'queue.state',
+      active: true,
+      difficulty: pool.difficulty,
+      size,
+      max: MAX_SEATS,
+      waitedMs: Math.max(0, this.now() - first),
+      solo: size < 2,
+    };
+  }
+
+  broadcastQueue(pool) {
+    const st = this.queueState(pool);
+    if (!st) return;
+    for (const e of pool.entries) if (e.session.connected) sendSession(e.session, st);
+  }
+
+  sendQueue(pool, session) {
+    const st = this.queueState(pool);
+    if (st) sendSession(session, st);
+  }
+
+  /**
+   * Form a co-op room out of a pool and start it: every connected member is seated, the free seats get AI teammates,
+   * everyone is ready by construction (匹配成功直接开局, no ready check) and the match starts at once.
+   * @param {{ difficulty: string, entries: { session: any, at: number }[] }} pool
+   * @param {number} minHumans the connected humans a formation needs (2: the caller only forms a full pool)
+   * @returns {boolean} whether a room was formed (false leaves the pool untouched)
+   */
+  formQueue(pool, minHumans) {
+    this.pruneQueue(pool);
+    const members = [];
+    for (const e of pool.entries) {
+      const s = e.session;
+      // A member who dropped merely stops being counted (their entry stays, so a reconnect resumes the search);
+      // anyone who started something else meanwhile is out.
+      if (!s.connected) continue;
+      const room = this.roomOf(s);
+      if (room && room.match) continue;
+      members.push(s);
+    }
+    if (members.length < minHumans) return false;
+    if (this.rooms.size >= this.opts.maxRooms) {
+      this.log.error(`[lobby] queue/${pool.difficulty}: ${this.rooms.size} rooms is the cap — not forming`);
+      return false;
+    }
+    const code = this.genCode();
+    if (!code) return false;
+    const difficulty = pool.difficulty;
+    // A room holds MAX_SEATS. More connected humans than that is only reachable through reconnects (queue.join forms
+    // at four), and then the earliest four play while the rest keep searching instead of being dropped on the floor.
+    const seated = members.slice(0, MAX_SEATS);
+    pool.entries = pool.entries.filter((e) => !seated.includes(e.session));
+    if (!pool.entries.length) this.clearPool(pool);
+    const room = new Room(code, 'coop', difficulty, this.now());
+    room.ownerKey = seated[0].limitKey || null;
+    for (const s of seated) {
+      const idx = room.freeSeat();
+      if (idx < 0) break; // defensive: `seated` is capped at MAX_SEATS
+      const seat = this.humanSeat(idx, s);
+      seat.ready = true;
+      room.seats[idx] = seat;
+      s.roomCode = code;
+      s.notice = null;
+      s.pendingResult = null;
+    }
+    room.hostId = seated[0].playerId;
+    this.rooms.set(code, room);
+    while (this.seatBot(room) >= 0) { /* AI teammates fill the alliance up */ }
+    const ai = room.seats.filter((s) => s && s.isBot).length;
+    this.log.info(`[lobby] ${code} 搜寻队友 formed (${difficulty}: ${room.activeHumans().length} 真人 + ${ai} AI)`);
+    // The search is over for everyone seated: clear the clients' 搜寻 panel before the room.state that replaces the
+    // screen. Whoever is left waiting gets the smaller pool instead.
+    for (const s of seated) sendSession(s, { t: 'queue.state', active: false });
+    if (pool.entries.length) this.broadcastQueue(pool);
+    this.broadcastState(room); // every client switches to the room screen on this frame
+    this.startMatch(room, this.matchKeyFor(seated));
+    return true;
+  }
+
+  /**
+   * Per-network match attribution of a formed group: the earliest member's network. Attributed unconditionally, so a
+   * formed match always counts against `maxMatchesPerAddr` — returning null when every member's network was at its
+   * cap would let one network keep forming groups past it. The group itself is never refused because of a
+   * teammate's network: the queue's own `matchQueueMaxPerAddr` entry cap already bounds that.
+   */
+  matchKeyFor(members) {
+    for (const m of members) if (m.limitKey) return m.limitKey;
+    return null;
   }
 
   // ---------------------------------------------------------------------------------------------------

@@ -755,6 +755,26 @@
 .ping--high { --pc: var(--red-premium); }
 .ping--off { --pc: var(--text-dim); }
 
+/* ---- online presence pill --------------------------------------------------------------------------- */
+.online-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: .05rem;
+  height: .32rem;
+  padding: 0 .11rem;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: rgba(0, 0, 0, .5);
+  color: var(--mint-400);
+  white-space: nowrap;
+  line-height: 1;
+}
+.online-pill__icon { width: .15rem; height: .15rem; }
+.online-pill__label { color: var(--text-lo); font-size: .13rem; }
+.online-pill__value { font-family: var(--font-num); font-size: .18rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.online-pill--unknown { color: var(--text-dim); }
+
 /* ---- difficulty tag ---------------------------------------------------------------------------------- */
 .dtag { --d-color: var(--amber); display: inline-flex; align-items: center; gap: .06rem; color: var(--d-color); font-weight: 700; font-size: .18rem; letter-spacing: .04em; white-space: nowrap; }
 .dtag__icon { width: 1.15em; height: 1.15em; filter: drop-shadow(0 0 4px var(--d-color)); filter: drop-shadow(0 0 4px color-mix(in srgb, var(--d-color) 65%, transparent)); }

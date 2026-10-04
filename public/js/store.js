@@ -1,10 +1,11 @@
 // Minimal observable store for the browser client.
 //
 // One app-wide store holds everything the UI renders from:
-//   connection  – socket status + latency (fed by net.js via main.js)
+//   connection  – socket status + latency + online count (fed by net.js via main.js)
 //   me          – { playerId, name, token } from `welcome`
 //   session     – { entered } (the player pressed 开始 on the title screen in this tab)
 //   room        – last `room.state` payload (without `t`) or null
+//   queue       – 搜寻队友 (matchmaking, DESIGN §22) search state, or null when not searching
 //   match       – { public, private, field, result } from the `m.*` pushes; `battle` = the local battle runner's
 //                 state (client-side combat, public/js/battle/runner.js): { battleId, fieldId, kind, authoritative,
 //                 watch, done, own, members, loading, speed, paused, leaks } | null — `paused`: the solo pause holds
@@ -74,10 +75,14 @@ export const emptyMatch = () => ({ public: null, private: null, field: null, res
 
 /** Initial app state (exported for tests and resets). */
 export const initialState = Object.freeze({
-  connection: { status: 'idle', ping: null, attempt: 0, retryAt: 0, lastError: null, everOnline: false },
+  connection: { status: 'idle', ping: null, onlineCount: null, attempt: 0, retryAt: 0, lastError: null, everOnline: false },
   me: { playerId: null, name: '', token: null },
   session: { entered: false },
   room: null,
+  // 搜寻队友 (DESIGN §22): the last `queue.state` (searching for teammates) or null when not searching —
+  // { difficulty, size, max, solo, since }. `since` is a local Date.now() anchor (the server's `waitedMs` is a
+  // snapshot), so the panel can count the search up without asking the server again. There is no deadline.
+  queue: null,
   match: emptyMatch(),
   ticker: [],
   emotes: [],

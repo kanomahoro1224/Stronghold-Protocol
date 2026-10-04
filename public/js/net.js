@@ -140,6 +140,7 @@ export class Net {
     this.attempt = 0;          // consecutive failed connection attempts
     this.retryAt = 0;          // epoch ms of the next reconnect attempt (0 = none)
     this.ping = null;          // last RTT in ms
+    this.onlineCount = null;   // latest server-wide presence count; unknown until the server sends it
     this.lastError = null;     // last NetError relevant to the connection (e.g. hello rejected)
     this.clockOffset = 0;
     this.clockSynced = false;
@@ -194,7 +195,7 @@ export class Net {
   /** Snapshot of the connection state (what the 'status' event carries). */
   snapshot() {
     return {
-      status: this.status, attempt: this.attempt, retryAt: this.retryAt, ping: this.ping,
+      status: this.status, attempt: this.attempt, retryAt: this.retryAt, ping: this.ping, onlineCount: this.onlineCount,
       lastError: this.lastError ? { code: this.lastError.code, text: this.lastError.message } : null,
       playerId: this.playerId,
     };
@@ -347,6 +348,13 @@ export class Net {
     this._clearTimer('_helloTimer', 'clearTimeout');
     this._helloRid = null;
     this._helloSentName = null;
+    // A dropped socket knows nothing about the server's presence any more: show the count as unknown instead of a
+    // stale number (DESIGN §8.1). Subscribers hear about it right away — during the title screen's quiet socket
+    // rotation the status itself stays 'connected', so this emit is the only thing that updates the pill.
+    if (this.onlineCount !== null) {
+      this.onlineCount = null;
+      this._emit('status', this.snapshot());
+    }
   }
 
   _clearTimer(field, fn) {
@@ -535,6 +543,11 @@ export class Net {
       this._onWelcome(msg);
     } else if (t === 'pong') {
       this._onPong(msg);
+    } else if (t === 'presence' && Number.isSafeInteger(msg.onlineCount) && msg.onlineCount >= 0) {
+      if (msg.onlineCount !== this.onlineCount) {
+        this.onlineCount = msg.onlineCount;
+        this._emit('status', this.snapshot());
+      }
     } else if (isHelloError) {
       this._onHelloError(msg);
     } else if (t === 'm.public' && Number.isFinite(msg.serverNow) && !this.clockSynced) {

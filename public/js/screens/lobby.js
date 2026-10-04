@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
 import { DIFFICULTIES, DIFFICULTY_NAMES, DIFFICULTY_COLORS, ROOM_CODE_LEN, MAX_SEATS, modeIdFor } from '../../../shared/constants.js';
-import { html, Button, Icon, MicroLabel, Panel, TextField, PingPill, AvatarFrame, Tooltip, Spinner, DifficultyIcon, doctorNo } from '../ui/components.js';
+import { html, Button, Icon, MicroLabel, Panel, TextField, PingPill, OnlinePill, AvatarFrame, Tooltip, Spinner, ProgressBar, DifficultyIcon, doctorNo } from '../ui/components.js';
 import { toast, toastError } from '../ui/toasts.js';
 import { GuideButton } from '../ui/guide.js';
 import { LoadoutButton } from './loadout.js';
@@ -72,6 +72,13 @@ const MODE_CARDS = [
     id: 'coop', name: '同盟模拟', en: 'ALLIANCE SIMULATION', icon: 'users',
     desc: `与至多 ${MAX_SEATS - 1} 名博士组成同盟，共享干员池，联防协作抵御敌潮。`,
     points: [`1–${MAX_SEATS} 名博士 · 可由 AI 队友补位`, '联防阶段 · 最终攻势合并生命值'],
+  },
+  {
+    // 搜寻队友 (official mode group 同盟模拟 → 搜寻队友, research 06 §3.3; DESIGN §22). The official 精确搜寻
+    // (match by trophy level) needs progression data this build does not keep, so there is one fast search only.
+    id: 'match', name: '同盟匹配', en: 'ALLIANCE MATCH', icon: 'search',
+    desc: `搜寻其他博士组成同盟，凑齐 ${MAX_SEATS} 人即刻开始；暂时无人时由 AI 队友补位。`,
+    points: [`1–${MAX_SEATS} 名博士 · 匹配其他真人`, '匹配成功直接开始 · 无需准备'],
   },
 ];
 
@@ -177,6 +184,49 @@ function TipsPanel() {
   </div>`;
 }
 
+/**
+ * 搜寻队友 panel (matchmaking, DESIGN §22): what the left column shows while the server keeps this session in a
+ * pool. The wait counts up locally from the server's snapshot (`queue.since`), so no extra traffic is needed.
+ * Only 取消搜寻 is offered — nobody may cut another doctor's search short by starting the pool with AI, so a lone
+ * searcher is pointed at 同盟模拟 (+ AI teammates) instead (the owner, 2026-10-04).
+ * @param {{ q: { difficulty: string, size: number, max: number, solo: boolean, since: number },
+ *           onCancel: () => void }} props
+ */
+function MatchPanel({ q, onCancel }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 500);
+    return () => clearInterval(id);
+  }, []);
+  const waited = Math.max(0, Date.now() - (q.since || Date.now()));
+  const clock = `${String(Math.floor(waited / 60_000)).padStart(2, '0')}:${String(Math.floor((waited % 60_000) / 1000)).padStart(2, '0')}`;
+  const max = q.max || MAX_SEATS;
+  const size = Math.min(Math.max(0, Number(q.size) || 0), max);
+  return html`<${Panel} class="match-panel" tone="mint" title="正在搜寻队友" micro="SEARCHING FOR DOCTORS"
+      actions=${html`<span class="match-panel__clock num">${clock}</span>`}>
+    <div class="match-panel__status">
+      <${Spinner} size="lg" label="SEARCHING" />
+      <div class="match-panel__meta">
+        <span class="match-panel__count num">${size}<span class="t-dim">/${max}</span> 名博士</span>
+        <${MicroLabel}>${DIFFICULTY_NAMES[q.difficulty] || q.difficulty} · 快速搜寻<//>
+      </div>
+    </div>
+    <${ProgressBar} value=${size} max=${max} segments=${max} tone="mint" />
+    <p class="match-panel__note">
+      ${q.solo
+        ? '暂时只有你在搜寻，会一直为你匹配其他博士（可随时取消）；也可以取消后用「同盟模拟」和 AI 队友立刻开局。'
+        : `正在和其他博士组队：凑齐 ${max} 人立即开始；人数不够会一直匹配下去，不用反复点。`}
+    </p>
+    <div class="match-panel__actions">
+      <${Button} variant="ghost" size="lg" icon="chevronLeft" onClick=${onCancel}>取消搜寻<//>
+    </div>
+    <ul class="match-panel__facts">
+      <li>匹配成功后直接进入模拟，无需准备</li>
+      <li>同盟密钥在房间内仍然可见，可继续邀请好友</li>
+    </ul>
+  <//>`;
+}
+
 function ModeCard({ card, selected, onSelect }) {
   return html`<button type="button" class=${`mode-card brackets${selected ? ' is-selected' : ''}`} onClick=${() => onSelect(card.id)}
       aria-pressed=${selected ? 'true' : 'false'}>
@@ -192,10 +242,10 @@ function ModeCard({ card, selected, onSelect }) {
   </button>`;
 }
 
-function DifficultyCard({ roomMode, difficulty, selected, onSelect }) {
+function DifficultyCard({ roomMode, difficulty, selected, disabled = false, onSelect }) {
   const info = difficultyInfo(roomMode, difficulty);
-  return html`<button type="button" class=${`diff-card${selected ? ' is-selected' : ''}`}
-      style=${`--d-color:${DIFFICULTY_COLORS[difficulty]}`} onClick=${() => onSelect(difficulty)} aria-pressed=${selected ? 'true' : 'false'}>
+  return html`<button type="button" class=${`diff-card${selected ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}`}
+      style=${`--d-color:${DIFFICULTY_COLORS[difficulty]}`} disabled=${disabled} onClick=${() => onSelect(difficulty)} aria-pressed=${selected ? 'true' : 'false'}>
     <span class="diff-card__bar" aria-hidden="true"></span>
     <span class="diff-card__head">
       <${DifficultyIcon} difficulty=${difficulty} class="diff-card__glyph" />
@@ -216,7 +266,10 @@ export function LobbyScreen() {
   const me = useStore((s) => s.me, shallowEqual);
   const conn = useStore((s) => s.connection, shallowEqual);
   useData('config');
-  const [roomMode, setRoomMode] = useState(() => (loadPref('lobby.mode', 'coop') === 'solo' ? 'solo' : 'coop'));
+  const [roomMode, setRoomMode] = useState(() => {
+    const m = loadPref('lobby.mode', 'coop');
+    return m === 'solo' || m === 'match' ? m : 'coop';
+  });
   const [difficulty, setDifficulty] = useState(() => {
     const d = loadPref('lobby.difficulty', 'FUNNY');
     return DIFFICULTIES.includes(d) ? d : 'FUNNY';
@@ -230,6 +283,8 @@ export function LobbyScreen() {
 
   const online = conn.status === 'online';
   const codeOk = CODE_RE.test(code);
+  const q = useStore((s) => s.queue, shallowEqual); // 搜寻队友 search state, or null (DESIGN §22)
+  const searching = roomMode === 'match';
 
   const pickMode = (m) => { setRoomMode(m); savePref('lobby.mode', m); };
   const pickDifficulty = (d) => { setDifficulty(d); savePref('lobby.difficulty', d); };
@@ -244,7 +299,10 @@ export function LobbyScreen() {
       if (alive.current) setBusy(null);
     }
   };
-  const create = () => run('create', () => net.request('room.create', { mode: roomMode, difficulty }));
+  const create = () => (searching
+    ? run('create', () => net.request('queue.join', { difficulty }))
+    : run('create', () => net.request('room.create', { mode: roomMode, difficulty })));
+  const cancelSearch = () => run('cancel', () => net.request('queue.leave', {}));
   const join = (c = code) => {
     const k = normalizeCode(c);
     if (!CODE_RE.test(k)) { toast(`同盟密钥为 ${ROOM_CODE_LEN} 位字母或数字`, 'warn'); return; }
@@ -260,6 +318,7 @@ export function LobbyScreen() {
       <div class="topbar__left">
         <${Button} variant="ghost" size="sm" icon="chevronLeft" onClick=${backToTitle} title="返回标题">返回<//>
         <${PingPill} ms=${conn.ping} online=${online} />
+        <${OnlinePill} count=${conn.onlineCount} />
       </div>
       <div class="topbar__center">
         <${MicroLabel} tone="mint">SIMULATION PROTOCOL SELECT<//>
@@ -280,43 +339,54 @@ export function LobbyScreen() {
 
     <div class="lobby-body screen__scroll">
       <section class="lobby-left">
-        <div class="section-label"><span class="section-label__idx num">01</span>模拟方式<${MicroLabel}>MODE<//></div>
-        <div class="mode-cards">
-          ${MODE_CARDS.map((c) => html`<${ModeCard} key=${c.id} card=${c} selected=${roomMode === c.id} onSelect=${pickMode} />`)}
-        </div>
+        ${q
+          ? html`<${MatchPanel} q=${q} onCancel=${cancelSearch} />`
+          : html`<div class="lobby-prep">
+            <div class="section-label"><span class="section-label__idx num">01</span>模拟方式<${MicroLabel}>MODE<//></div>
+            <div class="mode-cards">
+              ${MODE_CARDS.map((c) => html`<${ModeCard} key=${c.id} card=${c} selected=${roomMode === c.id} onSelect=${pickMode} />`)}
+            </div>
 
-        <div class="section-label"><span class="section-label__idx num">03</span>加入同盟<${MicroLabel}>JOIN WITH ALLIANCE KEY<//></div>
-        <${Panel} class="join-panel" tone="amber">
-          <div class="join-row">
-            <${TextField} size="code" icon="key" value=${code} placeholder="输入同盟密钥 / 粘贴邀请链接"
-              transform=${normalizeCode} onInput=${(v) => setCode(normalizeCode(v))} onEnter=${() => join()} />
-            <${Button} variant="amber" size="lg" icon="users" loading=${busy === 'join'} disabled=${!codeOk || !online} onClick=${() => join()}>加入同盟<//>
-          </div>
-          <div class="join-foot">
-            ${recent.length ? html`<span class="t-lo">最近的同盟</span>
-              ${recent.map((c) => html`<button key=${c} type="button" class="code-chip num" onClick=${() => { setCode(c); join(c); }}>${c}</button>`)}`
-              : html`<span class="t-dim">向同伴索取 ${ROOM_CODE_LEN} 位同盟密钥，或直接打开邀请链接</span>`}
-          </div>
-        <//>
+            <div class="section-label"><span class="section-label__idx num">03</span>加入同盟<${MicroLabel}>JOIN WITH ALLIANCE KEY<//></div>
+            <${Panel} class="join-panel" tone="amber">
+              <div class="join-row">
+                <${TextField} size="code" icon="key" value=${code} placeholder="输入同盟密钥 / 粘贴邀请链接"
+                  transform=${normalizeCode} onInput=${(v) => setCode(normalizeCode(v))} onEnter=${() => join()} />
+                <${Button} variant="amber" size="lg" icon="users" loading=${busy === 'join'} disabled=${!codeOk || !online} onClick=${() => join()}>加入同盟<//>
+              </div>
+              <div class="join-foot">
+                ${recent.length ? html`<span class="t-lo">最近的同盟</span>
+                  ${recent.map((c) => html`<button key=${c} type="button" class="code-chip num" onClick=${() => { setCode(c); join(c); }}>${c}</button>`)}`
+                  : html`<span class="t-dim">向同伴索取 ${ROOM_CODE_LEN} 位同盟密钥，或直接打开邀请链接</span>`}
+              </div>
+            <//>
+          </div>`}
         <${TipsPanel} />
       </section>
 
       <section class="lobby-right">
         <div class="section-label"><span class="section-label__idx num">02</span>模拟难度<${MicroLabel}>DIFFICULTY<//></div>
         <div class="diff-list">
-          ${DIFFICULTIES.map((d) => html`<${DifficultyCard} key=${d} roomMode=${roomMode} difficulty=${d} selected=${difficulty === d} onSelect=${pickDifficulty} />`)}
+          ${DIFFICULTIES.map((d) => html`<${DifficultyCard} key=${d} roomMode=${roomMode} difficulty=${d} selected=${difficulty === d} disabled=${!!q} onSelect=${pickDifficulty} />`)}
         </div>
         <div class="create-box">
-          <${Tooltip} block=${true} text=${online ? null : '正在连接服务器…'}>
-            <${Button} variant="primary" size="xl" block=${true} iconRight="chevrons" loading=${busy === 'create'} disabled=${!online} onClick=${create}>
-              ${roomMode === 'solo' ? '开始独立模拟' : '创建同盟'}
-            <//>
-          <//>
-          <div class="create-box__hint">
-            ${online
-              ? html`<span>${roomMode === 'solo' ? '创建后即可开始模拟' : '创建后可邀请好友或添加 AI 队友'}</span>`
-              : html`<${Spinner} size="sm" label="CONNECTING" />`}
-          </div>
+          ${q
+            ? html`<div class="create-box__searching">
+                <${Spinner} size="sm" label="SEARCHING" />
+                <span>正在搜寻其他博士…匹配成功后直接开始模拟</span>
+              </div>`
+            : html`<${Tooltip} block=${true} text=${online ? null : '正在连接服务器…'}>
+                <${Button} variant="primary" size="xl" block=${true} iconRight="chevrons" loading=${busy === 'create'} disabled=${!online} onClick=${create}>
+                  ${roomMode === 'solo' ? '开始独立模拟' : searching ? '开始搜寻队友' : '创建同盟'}
+                <//>
+              <//>
+              <div class="create-box__hint">
+                ${online
+                  ? html`<span>${roomMode === 'solo'
+                      ? '创建后即可开始模拟'
+                      : searching ? '凑齐 4 名博士即刻开始，不足时 AI 队友补位' : '创建后可邀请好友或添加 AI 队友'}</span>`
+                  : html`<${Spinner} size="sm" label="CONNECTING" />`}
+              </div>`}
         </div>
       </section>
     </div>

@@ -2,7 +2,7 @@
 //
 // Exports: html (bound htm), Icon, Button, Panel, MicroLabel, Chevrons, HexBadge, TierChip,
 // BondDisc, SevenSeg, Countdown, Modal, confirmDialog/alertDialog + DialogHost, Tooltip +
-// TooltipLayer, ProgressBar, Tabs, Spinner, AvatarFrame, PhaseBanner, PingPill, DifficultyTag,
+// TooltipLayer, ProgressBar, Tabs, Spinner, AvatarFrame, PhaseBanner, PingPill, OnlinePill, DifficultyTag,
 // DifficultyIcon, TextField, UiHosts (mount once: dialogs + tooltips), useTicker, secondsLeft/hasDeadline,
 // roman(), doctorNo().
 //
@@ -754,6 +754,17 @@ export function PingPill({ ms, online = true, class: cls }) {
   return html`<span class=${cx('ping', `ping--${tier}`, cls)} title=${ok ? `当前延迟 ${ms}ms` : '未连接'}>
     <${Icon} name=${ok ? 'signal' : 'wifiOff'} class="ping__icon" />
     <span class="ping__value">${ok ? Math.min(9999, Math.round(ms)) : '--'}</span><span class="ping__unit">ms</span>
+  </span>`;
+}
+
+/** Live server-wide browser count; unknown/disconnected is distinct from zero. */
+export function OnlinePill({ count, class: cls }) {
+  const known = Number.isSafeInteger(count) && count >= 0;
+  const label = known ? `当前在线 ${count} 人` : '在线人数暂未获取';
+  return html`<span class=${cx('online-pill', !known && 'online-pill--unknown', cls)}
+      title=${label} role="status" aria-live="polite" aria-atomic="true" aria-label=${label}>
+    <${Icon} name="users" class="online-pill__icon" />
+    <span class="online-pill__label">在线</span><span class="online-pill__value">${known ? count : '--'}</span>
   </span>`;
 }
 

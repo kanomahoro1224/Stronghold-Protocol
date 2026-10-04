@@ -17,6 +17,7 @@
 //     in server/lobby.js. Local / LAN peers without a forwarding header (dev machine, tests, LAN party)
 //     have no key and are never limited per address.
 //   * Heartbeat (ws ping/pong every `heartbeatMs`, dead sockets terminated), hello timeout.
+//   * Server-wide browser presence (`presence { onlineCount }`), pushed on connection/close even before hello.
 //   * Send helpers that never throw, with a backpressure guard: non-critical `b.snap` frames are skipped
 //     while the socket has more than 1 MB queued; a socket with more than 16 MB queued is terminated
 //     (the client reconnects and receives a full state resync).
@@ -47,6 +48,7 @@ export const NET_DEFAULTS = Object.freeze({
   abuseDropsPerSec: 400,        // rate-limited messages within one second before the socket is closed (1008)
   heartbeatMs: 30_000,          // ping interval; a socket that missed one full interval is terminated
   helloTimeoutMs: 30_000,       // sockets that never say hello are closed (4002)
+  presenceCoalesceMs: 400,      // presence recompute/broadcast is coalesced over this window
   reconnectWindowMs: 10 * 60_000, // disconnected sessions stay resumable this long
   snapDropBytes: 1 << 20,       // skip b.snap while bufferedAmount exceeds this
   hardBufferBytes: 16 << 20,    // terminate a socket whose send queue exceeds this
@@ -479,12 +481,17 @@ class Connection {
     this.drops = 0;
     /** true once the server initiated the close; frames still in flight are ignored */
     this.closing = false;
+    this.onClosing = null;
+    /** last presence count this socket was told; null until its first frame (see Network.broadcastPresence) */
+    this.presenceSent = null;
   }
 
   /** Server-initiated close (never throws). Later frames from this socket are ignored. */
   close(code, reason) {
+    if (this.closing) return;
     this.closing = true;
     try { this.ws.close(code, reason); } catch { /* ignore */ }
+    this.onClosing?.();
   }
 }
 
@@ -513,6 +520,10 @@ export class Network {
     /** @type {Map<string, number>} open sockets per client network key */
     this.connsPerKey = new Map();
     this.closed = false;
+    /** pending coalesced presence push (see schedulePresence) */
+    this._presenceTimer = null;
+    /** last count actually sent; -1 so the first broadcast always goes out */
+    this._presenceSent = -1;
     this.heartbeatTimer = setInterval(() => this.heartbeat(), this.opts.heartbeatMs);
     this.heartbeatTimer.unref?.();
     const sweepMs = Math.max(20, Math.min(15_000, Math.floor(this.opts.reconnectWindowMs / 4)));
@@ -522,6 +533,55 @@ export class Network {
 
   /** Number of open sockets. */
   get connectionCount() { return this.conns.size; }
+
+  /**
+   * Players that are actually in the game: sockets that completed `hello`, counted once per player.
+   *
+   * Deliberately not `conns.size`. A title-screen visitor opens a socket that the server rotates
+   * (quiet-socket timeout) — counting those makes the number bounce N → N−1 → N for everyone. Two tabs of
+   * the same person share one session (the second tab takes it over and the first is closed), so keying by
+   * playerId keeps a player with several tabs at one. Retained-but-disconnected sessions and AI seats are
+   * not connected sockets, so they never count.
+   */
+  get onlineCount() {
+    const seen = new Set();
+    for (const conn of this.conns.values()) {
+      if (conn.closing || !conn.session) continue;
+      seen.add(conn.session.playerId ?? conn.session.token ?? conn.ws);
+    }
+    return seen.size;
+  }
+
+  /**
+   * Coalesced presence push. Connects and closes arrive in bursts (a room filling up, a server restart
+   * waking everyone), so the recompute + broadcast happens once per `presenceCoalesceMs` instead of once
+   * per socket event; an unchanged count is not sent at all.
+   */
+  schedulePresence() {
+    if (this.closed || this._presenceTimer) return;
+    this._presenceTimer = setTimeout(() => {
+      this._presenceTimer = null;
+      this.broadcastPresence();
+    }, this.opts.presenceCoalesceMs);
+    this._presenceTimer.unref?.();
+  }
+
+  /**
+   * Push the current count to every live browser that does not know it yet — including sockets that have not
+   * said hello: they are told how many players are in the game even though they are not one of them.
+   */
+  broadcastPresence() {
+    if (this.closed) return;
+    const onlineCount = this.onlineCount;
+    this._presenceSent = onlineCount;
+    let data = null;
+    for (const conn of this.conns.values()) {
+      if (conn.closing || conn.presenceSent === onlineCount) continue;
+      data ??= encode({ t: 'presence', onlineCount });
+      conn.presenceSent = onlineCount;
+      sendRaw(conn.ws, data);
+    }
+  }
 
   /**
    * Upgrade-time admission check (server/index.js): null to accept, otherwise the reason to refuse.
@@ -545,6 +605,7 @@ export class Network {
   handleConnection(ws, req) {
     if (this.closed) { try { ws.close(CLOSE.SHUTDOWN, 'server shutdown'); } catch { /* ignore */ } return; }
     const conn = new Connection(ws, clientAddress(req, this.opts.trustProxy), this.now(), this.opts);
+    conn.onClosing = () => this.schedulePresence();
     this.conns.set(ws, conn);
     if (conn.key) this.connsPerKey.set(conn.key, (this.connsPerKey.get(conn.key) || 0) + 1);
     ws.on('message', (data, isBinary) => {
@@ -553,6 +614,7 @@ export class Network {
     ws.on('pong', () => { conn.alive = true; if (conn.session && conn.session.ws === ws) conn.session.lastSeen = this.now(); });
     ws.on('error', (e) => { this.log.debug?.('[net] socket error', e?.code || e?.message); });
     ws.on('close', () => { try { this.onClose(conn); } catch (e) { this.log.error('[net] close handler crashed', e); } });
+    this.schedulePresence();
   }
 
   /** @param {Connection} conn @param {object} msg */
@@ -646,6 +708,7 @@ export class Network {
       session.ws = conn.ws;
       session.connected = true;
       session.disconnectedAt = null;
+      this.schedulePresence();   // a socket only starts counting once it is really in the game
     }
     session.name = name;
     session.lastSeen = now;
@@ -680,6 +743,7 @@ export class Network {
       if (n > 0) this.connsPerKey.set(conn.key, n);
       else this.connsPerKey.delete(conn.key);
     }
+    this.schedulePresence();
     const s = conn.session;
     conn.session = null;
     if (!s || s.ws !== conn.ws) return;
