@@ -74,6 +74,34 @@ const artManifestsPending = () => ['local', 'assets'].some((n) => { const st = d
 /** Official emote UI sprite (ui/battle: emoji_bubble_bkg, emoji_bkg, emoji_cell_bkg, emoji_btn, emoji_btn_disable). */
 export const emoteUiSprite = (name) => localAsset('ui/battle', name);
 
+/** Per-URL result of the plate preload below (true = loads, false = failed); one request per sprite per page. */
+const spriteLoad = new Map();
+
+/**
+ * True when the plate sprite at `url` failed to load, so the caller must drop its `has-sprite` class. That class
+ * removes the border and switches off the CSS look-alike plate (`.ewheel__panel::before`), so a sprite that does not
+ * paint — a copy missing on the server, a request an in-app browser refuses — left the 交流 button as bare text and
+ * the panel as a transparent grid of icons. Trusting the manifest until the image actually errors keeps the picture
+ * for everyone else; the URL is null (no sprite) when the manifest has nothing, which is never a failure.
+ * @param {string|null} url
+ */
+function useSpriteFailed(url) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!url) { setFailed(false); return; }
+    const known = spriteLoad.get(url);
+    if (known === false) { setFailed(true); return; }
+    if (known === true || typeof Image !== 'function') { setFailed(false); return; }
+    let live = true;
+    const img = new Image();
+    img.onload = () => { spriteLoad.set(url, true); if (live) setFailed(false); };
+    img.onerror = () => { spriteLoad.set(url, false); if (live) setFailed(true); };
+    img.src = url;
+    return () => { live = false; };
+  }, [url]);
+  return failed;
+}
+
 /** Index of a theme in the wheel (0 when unknown). */
 export function themeIndex(themeId) {
   const i = EMOTE_THEMES.findIndex((t) => t.themeId === themeId);
@@ -192,9 +220,10 @@ export function EmoteBubble({ id, class: cls, ttl = EMOTE_BUBBLE_MS, at }) {
   const life = Math.max(300, Number(ttl) || EMOTE_BUBBLE_MS);
   const [age] = useState(() => bubbleAge(at, Date.now(), life)); // fixed at mount: the CSS animation runs from there
   const bg = emoteUiSprite('emoji_bubble_bkg');
+  const bubbleBg = useSpriteFailed(bg) ? null : bg;
   const e = emoteInfo(id);
-  const style = [`--ebubble-ttl:${life}ms`, age && `--ebubble-age:${Math.round(age)}ms`, bg && `--ebubble-bg:url("${bg}")`].filter(Boolean).join(';');
-  return html`<div class=${cx('ebubble', bg && 'has-sprite', cls)} style=${style} role="img"
+  const style = [`--ebubble-ttl:${life}ms`, age && `--ebubble-age:${Math.round(age)}ms`, bubbleBg && `--ebubble-bg:url("${bubbleBg}")`].filter(Boolean).join(';');
+  return html`<div class=${cx('ebubble', bubbleBg && 'has-sprite', cls)} style=${style} role="img"
     aria-label=${e ? e.label : '表情'} data-emote=${e ? e.id : ''}>
     <span class="ebubble__icon"><${EmoteArt} id=${id} /></span>
   </div>`;
@@ -301,9 +330,13 @@ export function EmoteWheel({ onSend, open, onToggle, disabled = false, cooldownM
   };
 
   const theme = EMOTE_THEMES[clampPage(page)];
-  const btnSprite = emoteUiSprite(disabled || cooling ? 'emoji_btn_disable' : 'emoji_btn');
-  const panelBg = emoteUiSprite('emoji_bkg');
-  const cellBg = emoteUiSprite('emoji_cell_bkg');
+  const btnUrl = emoteUiSprite(disabled || cooling ? 'emoji_btn_disable' : 'emoji_btn');
+  const panelUrl = emoteUiSprite('emoji_bkg');
+  const cellUrl = emoteUiSprite('emoji_cell_bkg');
+  // a plate that does not load is dropped here, so the border / CSS look-alike plate stays instead of bare text
+  const btnSprite = useSpriteFailed(btnUrl) ? null : btnUrl;
+  const panelBg = useSpriteFailed(panelUrl) ? null : panelUrl;
+  const cellBg = useSpriteFailed(cellUrl) ? null : cellUrl;
   const panelStyle = [panelBg && `--ewheel-bg:url("${panelBg}")`, cellBg && `--ewheel-cell:url("${cellBg}")`].filter(Boolean).join(';');
   return html`<div class="ewheel">
     <button type="button" class=${cx('ewheel__btn', btnSprite && 'has-sprite', open && 'is-on', cooling && 'is-cooling')}

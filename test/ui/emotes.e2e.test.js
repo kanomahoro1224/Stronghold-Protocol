@@ -4,8 +4,9 @@
 //
 // Asserted: picture-only wheel pages (3×2 per theme) and bubbles (no text anywhere), swipe / arrow keys / dots change
 // the theme, sending closes the panel and greys 交流 for the 1 s cooldown, the panel reopens on the last-used theme,
-// a bubble fades out after 3 s and a newer one replaces it, the neutral glyph fallback when the art is missing, the
-// bubble sits beside the sender's avatar in the team panel, and zero console errors.
+// a bubble fades out after 3 s and a newer one replaces it, the neutral glyph fallback when the art is missing, a
+// plate sprite that fails to load falls back to the CSS plate (never bare 交流 text), the bubble sits beside the
+// sender's avatar in the team panel, and zero console errors.
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -333,6 +334,42 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await sleep(300);
     assert.equal((await wheelState(page)).open, false);
     await page.screenshot({ path: path.join(OUT, 'emotes-mock-sent-1920.png') });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  // The reported defect: the 交流 button and its panel showed no plate at all, just the label. Both the button and the
+  // panel reach their official look through `has-sprite`, and that class also switches OFF the CSS look-alike plate and
+  // the button's border — so when the plate sprite does not paint (a copy missing on the server, a request an in-app
+  // browser refuses) the control degrades to bare text. A sprite that fails to load must drop `has-sprite` instead.
+  test('a plate sprite that fails to load falls back to the CSS plate: a real button, a plated panel', async () => {
+    const { page, problems } = await open('/dev/uikit.html', {
+      block: /\/assets\/local\/ui\/battle\/emoji_/,
+      // the 404s this test asks for, plus the mirror copies a local server does not have (the demo page lists them)
+      ignore: [/\/assets\/local\/ui\/battle\/emoji_/, /\/assets\/ui\//, /Failed to load resource/],
+    });
+    await page.waitForSelector('#emo-stage .ewheel__btn');
+    await sleep(300); // the plate preload resolves on the next frame
+    const btn = await page.$eval('#emo-stage .ewheel__btn', (b) => ({
+      cls: b.className,
+      border: getComputedStyle(b).borderTopWidth,
+      bg: getComputedStyle(b).backgroundColor,
+      glyph: !!b.querySelector('svg'),
+      text: b.textContent.trim(),
+    }));
+    assert.equal(btn.cls.includes('has-sprite'), false, `the failed sprite class is dropped (${btn.cls})`);
+    assert.notEqual(btn.border, '0px', 'the button keeps a bordered plate instead of no plate');
+    assert.equal(btn.glyph, true, 'and shows its glyph');
+    assert.equal(btn.text, '交流', 'with the label, as before');
+    const panel = await page.$eval('#emo-stage .ewheel__panel', (p) => ({
+      cls: p.className,
+      plate: getComputedStyle(p, '::before').content,
+      cells: p.classList.contains('has-cell'),
+    }));
+    assert.equal(panel.cls.includes('has-sprite'), false, `the panel drops the failed sprite too (${panel.cls})`);
+    assert.notEqual(panel.plate, 'none', 'and paints its CSS look-alike plate');
+    assert.equal(panel.cells, false, 'the failed cell sprite is dropped as well');
+    await page.screenshot({ path: path.join(OUT, 'emotes-plate-fallback.png') });
     assert.deepEqual(problems, []);
     await page.close();
   });

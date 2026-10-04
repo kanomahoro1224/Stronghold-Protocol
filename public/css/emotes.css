@@ -30,9 +30,17 @@
    its own box right of the chevron (x ≥ 57 %), so a font clamped up by a browser minimum font size (CJK Chrome: 12 px)
    or a small root can never run into the icon; the button never shrinks below 72 px (96 px on touch screens). */
 .ewheel__btn.has-sprite {
+  --ewb-w: 1.51rem; /* an engine without max() keeps a sane size instead of losing the whole plate */
   --ewb-w: max(1.51rem, 72px);
   width: var(--ewb-w); height: calc(var(--ewb-w) * 55 / 151); min-width: 0; padding: 0; display: block;
-  background: var(--ewheel-btn) left bottom / 100% 100% no-repeat; border: 0; border-radius: 0; color: #f2f2f2;
+  /* Longhands on purpose: a custom property inside the `background` shorthand is dropped as a whole by some engines
+     (older WebKit, in-app WebViews), which painted no plate at all and left the button as bare 交流 text. As
+     background-image the var is substituted by every engine that supports custom properties at all. */
+  background-image: var(--ewheel-btn);
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 100% 100%;
+  border: 0; border-radius: 0; color: #f2f2f2;
 }
 .ewheel__btn.has-sprite .ewheel__label {
   position: absolute; left: 57%; right: 3%; top: 0; height: 82%;
@@ -59,7 +67,12 @@
   content: ''; position: absolute; left: .15rem; top: .13rem; width: 2.82rem; height: 1.99rem; border-radius: .06rem;
   background: rgba(19, 19, 19, .92); box-shadow: 0 .04rem .16rem rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .07);
 }
-.ewheel__panel.has-sprite { background: var(--ewheel-bg) center / 100% 100% no-repeat; }
+.ewheel__panel.has-sprite { /* longhands, not the shorthand: see .ewheel__btn.has-sprite */
+  background-image: var(--ewheel-bg);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+}
 .ewheel__panel.has-sprite::before { content: none; }
 .ewheel__viewport { position: absolute; left: .205rem; top: .19rem; width: 2.71rem; height: 1.78rem; overflow: hidden; touch-action: pan-y; cursor: grab; }
 .ewheel__viewport:active { cursor: grabbing; }
@@ -78,7 +91,13 @@
   background: rgba(255, 255, 255, .16); border: 0; border-radius: .08rem; color: inherit; font-size: 0; flex-direction: initial; gap: 0;
   transition: background-color var(--t-fast), filter var(--t-fast), transform 90ms var(--ease-out);
 }
-.ewheel__panel.has-cell .ewheel__item { background: var(--ewheel-cell) center / 100% 100% no-repeat; border-radius: 0; }
+.ewheel__panel.has-cell .ewheel__item { /* longhands, not the shorthand: see .ewheel__btn.has-sprite */
+  background-image: var(--ewheel-cell);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+  border-radius: 0;
+}
 .ewheel__item:hover:not(:disabled) { background-color: rgba(255, 255, 255, .26); filter: brightness(1.12); transform: none; border-color: transparent; }
 /* the official cell is a rounded plate with transparent corners: brighten it, never fill its square box */
 .ewheel__panel.has-cell .ewheel__item:hover:not(:disabled) { background-color: transparent; filter: brightness(1.35); }
@@ -126,7 +145,12 @@
   content: ''; position: absolute; left: .09rem; top: calc(47% - .08rem); width: .14rem; height: .16rem;
   background: rgba(24, 24, 24, .86); clip-path: polygon(100% 0, 0 50%, 100% 100%);
 }
-.ebubble.has-sprite { background: var(--ebubble-bg) center / 100% 100% no-repeat; }
+.ebubble.has-sprite { /* longhands, not the shorthand: see .ewheel__btn.has-sprite */
+  background-image: var(--ebubble-bg);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+}
 .ebubble.has-sprite::before, .ebubble.has-sprite::after { content: none; }
 /* in the team panel the bubble is anchored beside the row (placement: screens/game.css .team__bubble) */
 .ebubble.team__bubble { position: absolute; }
@@ -141,7 +165,7 @@
 @keyframes emo-bubble-out { to { opacity: 0; scale: .92; } }
 
 @media (pointer: coarse) {
-  .ewheel__btn.has-sprite { --ewb-w: max(1.51rem, 96px); }
+  .ewheel__btn.has-sprite { --ewb-w: 1.51rem; --ewb-w: max(1.51rem, 96px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
