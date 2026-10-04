@@ -249,8 +249,22 @@
   right: .44rem;
   bottom: .3rem;
   display: flex;
+  flex-wrap: wrap;
+  gap: .06rem .24rem;
   justify-content: space-between;
   align-items: flex-end;
   font-size: .13rem;
   color: var(--text-dim);
+}
+/* the operator's own notice sits above the required credit line */
+.title-foot__legal { display: flex; flex-direction: column; gap: .03rem; align-items: flex-start; line-height: 1.5; }
+.title-foot__link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: .025rem;
+  transition: color .15s ease, text-shadow .15s ease;
+}
+.title-foot__link:hover, .title-foot__link:focus-visible {
+  color: var(--amber);
+  text-shadow: 0 0 .09rem rgba(246, 163, 41, .5);
 }
