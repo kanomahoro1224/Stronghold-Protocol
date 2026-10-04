@@ -445,6 +445,46 @@ describe('9: busy indicators and data loading', () => {
     } finally { console.warn = warn; }
   });
 
+  test('data store: a download that never settles is timed out (retried, then reported missing) — the match screen must not wait forever', async () => {
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      // A response that never arrives (a dropped tunnel / half-open connection): without the timeout this promise
+      // never settles, `status()` stays 'loading' and the match screen shows 正在载入模拟数据… for good.
+      let calls = 0;
+      const stuck = createDataStore({
+        wait: async () => {},
+        timeoutMs: 5,
+        fetch: () => { calls++; return new Promise(() => {}); },
+      });
+      const t0 = Date.now();
+      await stuck.load('chess');
+      assert.equal(stuck.status('chess'), 'missing');
+      assert.equal(calls, 1 + RETRY_DELAYS_MS.length, 'a timed-out step is a transient failure: it is retried');
+      assert.ok(Date.now() - t0 < 1000, 'the injected 5 ms timeout is what ends it');
+
+      // A response whose *body* never arrives hangs just the same.
+      let bodyCalls = 0;
+      const noBody = createDataStore({
+        wait: async () => {},
+        timeoutMs: 5,
+        fetch: async () => { bodyCalls++; return { ok: true, status: 200, json: () => new Promise(() => {}) }; },
+      });
+      await noBody.load('items');
+      assert.equal(noBody.status('items'), 'missing');
+      assert.equal(bodyCalls, 1 + RETRY_DELAYS_MS.length);
+    } finally { console.warn = warn; }
+  });
+
+  test('同盟匹配 warms the match data as soon as the player is searching (the match starts with no waiting room)', () => {
+    const main = read('public/js/main.js');
+    assert.match(main, /if \(s\.queue && !prev\.queue\) warmGameData\(\);/);
+    // the loading screen names the files that are still missing and offers a retry / reload
+    const game = read('public/js/screens/game.js');
+    assert.match(game, /data\.status\(n\) === 'loading'/);
+    assert.match(game, /data\.invalidate\(n\)/);
+  });
+
   test('every data file the in-match UI reads is in GAME_FILES (the match screen waits for them: no text appears late); main.js warms them in a room', () => {
     const files = [
       ...readdirSync(path.join(ROOT, 'public/js/ui')).filter((f) => f.endsWith('.js')).map((f) => `public/js/ui/${f}`),

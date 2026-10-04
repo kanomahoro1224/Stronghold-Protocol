@@ -79,6 +79,16 @@ export function buildIndex(name, json) {
 export const RETRY_DELAYS_MS = Object.freeze([600, 2000]);
 
 /**
+ * Give up on a step of a download that never settles (ms): the response headers, or the body. A slow phone connection
+ * still delivers the biggest file (chess.json, ~1.6 MB) in well under this; a *stalled* one — a dropped tunnel, a
+ * half-open connection — never delivers at all, and the match screen waits for these files before it opens, so without
+ * this it would sit on "正在载入模拟数据…" forever. A timeout counts as a transient failure: the file is retried
+ * (RETRY_DELAYS_MS) and finally reported missing, so the player can be told which file did not arrive instead of
+ * watching a spinner that will never stop.
+ */
+export const DATA_TIMEOUT_MS = 30_000;
+
+/**
  * A failed load worth retrying: the request itself failed (network error) or the server answered 5xx / 408 / 429 — not a
  * definite 4xx (the file is not there) nor a delivered file that is not valid JSON (`badJson`).
  */
@@ -93,13 +103,17 @@ const transientFailure = (err) => {
  * A file is downloaded once per page (the texts of the game are static data, never fetched again during a match —
  * user playtest #3 item 9); a transient failure is retried (RETRY_DELAYS_MS) while the file stays 'loading', so a
  * network hiccup does not leave the texts of a whole session missing.
- * @param {{ fetch?: typeof fetch, base?: string, retryDelays?: number[], wait?: (ms: number) => Promise<void> }} [opts]
+ * @param {{ fetch?: typeof fetch, base?: string, retryDelays?: number[], wait?: (ms: number) => Promise<void>,
+ *           timeoutMs?: number, setTimeout?: Function, clearTimeout?: Function }} [opts]
  */
 export function createDataStore(opts = {}) {
   const base = opts.base ?? '/data/';
   const doFetch = opts.fetch || ((...a) => globalThis.fetch(...a));
   const retryDelays = Array.isArray(opts.retryDelays) ? opts.retryDelays : RETRY_DELAYS_MS;
   const wait = opts.wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const timeoutMs = opts.timeoutMs ?? DATA_TIMEOUT_MS;
+  const setTimer = opts.setTimeout || ((fn, ms) => setTimeout(fn, ms));
+  const clearTimer = opts.clearTimeout || ((id) => clearTimeout(id));
   /** @type {Map<string, { status: 'loading'|'ready'|'missing', promise: Promise<any>, value: any, index: Map<string, any>|null }>} */
   const entries = new Map();
   const listeners = new Set();
@@ -113,6 +127,20 @@ export function createDataStore(opts = {}) {
 
   const urlFor = (name) => base + (DATA_FILES[name] || `${name}.json`);
 
+  /**
+   * Reject when `p` does not settle inside `ms` (a stalled step of a download). The rejection carries no `status`, so
+   * `transientFailure` retries it; the pending timer is unref'd where the runtime supports it (Node) so a test run
+   * never waits for it.
+   */
+  const withTimeout = (p, ms, label) => new Promise((resolve, reject) => {
+    const timer = setTimer(() => reject(Object.assign(new Error(label), { timeout: true })), ms);
+    if (timer && typeof timer.unref === 'function') timer.unref();
+    p.then(
+      (v) => { clearTimer(timer); resolve(v); },
+      (err) => { clearTimer(timer); reject(err); },
+    );
+  });
+
   function load(name) {
     if (typeof name !== 'string' || !/^[A-Za-z0-9_-]+$/.test(name)) return Promise.resolve(null);
     const cur = entries.get(name);
@@ -121,10 +149,10 @@ export function createDataStore(opts = {}) {
     entry.promise = (async () => {
       for (let attempt = 0; ; attempt++) {
         try {
-          const res = await doFetch(urlFor(name), { cache: 'no-cache' });
+          const res = await withTimeout(doFetch(urlFor(name), { cache: 'no-cache' }), timeoutMs, 'no response');
           if (!res || !res.ok) throw Object.assign(new Error(`HTTP ${res ? res.status : '???'}`), { status: res ? res.status : null });
           let json;
-          try { json = await res.json(); } catch (err) { throw Object.assign(err instanceof Error ? err : new Error(String(err)), { badJson: true }); }
+          try { json = await withTimeout(Promise.resolve(res.json()), timeoutMs, 'no body'); } catch (err) { throw Object.assign(err instanceof Error ? err : new Error(String(err)), { badJson: !err?.timeout }); }
           entry.value = json;
           entry.status = 'ready';
           break;

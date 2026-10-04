@@ -184,6 +184,28 @@ export class Net {
     this._listeners.get(type)?.delete(fn);
   }
 
+  /**
+   * Resolve once this client has a live session again (`status === 'online'`), or when `timeout` ms pass.
+   * A UI action that has to be re-sent after a reconnect (取消搜寻, lobby.js) waits for this instead of a bare
+   * delay: the client is online again only after `welcome`, so a re-sent request cannot land on the socket that
+   * just died. Resolves at once when it is already online.
+   * @param {number} [timeout] ms
+   * @returns {Promise<boolean>} true when online
+   */
+  whenOnline(timeout = 15_000) {
+    if (this.status === 'online') return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let timer = null;
+      const done = (ok) => {
+        if (timer) this.timers.clearTimeout(timer);
+        off();
+        resolve(ok);
+      };
+      const off = this.on('status', (s) => { if (s?.status === 'online') done(true); });
+      timer = this.timers.setTimeout(() => done(false), timeout);
+    });
+  }
+
   _emit(type, payload) {
     const set = this._listeners.get(type);
     if (!set || set.size === 0) return;

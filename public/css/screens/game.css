@@ -20,6 +20,9 @@
 .gm__hud { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 .gm__hud > * { pointer-events: auto; }
 .gload { align-items: center; justify-content: center; gap: .2rem; }
+/* a data file that never arrives (screens/game.js LoadingScreen): name what is missing and offer a way out */
+.gload__slow { display: flex; flex-direction: column; align-items: center; gap: .12rem; margin-top: .12rem; }
+.gload__slow .t-dim { max-width: 14rem; text-align: center; }
 
 /* ---- top bar -------------------------------------------------------------------------------------- */
 .gtop {

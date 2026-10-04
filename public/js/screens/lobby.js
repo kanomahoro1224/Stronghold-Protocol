@@ -37,6 +37,16 @@ export const MODE_TEXT = {
 export const STAGE_POOL = { FUNNY: ['act1autochess_m01'], NORMAL: 8, HARD: 7, ABYSS: 7 };
 
 /**
+ * How long 取消搜寻 waits for the server's reply before treating the socket as half-open (ms). A live connection
+ * answers in milliseconds, so this is imperceptible; the retry it triggers is what actually cancels the search.
+ */
+export const CANCEL_REPLY_MS = 2500;
+/** How long the reconnect that a failed 取消搜寻 triggers may take before the attempt is reported as failed (ms). */
+export const CANCEL_RETRY_MS = 15_000;
+/** How many times 取消搜寻 reconnects and asks again before it tells the player it could not get through. */
+export const CANCEL_TRIES = 3;
+
+/**
  * Display name of a stage: stages.json when it is loaded, else derived from the id (act1 m0N → 战场#0N, act2 m0N → 战场#0(N+4)).
  * @param {string} id e.g. 'act1autochess_m01'
  */
@@ -190,9 +200,9 @@ function TipsPanel() {
  * Only 取消搜寻 is offered — nobody may cut another doctor's search short by starting the pool with AI, so a lone
  * searcher is pointed at 同盟模拟 (+ AI teammates) instead (the owner, 2026-10-04).
  * @param {{ q: { difficulty: string, size: number, max: number, solo: boolean, since: number },
- *           onCancel: () => void }} props
+ *           busy?: string|null, onCancel: () => void }} props
  */
-function MatchPanel({ q, onCancel }) {
+function MatchPanel({ q, busy = null, onCancel }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 500);
@@ -218,7 +228,7 @@ function MatchPanel({ q, onCancel }) {
         : `正在和其他博士组队：凑齐 ${max} 人立即开始；人数不够会一直匹配下去，不用反复点。`}
     </p>
     <div class="match-panel__actions">
-      <${Button} variant="ghost" size="lg" icon="chevronLeft" onClick=${onCancel}>取消搜寻<//>
+      <${Button} variant="ghost" size="lg" icon="chevronLeft" loading=${busy === 'cancel'} disabled=${!!busy} onClick=${onCancel}>取消搜寻<//>
     </div>
     <ul class="match-panel__facts">
       <li>匹配成功后直接进入模拟，无需准备</li>
@@ -276,6 +286,11 @@ export function LobbyScreen() {
   });
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(null);
+  // 取消搜寻 leaves the pool *now*: the panel goes away on the click (the player is out of the search), and the
+  // client keeps re-sending `queue.leave` in the background until the server confirms it. Without this the player
+  // stares at a searching panel that a swallowed frame never ends (the server would still have the session queued
+  // and could still put it into a match).
+  const [exiting, setExiting] = useState(false);
   const [recent] = useState(recentRooms);
   const alive = useRef(true);
   const inFlight = useRef(false); // synchronous guard against double clicks (state updates are async)
@@ -299,10 +314,60 @@ export function LobbyScreen() {
       if (alive.current) setBusy(null);
     }
   };
-  const create = () => (searching
-    ? run('create', () => net.request('queue.join', { difficulty }))
-    : run('create', () => net.request('room.create', { mode: roomMode, difficulty })));
-  const cancelSearch = () => run('cancel', () => net.request('queue.leave', {}));
+  const create = () => {
+    // A search started right after 取消搜寻: stop the background cancel first, or its next retry would remove the
+    // fresh pool entry (the player would look queued while the server had already dropped them).
+    cancelRef.current.wanted = false;
+    setExiting(false);
+    return searching
+      ? run('create', () => net.request('queue.join', { difficulty }))
+      : run('create', () => net.request('room.create', { mode: roomMode, difficulty }));
+  };
+  // 取消搜寻 must take the player out of the queue *now*, even when the frame cannot get through: on a half-open
+  // socket (a phone network, a VPN, a proxy that swallowed it) `queue.leave` reaches nobody, the server keeps this
+  // session queued and can still put it into a match — the player sees a button that does nothing and a clock that
+  // never stops. So the click drops the search locally at once (`exiting` hides the panel, so the player is out of
+  // the search the moment they ask) and this loop keeps re-sending `queue.leave` — reconnecting when a reply never
+  // comes — until the server confirms it. `queue.state {active:false}` clears `q` and ends the loop; if every try
+  // fails the panel comes back with what the server actually thinks, plus a toast.
+  const cancelRef = useRef({ wanted: false, tries: 0 });
+  // `q` turns null only when the server says the session left the pool (`queue.state {active:false}`, main.js), so
+  // this is the confirmation that ends the retry loop — never a local guess.
+  useEffect(() => {
+    const c = cancelRef.current;
+    if (!q && c.wanted) { c.wanted = false; setExiting(false); }
+  }, [q]);
+  useEffect(() => () => { cancelRef.current.wanted = false; }, []);
+  const leaveSearch = async () => {
+    const c = cancelRef.current;
+    while (c.wanted && c.tries < CANCEL_TRIES) {
+      c.tries += 1;
+      try {
+        await net.request('queue.leave', {}, { timeout: CANCEL_REPLY_MS });
+        return; // the server answered; its `queue.state {active:false}` confirms and clears `exiting`
+      } catch (err) {
+        if (err?.code !== 'TIMEOUT') throw err;
+        toast(c.tries === 1 ? '取消搜寻：连接好像断了，正在重连…' : `取消搜寻：还没成功，正在重试（${c.tries}/${CANCEL_TRIES}）…`, 'warn');
+      }
+      if (!alive.current) return;
+      net.reconnectNow();
+      if (!(await net.whenOnline(CANCEL_RETRY_MS))) continue; // still offline: the next pass tries again
+    }
+    if (c.wanted) {
+      // Every try failed: show what the server actually thinks (still searching) instead of a lie.
+      c.wanted = false;
+      setExiting(false);
+      throw new Error('取消搜寻失败：暂时连不上服务器，请稍后再试一次');
+    }
+  };
+  const cancelSearch = () => {
+    const c = cancelRef.current;
+    if (c.wanted) return;
+    c.wanted = true;
+    c.tries = 0;
+    setExiting(true); // out of the search at once; the server's active:false only confirms it
+    run('cancel', leaveSearch);
+  };
   const join = (c = code) => {
     const k = normalizeCode(c);
     if (!CODE_RE.test(k)) { toast(`同盟密钥为 ${ROOM_CODE_LEN} 位字母或数字`, 'warn'); return; }
@@ -339,8 +404,8 @@ export function LobbyScreen() {
 
     <div class="lobby-body screen__scroll">
       <section class="lobby-left">
-        ${q
-          ? html`<${MatchPanel} q=${q} onCancel=${cancelSearch} />`
+        ${q && !exiting
+          ? html`<${MatchPanel} q=${q} busy=${busy} onCancel=${cancelSearch} />`
           : html`<div class="lobby-prep">
             <div class="section-label"><span class="section-label__idx num">01</span>模拟方式<${MicroLabel}>MODE<//></div>
             <div class="mode-cards">
@@ -370,7 +435,7 @@ export function LobbyScreen() {
           ${DIFFICULTIES.map((d) => html`<${DifficultyCard} key=${d} roomMode=${roomMode} difficulty=${d} selected=${difficulty === d} disabled=${!!q} onSelect=${pickDifficulty} />`)}
         </div>
         <div class="create-box">
-          ${q
+          ${q && !exiting
             ? html`<div class="create-box__searching">
                 <${Spinner} size="sm" label="SEARCHING" />
                 <span>正在搜寻其他博士…匹配成功后直接开始模拟</span>

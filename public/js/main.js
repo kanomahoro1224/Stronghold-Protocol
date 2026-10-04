@@ -250,6 +250,10 @@ function wireNet() {
     if (s.session.entered && !prev.session.entered) schedulePendingJoin();
     // in a room (co-op or solo, also a resumed one) a match is near: its data starts downloading
     if (s.room && !prev.room) warmGameData();
+    // 同盟匹配 (DESIGN §23) starts the match the instant the pool is full, so there is no waiting room to warm the
+    // data in: start as soon as the player is searching, or a matched player begins downloading the match data at the
+    // opening bell and watches "正在载入模拟数据…" while the others already play.
+    if (s.queue && !prev.queue) warmGameData();
   });
 }
 

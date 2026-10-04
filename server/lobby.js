@@ -564,9 +564,13 @@ export class Lobby {
 
   /**
    * `queue.leave`: cancel the search. Idempotent — the client may click twice, or cancel after a formation.
+   * The log line is the only way to tell a cancel that arrived from one the network swallowed (a half-open
+   * socket looks identical from the server's side), so keep it.
    */
   queueLeave(session) {
+    const pool = this.queueOf(session);
     this.dequeue(session, { notify: true });
+    if (pool) this.log.info(`[lobby] queue/${pool.difficulty}: -${session.name} (${this.connectedIn(pool)}/${MAX_SEATS} 真人)`);
     return OK;
   }
 

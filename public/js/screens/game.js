@@ -63,7 +63,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from '../../vendor/
 import { PHASE, GEO } from '../../../shared/constants.js';
 import { fxForm } from '../../../shared/protocol.js';
 import { html, Spinner, PhaseBanner, Icon, Button, MicroLabel, confirmDialog, useTicker } from '../ui/components.js';
-import { useGameData, GIcon } from '../ui/gameComponents.js';
+import { useGameData, GIcon, GAME_FILES } from '../ui/gameComponents.js';
 import { useFieldView } from '../ui/fieldHost.js';
 import { TopBar, liveLp, ownLeaks, uniteRemaining, tempInfo, tempReadyReason } from '../ui/hud.js';
 import { BondStrip, BondPopup } from '../ui/bondStrip.js';
@@ -109,6 +109,8 @@ import { useDocClass, FullscreenButton } from '../ui/device.js';
 
 const cx = (...p) => p.flat().filter(Boolean).join(' ');
 const HUD_HZ_MS = 200;
+/** After this long on the data-loading screen the player is told which files are still missing (see LoadingScreen). */
+export const SLOW_HINT_MS = 6000;
 /** Range tiles of the selected unit (its own highlight group: the wheel's 'facing' group may be up at the same time). */
 const SEL_RANGE = Object.freeze({ group: 'selRange', color: 0xff9c33, fill: 0.3, line: 0.95 });
 /** The tile an armed merge-completing card's elite will take (its own group; gold like the promotion cue, render/fx.js). */
@@ -126,12 +128,7 @@ export function GameScreen() {
   const away = useStore((s) => s.away, Object.is, awayStore);
   const autoplay = useStore((s) => !!(Array.isArray(s.match.public?.players) && s.match.public.players.find((p) => p && p.playerId === s.me.playerId)?.autoplay));
   const gd = useGameData();
-  if (!pub || !gd.ready) {
-    return html`<div class="screen gload">
-      <${Spinner} size="lg" label=${pub ? 'LOADING DATA' : 'ENTERING SIMULATION'} />
-      <p class="t-lo">${pub ? '正在载入模拟数据…' : '正在进入模拟…'}</p>
-    </div>`;
-  }
+  if (!pub || !gd.ready) return html`<${LoadingScreen} pub=${pub} />`;
   const mode = phaseMode(pub.phase);
   let body;
   if (hasResult || mode === 'result') body = html`<${ResultScreen} />`;
@@ -141,6 +138,36 @@ export function GameScreen() {
   return html`${body}
     ${(away || autoplay) && !hasResult && mode !== 'result' && !ended ? html`<${AwayOverlay} />` : null}
     ${ended && !hasResult && mode !== 'result' ? html`<${MatchEnded} />` : null}`;
+}
+
+/**
+ * The match screen opens only once every data file of the match UI (GAME_FILES) is settled: no text may appear late.
+ * A *stalled* download (a dropped tunnel, a half-open connection) would otherwise hold the player here forever with
+ * nothing to act on — and in 同盟匹配 (DESIGN §23) the match has already started, so the player cannot tell whether
+ * the game is broken or just slow. After SLOW_HINT_MS the files that are still missing are named, with 重试 (refetch
+ * them; data.js times a stalled step out and retries) and 刷新页面 as the way out.
+ */
+function LoadingScreen({ pub }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!pub) return undefined;
+    const timer = setTimeout(() => setSlow(true), SLOW_HINT_MS);
+    return () => clearTimeout(timer);
+  }, [pub]);
+  // Re-rendered on every data update (GameScreen's useGameData), so this list is live.
+  const pending = GAME_FILES.filter((n) => data.status(n) === 'loading');
+  const retry = () => { for (const n of pending) data.invalidate(n); };
+  return html`<div class="screen gload">
+    <${Spinner} size="lg" label=${pub ? 'LOADING DATA' : 'ENTERING SIMULATION'} />
+    <p class="t-lo">${pub ? '正在载入模拟数据…' : '正在进入模拟…'}</p>
+    ${slow && pub
+      ? html`<div class="gload__slow">
+          <p class="t-dim">正在下载：${pending.length ? pending.join('、') : '（等待重试）'}</p>
+          <${Button} variant="ghost" size="sm" icon="refresh" onClick=${retry}>重试<//>
+          <${Button} variant="ghost" size="sm" icon="chevronLeft" onClick=${() => location.reload()}>刷新页面<//>
+        </div>`
+      : null}
+  </div>`;
 }
 
 /** The room went back to its lobby without a result (match aborted): offer the way back. */
