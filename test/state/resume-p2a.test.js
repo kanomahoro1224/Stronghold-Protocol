@@ -11,8 +11,10 @@
 //      positions — with no second income, no second upgrade-price drop and no re-rolled shop (the P0/P1 double-apply bug,
 //      reproduced here as the "old order" control);
 //   4. the SETTLE record continues into R2 and lands on the very state the source match reached by itself;
-//   5. a v1 record is refused, a co-op or mid-round record is refused, and the same record applied twice is the same
-//      state (nothing compounds on a resume).
+//   5. a PREP record — the point the mid-round heartbeat writes — is ACCEPTED and reconstructs the mid-prep seat exactly
+//      (the same proof as 3, on the path a real crash usually lands on), and the resumed prep can still be finished;
+//   6. a v1 record, a co-op record, a COMBAT / SP_DRAFT / FINAL_ASSAULT record are each refused with their own reason,
+//      and the same record applied twice is the same state (nothing compounds on a resume).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -322,8 +324,8 @@ test('a PREP record is accepted and reconstructs the mid-prep seat exactly (no f
   try {
     assert.equal(prep.phase, PHASE.PREP, 'the record is the OPEN prep, not a round boundary');
     assert.equal(prep.round, 2);
-    assert.deepEqual(resumePlan(prep), { ok: true, round: 2, payloadFirst: false },
-      'PREP rides the round-start re-entry: re-enter R2, payload after, run state last');
+    assert.deepEqual(resumePlan(prep), { ok: true, round: 2, payloadFirst: false, intoPrep: true },
+      'PREP rides the round-start re-entry (payload after, run state last) but enters the PREP directly');
     assert.deepEqual(checkRecord(prep, { now: NOW, ttlMs: RESUME_TTL_MS }), { ok: true },
       'and the boot gate takes it — refusing it would throw away what the heartbeat exists for');
     const before = payloadOf(prep, 'p_0');
@@ -347,12 +349,12 @@ test('a PREP record is accepted and reconstructs the mid-prep seat exactly (no f
   } finally { h.m.dispose(); b.m.dispose(); }
 });
 
-test('the resumed prep continues: the round is playable again, and the one residual is a recorded Ready', () => {
+test('a resumed prep continues where it was: a recorded Ready survives, and the round is playable to the end', () => {
   const { h, prep } = prepRun();
   const b = rebuild(prep);
   try {
     // a recorded Ready is a state the engine itself holds (the human confirmed, the AI teammate has not yet): make the
-    // record that one, so the residual below is really exercised instead of depending on the bot's timing
+    // record that one, so the assertion below is really exercised instead of depending on the bot's timing
     const ready = {
       ...prep,
       players: prep.players.map((p) => (p.playerId === 'p_0' ? { ...p, props: { ...p.props, ready: true } } : p)),
@@ -361,20 +363,58 @@ test('the resumed prep continues: the round is playable again, and the one resid
     assert.equal(before.ready, true);
     assert.equal(applyRecord(b.m, ready), 2);
     assert.equal(b.m.phase, PHASE.ROUND_START);
-    // the engine's own ROUND_START → PREP transition reopens the prep: no second round start, no new shop, no income
+    // the engine's own ROUND_START → PREP transition reopens the prep: no second round start, no new shop, no income,
+    // and — because the record is already INSIDE the prep — no second prep entry that would clear the Ready flag
     assert.ok(b.run(() => b.m.phase === PHASE.PREP), 'the prep reopens');
     const after = captureProps(b.ps('p_0'));
-    assert.equal(after.ready, false,
-      'the ONE field the replay cannot keep: entering the prep clears Ready, so the player confirms again');
-    assert.equal(canon({ ...after, ready: before.ready }), canon(before), 'everything else is still the recorded state');
-    assert.equal(canon(after.shop.slots), canon(before.shop.slots), 'and the shop is still the recorded one');
-    assert.equal(after.funds, before.funds, 'with no income paid a second time');
-    assert.equal(b.m.uidSeq, prep.state.uidSeq, 'and no uid was burned');
+    assert.equal(after.ready, true, 'the human is still ready: the prep entry did not run a second time');
+    assert.equal(canon(after), canon(before), 'the whole mid-prep seat is the recorded one');
+    assert.equal(b.m.uidSeq, prep.state.uidSeq, 'and no uid was burned on the way in');
+    assert.equal(b.m.alivePlayers().every((ps) => ps.ready), false, 'the AI teammate still has to finish its own prep');
     // the round is playable to the end: the human confirms and the (fake) battle settles exactly as in a live match
     b.m.handle('p_0', { t: 'g.ready', ready: true });
     assert.ok(b.run(() => b.m.phase === PHASE.SETTLE && b.m.round === 2), 'the resumed round settles like any other');
     b.invariants();
   } finally { h.m.dispose(); b.m.dispose(); }
+});
+
+test('a PREP record at a 机变 round does NOT replay the draft: the re-entry comes back to the open prep', () => {
+  // round 3 is a draft round for this mode (gd.spRounds() = [3, 6, 9]): the record is written INSIDE the prep, i.e.
+  // after the player's pick. Re-entering ROUND_START and letting the round start run would fall back into enterSpDraft
+  // and hand out a SECOND 机变 card for a round that is already drafted — the case this option exists for.
+  const h = makeMatch({ mode: 'coop', difficulty: 'NORMAL', humans: 1, bots: 1, seed: SEED, fake: true });
+  h.m.stateSink = null;
+  h.start();
+  h.toPrep(1);
+  const m = h.m;
+  h.run(() => m.phase === PHASE.SETTLE && m.round === 1);
+  for (const r of [2, 3]) {
+    h.run(() => m.phase === PHASE.ROUND_START && m.round === r);
+    h.toPrep(r);
+  }
+  const prep = buildRecord(m, { build: 'test-build', rulesHash: 'test-rules', now: NOW });
+  const b = rebuild(prep);
+  const control = rebuild({ ...prep, phase: PHASE.ROUND_START }); // the SAME round, recorded at its boundary
+  try {
+    assert.deepEqual(m.gd.spRounds(), [3, 6, 9], 'round 3 is a draft round: this is the case that matters');
+    assert.equal(prep.phase, PHASE.PREP);
+    assert.equal(prep.round, 3);
+    const before = payloadOf(prep, 'p_0');
+    assert.equal(applyRecord(b.m, prep), 2);
+    assert.equal(b.m.phase, PHASE.ROUND_START);
+    assert.ok(b.run(() => b.m.phase !== PHASE.ROUND_START), 'the round start runs out');
+    assert.equal(b.m.phase, PHASE.PREP, 'the re-entry came back to the OPEN prep, not to a fresh draft');
+    assert.equal(b.m.sp, null, 'and no draft was opened');
+    assert.equal(canon(captureProps(b.ps('p_0'))), canon(before), 'the mid-prep seat is the recorded one (no second card)');
+    assert.equal(canon(b.ps('p_0').shop.slots), canon(before.shop.slots), 'no second draft re-rolled the shop');
+    assert.equal(b.m.uidSeq, prep.state.uidSeq);
+    // the control proves the difference is the RECORDED PHASE, not the round: a ROUND_START record of round 3 still
+    // plays that round's draft (the player picks it again, which is correct — that pick was never in the record)
+    assert.equal(applyRecord(control.m, { ...prep, phase: PHASE.ROUND_START }), 2);
+    assert.ok(control.run(() => control.m.phase !== PHASE.ROUND_START), 'the control round start runs out');
+    assert.equal(control.m.phase, PHASE.SP_DRAFT, 'a round-start record of a draft round still drafts');
+    b.invariants();
+  } finally { h.m.dispose(); b.m.dispose(); control.m.dispose(); }
 });
 
 // ---------------------------------------------------------------------------------------------------

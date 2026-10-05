@@ -129,14 +129,15 @@ test('the heartbeat writes a resumable PREP record: the boot scan keeps it and p
   const m = h.m;
   try {
     h.start();
-    h.autoHumans();
+    // NO `autoHumans()`: an autoplay human confirms its prep by itself, and the point of this test is the prep that is
+    // still OPEN when the heartbeat fires (a lone-human prep is untimed, so a real match sits here for minutes)
     h.toPrep(1);
     assert.equal(m.phase, PHASE.PREP);
-    assert.equal(m.loneHuman, true, 'one human seat: the re-entry gate accepts this match');
+    assert.equal(m.players.get('p_0').ready, false, 'the human has not confirmed: the prep stays open');
     // the heartbeat fires while the prep is open — a lone-human prep is untimed, so the match really is sitting there
     const beating = () => h.reasons.filter((r) => r === 'heartbeat').length;
     assert.ok(h.run(() => beating() >= 1, { maxSteps: 5000 }), 'the heartbeat wrote mid-prep');
-    assert.equal(m.phase, PHASE.PREP, 'and the prep is still open (the human has not confirmed)');
+    assert.equal(m.phase, PHASE.PREP, 'and the prep is still open');
     await h.persist.idle();
     const rec = await h.store.get(matchKey('TEST'));
     assert.equal(rec.phase, PHASE.PREP, 'the record on disk is the OPEN prep, not a round boundary');

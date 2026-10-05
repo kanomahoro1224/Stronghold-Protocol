@@ -266,7 +266,10 @@ export const DELAYS = Object.freeze({
 
 /**
  * Match-state persistence heartbeat (server/state/*, P0/P1): while a round is active the match hands its state to the
- * injected `opts.stateSink` every this-many ms, so a crash mid-round loses at most a few seconds. It rides the match's
+ * injected `opts.stateSink` every this-many ms. That write is what a resume usually sees — an untimed lone-human PREP
+ * lasts minutes and the record on disk is refreshed every few seconds — and it is re-enterable (server/state/resume.js
+ * `resumePlan` includes PREP), so a crash loses at most a few seconds of a prep. A crash mid-COMBAT still loses the
+ * round itself: a battle in flight is not persisted, so that point stays refused. The heartbeat rides the match's
  * own scheduler (`later`, unref'd) and parks on a frozen match like the 1 Hz progress ticker — the game loop still
  * never awaits a disk write; the sink is fire-and-forget.
  */
@@ -502,6 +505,11 @@ export class Match {
    *     round start produced (income, the lower upgrade price, the rolled shop). `playerStart:false` therefore skips
    *     `PlayerState.startRound` (the payload follows), and `drawWave:false` keeps the recorded round's wave instead of
    *     drawing the NEXT one (rngWaves already consumed it — see the `wave`/`bossWaves` options).
+   *   * PREP: the same call with `intoPrep:true`. The record is the OPEN prep (the mid-round heartbeat's write), the
+   *     payload is mid-prep and overrides the re-entry, and the transition out of ROUND_START goes straight back into
+   *     the prep: the record is already past this round's draft and inside its prep, so neither may run again (see
+   *     `afterRoundStart` / `enterPrep`). The payload and the run state are applied before the 1.5 s ROUND_START
+   *     deadline fires, i.e. before anything of the prep's own continuation runs.
    *   * SETTLE: the record is the settled round, so the payload is applied first and the next round start runs normally.
    *     That is the caller's order, not this method's.
    * The Match-level `dispatch(ps, 'onRoundStart')` always runs (round-start effects are not part of the payload's own
@@ -510,10 +518,12 @@ export class Match {
    * NOT a replay: the outcome of the rounds the dead process already ran is not reproduced — the payload IS that
    * outcome. See server/state/snapshot.js and server/state/playerstate.js for exactly what is restorable.
    * @param {number} round 1-based round index
-   * @param {{ playerStart?: boolean, drawWave?: boolean, wave?: any, bossWaves?: any }} [opts]
+   * @param {{ playerStart?: boolean, drawWave?: boolean, wave?: any, bossWaves?: any, intoPrep?: boolean }} [opts]
+   *   `intoPrep` (a PREP record): the recorded phase is the OPEN prep, so the round start must neither replay this
+   *   round's 机变 draft (a second card) nor re-run the prep entry (a cleared `ready`, a second `onPrepStart`).
    * @returns {boolean} false when the match is already over (or round is unusable)
    */
-  resumeAt(round, { playerStart = true, drawWave = true, wave = undefined, bossWaves = undefined } = {}) {
+  resumeAt(round, { playerStart = true, drawWave = true, wave = undefined, bossWaves = undefined, intoPrep = false } = {}) {
     if (this.disposed || this.ended) return false;
     const r = Number.isInteger(round) && round > 0 ? Math.min(round, this.gd.lastRound) : 1;
     this.cancel(this._phaseTimer);
@@ -529,7 +539,7 @@ export class Match {
       this.wave = wave === undefined ? null : wave;
       this.bossWaves = bossWaves === undefined ? null : bossWaves;
     }
-    this.startRound(r, { playerStart, drawWave });
+    this.startRound(r, { playerStart, drawWave, intoPrep });
     return true;
   }
 
@@ -1830,12 +1840,13 @@ export class Match {
 
   /**
    * Begin round `r`.
-   * @param {number} r @param {{ playerStart?: boolean, drawWave?: boolean }} [opts] resume options (see `resumeAt`):
+   * @param {number} r @param {{ playerStart?: boolean, drawWave?: boolean, intoPrep?: boolean }} [opts] resume options (see `resumeAt`):
    *   `playerStart:false` keeps `PlayerState.startRound` (income / upgrade price / shop roll) from running a second
    *   time on top of a payload that already contains it; `drawWave:false` keeps `this.wave` / `this.bossWaves` the
-   *   caller restored from the record instead of drawing the round's enemies.
+   *   caller restored from the record instead of drawing the round's enemies; `intoPrep:true` sends the round start
+   *   straight to the prep (a record written inside the prep is past the draft and past the prep entry).
    */
-  startRound(r, { playerStart = true, drawWave = true } = {}) {
+  startRound(r, { playerStart = true, drawWave = true, intoPrep = false } = {}) {
     this.phase = PHASE.ROUND_START;
     this.round = r;
     this.fields = [];
@@ -1867,9 +1878,10 @@ export class Match {
       try { this.dispatcher.dispatchEliminated(ps, 'onRoundStart', { round: r }); } catch (e) { this.reportError('dispatch onRoundStart (eliminated)', e); }
     }
     for (const ps of alive) ps.recompute();
-    this.setDeadline(DELAYS.ROUND_START / 1000, () => this.afterRoundStart(), { silent: this.soloUntimed });
+    this.setDeadline(DELAYS.ROUND_START / 1000, () => this.afterRoundStart({ intoPrep }), { silent: this.soloUntimed });
     this.markPublic();
-    // match-state persistence (P0/P1): the round boundary is one of the two durable points, and it starts the
+    // match-state persistence (P0/P1): the round boundary is the first of the three points a resume can re-enter
+    // (round start, the open prep the heartbeat writes, settle — server/state/resume.js `resumePlan`), and it starts the
     // mid-round heartbeat that bounds what a crash can lose to a few seconds
     this._persistState('round_start');
     this._armStateHeartbeat();
@@ -1885,9 +1897,15 @@ export class Match {
     }));
   }
 
-  afterRoundStart() {
-    if (this.gd.spRounds().includes(this.round)) this.enterSpDraft();
-    else this.enterPrep();
+  /**
+   * The round start is over: the 机变 draft of a draft round, else the prep opens.
+   * @param {{ intoPrep?: boolean }} [opts] `intoPrep` (a RESUMED open prep, server/state/resume.js): the record is
+   *   already past this round's draft and inside its prep, so neither the draft nor the prep entry may run again — a
+   *   replayed draft would hand the player a second 机变 card for a round they already drafted.
+   */
+  afterRoundStart({ intoPrep = false } = {}) {
+    if (!intoPrep && this.gd.spRounds().includes(this.round)) this.enterSpDraft();
+    else this.enterPrep({ replay: !intoPrep });
   }
 
   // ===================================================================================================
@@ -2078,11 +2096,25 @@ export class Match {
   // ===================================================================================================
   // PREP
 
-  enterPrep() {
+  /**
+   * Open the prep of `this.round`.
+   *
+   * `replay` (default true) is the LIVE entry: every seat is un-readied, its deferred item merges are resolved and
+   * `onPrepStart` is dispatched. A RESUMED prep (`replay:false`, server/state/resume.js) skips that block on purpose:
+   * the record's payload was captured after the live entry ran, so it already holds the un-readied flag, the merged
+   * items and everything the prep-start grants wrote — re-running them on top of the payload is the double-apply this
+   * feature exists to avoid (a cleared `ready` flag is one of the things the block sets, so replaying it would also
+   * make a confirmed player confirm again).
+   * What is NOT skipped is the phase's own continuation: the timer, the bots' prep and `maybeEndPrep`, all of which run
+   * with the restored state (the payload and the rng positions are applied before this is reached — the ROUND_START
+   * deadline that leads here fires after `applyRecord` returned).
+   */
+  enterPrep({ replay = true } = {}) {
     this.phase = PHASE.PREP;
     this.sp = null;
     const alive = this.alivePlayers();
     for (const ps of alive) {
+      if (!replay) continue;
       ps.ready = false;
       // Items gained as the previous prep ended waited unmerged (acquireItem deferMerge). Merge them now, before
       // this prep's onPrepStart grants and before the player acts — not in endPrep, which runs in the same prep
@@ -3322,7 +3354,8 @@ export class Match {
 
   settle(plan, uniteResult) {
     this.phase = PHASE.SETTLE;
-    // match-state persistence (P0/P1): the second durable point. The mid-round heartbeat stops here (the round is over;
+    // match-state persistence (P0/P1): the settled round, the point a resume CONTINUES from (server/state/resume.js).
+    // The mid-round heartbeat stops here (the round is over;
     // the next ROUND_START restarts it), and the RECORD is written at the END of this method, once the settlement below
     // has run: P2a resumes a SETTLE record by re-entering the NEXT round, so "the settled round is what a resume must
     // see" (as this used to claim while writing before the settlement) has to be true of the payload.
@@ -3385,7 +3418,7 @@ export class Match {
     this.fields = [];
     this.watchers.clear();
     this.markPublic();
-    // the settled round is the second durable point (see the note at the top of settle())
+    // the settled round is the point a resume continues from (see the note at the top of settle())
     this._persistState('settle');
     this.setDeadline(DELAYS.SETTLE / 1000, () => this.afterSettle(), { silent: this.soloUntimed });
   }

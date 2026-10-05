@@ -40,12 +40,15 @@ const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
  *   ROUND_START r — written at the end of `Match.startRound(r)`: the payload is the state right after the round start,
  *                   so the resume restores it as-is (`playerStart:false`, the recorded wave) and the payload follows.
  *   PREP r        — written by the mid-round heartbeat while the prep is open (a lone-human prep is untimed, so this is
- *                   the record a live process is usually sitting on). It re-enters through the SAME round-start path:
- *                   the payload already holds everything the round start and the prep entry produced (income, the
- *                   lowered upgrade price, the rolled shop, the prep-start grants), so `playerStart:false` skips
- *                   `PlayerState.startRound`, the recorded wave is kept and the payload overrides the replay. The
- *                   heartbeat record is the newest truth on disk — refusing it would throw away the whole point of the
- *                   heartbeat, which exists to bound a crash to a few seconds.
+ *                   the record a live process is usually sitting on). It re-enters the SAME round, with the same
+ *                   options plus `intoPrep:true`: the payload already holds everything the round start and the prep
+ *                   entry produced (income, the lowered upgrade price, the rolled shop, the prep-start grants), so
+ *                   `PlayerState.startRound` is skipped, the recorded wave is kept and the payload overrides the
+ *                   re-entry. `intoPrep` also keeps the transition out of ROUND_START from going through the round's
+ *                   机变 draft (a record written inside the prep is already past it — replaying it would hand out a
+ *                   second card) or through the prep entry itself (replaying it would clear `ready` and dispatch
+ *                   `onPrepStart` a second time). The heartbeat record is the newest truth on disk — refusing it would
+ *                   throw away the whole point of the heartbeat, which exists to bound a crash to a few seconds.
  *   SETTLE r      — written at the end of `Match.settle()`: the round is settled, so the continuation is what the engine
  *                   itself does next (`afterSettle` → `startRound(r + 1)`): the payload is applied first, then the next
  *                   round start runs normally (income, upgrade price, a fresh shop, a freshly drawn wave).
@@ -60,14 +63,15 @@ const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
  *     round to re-enter, and reading it as one would be a guess. `checkRecord` deliberately does NOT gate those (their
  *     records have no `state`), so the platform's own resume path keeps working unchanged.
  *
- * A PREP record is accepted because its round-start re-entry is FAITHFUL, and that is MEASURED rather than assumed: a
- * mid-prep payload round-trips field for field (the seat digest, the shared pool, all six rng positions, no second
- * income, no second upgrade-price drop, no re-rolled shop, `uidSeq` untouched), with exactly ONE residual — a recorded
- * `ready` flag is cleared, because entering PREP clears it and the player confirms again. See
- * test/state/resume-p2a.test.js ('a PREP record …'), which pins both the equality and that single field.
+ * A PREP record is accepted because its re-entry is FAITHFUL, and that is MEASURED rather than assumed: a mid-prep
+ * payload round-trips field for field — the seat digest (hand / board / temp / offers / shop / layers / counters), the
+ * shared pool, all six rng positions, no second income, no second upgrade-price drop, no re-rolled shop, `uidSeq`
+ * untouched — both at a plain round and at a 机变 round, right after the re-entry and again once the prep is open.
+ * See test/state/resume-p2a.test.js ('a PREP record …'), which pins the equality on both, and
+ * test/state/lobby-resume.test.js, which does it end to end through `claim` + `rehydrate`.
  *
  * @param {any} record
- * @returns {{ ok: true, round: number, payloadFirst: boolean } | { ok: false, reason: string }}
+ * @returns {{ ok: true, round: number, payloadFirst: boolean, intoPrep: boolean } | { ok: false, reason: string }}
  */
 export function resumePlan(record) {
   if (!record || typeof record !== 'object') return { ok: false, reason: 'missing' };
@@ -82,11 +86,18 @@ export function resumePlan(record) {
     : (Number.isInteger(record.lastRound) ? record.lastRound + 1 : null);
   if (finalRound != null && Number.isInteger(record.round) && record.round >= finalRound) return { ok: false, reason: 'final' };
   // ROUND_START and PREP share the re-entry: re-enter the round with `playerStart:false` and the payload after it.
-  // SETTLE is the other direction (the settled round, continued by the engine's own next round start).
+  // `intoPrep` is where they differ — a PREP record is already PAST the round's 机变 draft and INSIDE its prep, so the
+  // engine may neither replay the draft (a second card) nor re-run the prep entry (a cleared `ready`). SETTLE is the
+  // other direction (the settled round, continued by the engine's own next round start).
   if (record.phase === PHASE.ROUND_START || record.phase === PHASE.PREP) {
-    return { ok: true, round: Number.isInteger(record.round) ? record.round : 1, payloadFirst: false };
+    return {
+      ok: true,
+      round: Number.isInteger(record.round) ? record.round : 1,
+      payloadFirst: false,
+      intoPrep: record.phase === PHASE.PREP,
+    };
   }
-  if (record.phase === PHASE.SETTLE) return { ok: true, round: (Number.isInteger(record.round) ? record.round : 0) + 1, payloadFirst: true };
+  if (record.phase === PHASE.SETTLE) return { ok: true, round: (Number.isInteger(record.round) ? record.round : 0) + 1, payloadFirst: true, intoPrep: false };
   return { ok: false, reason: 'phase' };
 }
 
@@ -279,9 +290,12 @@ function applyPlayers(match, record) {
  *                 wave), then the payloads, then the run state (rng positions, pool, uidSeq, battleSeq). The rng is
  *                 restored LAST on purpose: the round-start effects that still run may consume randomness, and what a
  *                 record promises is the streams' position at the recorded moment.
- *   PREP        — the same branch: the recorded round is re-entered exactly as above (the payload is mid-prep and
- *                 overrides everything the re-entry produced), and the engine's own ROUND_START → PREP transition then
- *                 opens the prep again. Measured faithful except for a recorded `ready` flag (see `resumePlan`).
+ *   PREP        — the same branch with `intoPrep:true`: the recorded round is re-entered exactly as above (the payload
+ *                 is mid-prep and overrides everything the re-entry produced), but the transition that leads out of
+ *                 ROUND_START goes STRAIGHT to the prep — the record is already past this round's 机变 draft and inside
+ *                 its prep, so neither the draft (a second card) nor the prep entry (a cleared `ready`, a second
+ *                 `onPrepStart`) may run again. 1.5 s of round-start presentation aside, the match is back in the prep
+ *                 it was interrupted in, at the recorded rng positions, ready for the player's next message.
  *   SETTLE      — the run state first (the streams/pool/uidSeq the NEXT round start draws from), then the payloads,
  *                 then the ordinary `resumeAt(r + 1)`: the transition is REPLAYED from the recorded position, so the
  *                 rebuilt round start is the one the dead process would have produced.
@@ -308,6 +322,7 @@ export function applyRecord(match, record) {
         drawWave: false,
         wave: record.state.wave,
         bossWaves: record.state.bossWaves,
+        intoPrep: plan.intoPrep,
       });
     }
     applied = applyPlayers(match, record);
