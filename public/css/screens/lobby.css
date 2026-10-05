@@ -271,12 +271,18 @@
   justify-content: center;
   flex-wrap: wrap;
   gap: .35em;
-  padding: 0 0 6px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 10px;
+  padding: 6px 14px;
   font-size: 12px;
   line-height: 1.5;
   letter-spacing: .02em;
   text-align: center;
-  color: rgba(233, 245, 240, .72);
+  color: rgba(233, 245, 240, .78);
+  background: var(--mint-a10, rgba(78, 216, 175, .10));
+  border: 1px solid var(--mint-a35, rgba(78, 216, 175, .35));
+  border-radius: 8px;
 }
 .lobby-tip__text { white-space: nowrap; }
 .lobby-tip__link {
@@ -294,5 +300,5 @@
   text-decoration-color: var(--mint-400, #59f4ca);
 }
 @media (max-width: 560px) {
-  .lobby-tip { font-size: 11px; padding: 0 0 4px; }
+  .lobby-tip { font-size: 11px; padding: 5px 10px; }
 }
