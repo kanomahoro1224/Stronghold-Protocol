@@ -42,3 +42,5 @@ desktop.ini
 .idea/
 .vscode/
 .claude/
+
+.p2tmp/
