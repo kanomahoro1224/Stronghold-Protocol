@@ -4,7 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeStatus, normalizeLink, STATUS_SOURCE } from '../../public/js/ui/statusBanner.js';
+import { normalizeStatus, normalizeLink, retireByOnline, STATUS_SOURCE } from '../../public/js/ui/statusBanner.js';
 
 test('status banner: reads the operator file outside the code deploy', () => {
   assert.equal(STATUS_SOURCE, '/runtime/status.json');
@@ -67,4 +67,20 @@ test('status banner: link label falls back to the host, and unsafe hrefs are dro
   ]) {
     assert.equal(normalizeLink(bad), null, `${JSON.stringify(bad)} is refused`);
   }
+});
+
+test('status banner: minOnline retires the notice once the server calms down', () => {
+  assert.equal(normalizeStatus({ tone: 'emergency', text: '资源吃紧', minOnline: 1900 }).minOnline, 1900);
+  assert.equal(normalizeStatus({ tone: 'emergency', text: 'x' }).minOnline, 0, 'no threshold = shows until withdrawn');
+  for (const bad of [0, -1, 1.5, '1900', null, {}, true, []]) {
+    assert.equal(normalizeStatus({ tone: 'emergency', text: 'x', minOnline: bad }).minOnline, 0, JSON.stringify(bad));
+  }
+});
+
+test('status banner: retirement fires only below the threshold, never before the count is known', () => {
+  assert.equal(retireByOnline(1900, 1899), true);
+  assert.equal(retireByOnline(1900, 1900), false, 'exactly at the threshold still shows');
+  assert.equal(retireByOnline(1900, 2000), false);
+  assert.equal(retireByOnline(1900, 0), false, 'online count not known yet');
+  assert.equal(retireByOnline(0, 5), false, 'no threshold configured');
 });
