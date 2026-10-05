@@ -18,6 +18,26 @@ export function bannerVisible(conn, entered, restoring, buildStale = false) {
   return true;
 }
 
+// Once the server holds maxConnections sockets it refuses upgrades (server/net.js), and a refused upgrade reaches the
+// browser as a plain close with no reason attached. /healthz is the only honest signal: probe it at most once every
+// 20 s (one request in flight, shared by every render and every component) and let the reconnect text name the real
+// cause instead of blaming the player's network. maxConnections is read from the payload when present so a raised cap
+// needs no client change; 2000 is the current NET_DEFAULTS.maxConnections.
+let probe = { at: 0, full: false, pending: null };
+
+export function poolIsFull(now = Date.now()) {
+  if (now - probe.at > 20_000 && !probe.pending && typeof fetch === 'function') {
+    probe.pending = fetch('/healthz', { cache: 'no-store' })
+      .then((r) => (r && r.ok ? r.json() : null))
+      .then((j) => {
+        const cap = Number(j && j.maxConnections) || 2000;
+        probe = { at: Date.now(), full: !!j && Number(j.sockets) >= cap, pending: null };
+      })
+      .catch(() => { probe = { at: Date.now(), full: false, pending: null }; });
+  }
+  return probe.full;
+}
+
 export function ConnectionBanner() {
   const conn = useStore((s) => s.connection, shallowEqual);
   const entered = useStore((s) => s.session.entered);
@@ -47,7 +67,7 @@ export function ConnectionBanner() {
   // Short transitional states (a rename re-sends hello on the live socket) only show if they linger.
   const transient = conn.status === 'connecting' || conn.status === 'handshaking' || (conn.status === 'connected' && !rejected);
   const text = conn.status === 'reconnecting'
-    ? '与服务器的连接已中断，正在重连'
+    ? (poolIsFull() ? '服务器连接池已满，正在排队' : '与服务器的连接已中断，正在重连')
     : replaced ? '该身份已在其他页面登录'
       : conn.status === 'closed' ? '连接已关闭'
         : rejected ? conn.lastError.text : '正在连接服务器';
