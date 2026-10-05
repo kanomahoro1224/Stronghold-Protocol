@@ -263,3 +263,36 @@
 /* Difficulty is locked while the pool is keyed by it (re-pick after 取消搜寻). */
 .diff-card:disabled { cursor: not-allowed; opacity: .5; }
 .diff-card:disabled:hover { border-color: var(--line); }
+
+/* 联机分线提示：常驻「选择模拟协议」左栏顶部（搜集中 / 准备中两种状态都显示） */
+.lobby-tip {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: .35em;
+  padding: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: .02em;
+  text-align: center;
+  color: rgba(233, 245, 240, .72);
+}
+.lobby-tip__text { white-space: nowrap; }
+.lobby-tip__link {
+  color: var(--mint-400, #59f4ca);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--mint-a35, rgba(78, 216, 175, .35));
+  transition: text-decoration-color .15s ease, color .15s ease;
+}
+.lobby-tip__link:hover,
+.lobby-tip__link:focus-visible {
+  color: var(--mint-glow, #17f9b7);
+  text-decoration-color: var(--mint-400, #59f4ca);
+}
+@media (max-width: 560px) {
+  .lobby-tip { font-size: 11px; padding: 0 0 4px; }
+}

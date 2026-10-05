@@ -534,6 +534,16 @@ export function LobbyScreen() {
 
     <div class="lobby-body screen__scroll">
       <section class="lobby-left">
+        <div class="lobby-tip">
+          <span class="lobby-tip__text">联机用分线：</span>
+          <a
+            class="lobby-tip__link"
+            href="https://game.kafuno.cn"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="联机用分线：game.kafuno.cn"
+          >game.kafuno.cn</a>
+        </div>
         ${showPanel
           ? html`<${MatchPanel} q=${panelQ} start=${panelStart} busy=${busy} onCancel=${cancelSearch} />`
           : html`<div class="lobby-prep">
