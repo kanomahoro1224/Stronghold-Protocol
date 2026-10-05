@@ -6,7 +6,10 @@
 // GAME_FILES) in the background once the player is in a room, and the match screen waits for them, so no text of the
 // match UI ever appears late. A transient failure (network error, HTTP 5xx) is retried twice (RETRY_DELAYS_MS); files
 // that stay unavailable (404, repeated failures, bad JSON) resolve to `null` and are reported once on the console — the
-// UI must degrade gracefully while data is being generated.
+// UI must degrade gracefully while data is being generated. The emote manifests (`local`, `assets`) are the exception:
+// one attempt is abandoned after ART_MANIFEST_TIMEOUT_MS (GitHub #99) and reported `missing` at once, so the 交流 button
+// draws its glyph instead of staying blank; a later retry that succeeds replaces the glyph. Other files stay `loading`
+// across their retries.
 //
 // Each file is indexed tolerantly so the getters work whether a file is
 //   - an array of records carrying an id field (id / chessId / bondId / itemId / …),
@@ -90,6 +93,16 @@ export const RETRY_DELAYS_MS = Object.freeze([600, 2000]);
 export const DATA_TIMEOUT_MS = 30_000;
 
 /**
+ * How long one attempt at an emote manifest (`local`, `assets`) may hang before it counts as a failure.
+ * [ASSUMED] 8 s: long enough for a slow link, short enough that the 交流 button does not stay blank for the session
+ * (GitHub #99). Other files are not on this clock.
+ */
+export const ART_MANIFEST_TIMEOUT_MS = 8000;
+
+/** Manifests the emote button waits on. A hang here used to leave every cell blank (GitHub #99). */
+const ART_MANIFESTS = new Set(['local', 'assets']);
+
+/**
  * A failed load worth retrying: the request itself failed (network error) or the server answered 5xx / 408 / 429 — not a
  * definite 4xx (the file is not there) nor a delivered file that is not valid JSON (`badJson`).
  */
@@ -103,9 +116,15 @@ const transientFailure = (err) => {
  * Create a data store bound to a fetch implementation (injectable for tests).
  * A file is downloaded once per page (the texts of the game are static data, never fetched again during a match —
  * user playtest #3 item 9); a transient failure is retried (RETRY_DELAYS_MS) while the file stays 'loading', so a
- * network hiccup does not leave the texts of a whole session missing.
+ * network hiccup does not leave the texts of a whole session missing. `local` and `assets` are reported `missing` on
+ * the first failure or timeout (the emote glyph) and stay that way through a retry; a later success is `ready`.
+ * Every file is on a clock so that a download that never settles cannot hold the match screen on 正在载入模拟数据…
+ * forever (DATA_TIMEOUT_MS): an art manifest gets ART_MANIFEST_TIMEOUT_MS, every other file DATA_TIMEOUT_MS.
  * @param {{ fetch?: typeof fetch, base?: string, retryDelays?: number[], wait?: (ms: number) => Promise<void>,
- *           timeoutMs?: number, setTimeout?: Function, clearTimeout?: Function }} [opts]
+ *           timeoutMs?: number, setTimeout?: typeof setTimeout, clearTimeout?: typeof clearTimeout }} [opts]
+ *   `timeoutMs` rules every file (`0` switches the clock off; otherwise the default is per file, above).
+ *   `setTimeout` / `clearTimeout` let a test fire the clock — a caller that injects them states the `timeoutMs` it
+ *   wants, so the 30 s production default never fires behind a fake clock's back.
  */
 export function createDataStore(opts = {}) {
   // Same immutable version prefix as this module in production (see assetOrigin.siblingBase); '/data/' in dev/tests, so
@@ -114,9 +133,19 @@ export function createDataStore(opts = {}) {
   const doFetch = opts.fetch || ((...a) => globalThis.fetch(...a));
   const retryDelays = Array.isArray(opts.retryDelays) ? opts.retryDelays : RETRY_DELAYS_MS;
   const wait = opts.wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const timeoutMs = opts.timeoutMs ?? DATA_TIMEOUT_MS;
+  const timeoutMs = opts.timeoutMs === undefined ? null : Number(opts.timeoutMs);
   const setTimer = opts.setTimeout || ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = opts.clearTimeout || ((id) => clearTimeout(id));
+  // One clock per download step. `timeoutMs` (when given) rules every file — that is how the tests drive a stalled
+  // response, headers or body. Otherwise an art manifest gets ART_MANIFEST_TIMEOUT_MS (`0` switches it off) and every
+  // other file gets the production safety net DATA_TIMEOUT_MS; a caller that injects its own timers states the
+  // `timeoutMs` it wants, so a fake clock never has the 30 s default fire behind its back.
+  const injectedClock = opts.setTimeout !== undefined || opts.clearTimeout !== undefined;
+  const clockFor = (name) => {
+    if (timeoutMs != null) return timeoutMs;
+    if (ART_MANIFESTS.has(name)) return ART_MANIFEST_TIMEOUT_MS;
+    return injectedClock ? 0 : DATA_TIMEOUT_MS;
+  };
   /** @type {Map<string, { status: 'loading'|'ready'|'missing', promise: Promise<any>, value: any, index: Map<string, any>|null }>} */
   const entries = new Map();
   const listeners = new Set();
@@ -133,56 +162,86 @@ export function createDataStore(opts = {}) {
   /**
    * Reject when `p` does not settle inside `ms` (a stalled step of a download). The rejection carries no `status`, so
    * `transientFailure` retries it; the pending timer is unref'd where the runtime supports it (Node) so a test run
-   * never waits for it.
+   * never waits for it. `ms` 0 (a caller that switched the clock off) leaves `p` alone.
    */
-  const withTimeout = (p, ms, label) => new Promise((resolve, reject) => {
-    const timer = setTimer(() => reject(Object.assign(new Error(label), { timeout: true })), ms);
-    if (timer && typeof timer.unref === 'function') timer.unref();
-    p.then(
-      (v) => { clearTimer(timer); resolve(v); },
-      (err) => { clearTimer(timer); reject(err); },
-    );
-  });
+  const withTimeout = (p, ms, label) => {
+    if (!(ms > 0)) return p;
+    return new Promise((resolve, reject) => {
+      const timer = setTimer(() => reject(Object.assign(new Error(label), { timeout: true })), ms);
+      if (timer && typeof timer.unref === 'function') timer.unref();
+      p.then(
+        (v) => { clearTimer(timer); resolve(v); },
+        (err) => { clearTimer(timer); reject(err); },
+      );
+    });
+  };
+
+  /**
+   * One attempt at a file, under that file's clock (`clockFor`): the response headers and the body are counted as two
+   * steps, so a download that stalls on either is a transient failure the retry loop repeats. A timeout rejects with
+   * `{ timeout: true }` and no `status`, so it is retried and finally reported missing; a response that arrives after
+   * the clock is ignored (the retry is a new request). [ASSUMED] for the art manifests' 8 s.
+   */
+  async function readJson(name) {
+    const ms = clockFor(name);
+    // A versioned URL is content-addressed, so forcing revalidation on every page load is pure waste (it made R2's own
+    // immutable headers pointless and re-downloaded ~4 MB of JSON per 5-minute window). The unversioned dev/test base
+    // keeps the old behaviour.
+    const res = await withTimeout(doFetch(urlFor(name), base === '/data/' ? { cache: 'no-cache' } : {}), ms, 'no response');
+    if (!res || !res.ok) throw Object.assign(new Error(`HTTP ${res ? res.status : '???'}`), { status: res ? res.status : null });
+    let json;
+    try { json = await withTimeout(Promise.resolve(res.json()), ms, 'no body'); } catch (err) { throw Object.assign(err instanceof Error ? err : new Error(String(err)), { badJson: !err?.timeout }); }
+    // assetOrigin.js: /assets/** paths in a manifest become absolute so the browser asks the object store
+    // directly instead of following nginx's 302 for every sprite (no-op when the base is off; idempotent).
+    return rewriteAssetPaths(json);
+  }
 
   function load(name) {
     if (typeof name !== 'string' || !/^[A-Za-z0-9_-]+$/.test(name)) return Promise.resolve(null);
     const cur = entries.get(name);
     if (cur) return cur.promise;
     const entry = { status: 'loading', promise: null, value: null, index: null };
+    const art = ART_MANIFESTS.has(name);
     entry.promise = (async () => {
+      let toldMissing = false;
       for (let attempt = 0; ; attempt++) {
         try {
-          // A versioned URL is content-addressed, so forcing revalidation on every page load is pure waste (it made
-          // R2's own immutable headers pointless and re-downloaded ~4 MB of JSON per 5-minute window). The unversioned
-          // dev/test base keeps the old behaviour.
-          const res = await withTimeout(doFetch(urlFor(name), base === '/data/' ? { cache: 'no-cache' } : {}), timeoutMs, 'no response');
-          if (!res || !res.ok) throw Object.assign(new Error(`HTTP ${res ? res.status : '???'}`), { status: res ? res.status : null });
-          let json;
-          try { json = await withTimeout(Promise.resolve(res.json()), timeoutMs, 'no body'); } catch (err) { throw Object.assign(err instanceof Error ? err : new Error(String(err)), { badJson: !err?.timeout }); }
-          // assetOrigin.js: /assets/** paths in a manifest become absolute so the browser asks the object store
-          // directly instead of following nginx's 302 for every sprite (no-op when the base is off; idempotent).
-          entry.value = rewriteAssetPaths(json);
+          entry.value = await readJson(name);
           entry.status = 'ready';
           break;
         } catch (err) {
-          // a transient failure is tried again (still 'loading'), unless the load was superseded meanwhile
-          if (transientFailure(err) && attempt < retryDelays.length && entries.get(name) === entry) {
+          const current = entries.get(name) === entry;
+          // Decided before notify. Invalidating inside that notify leaves `again` true; the wait then sees
+          // the superseded entry and stops, so this attempt does not fetch again.
+          const again = transientFailure(err) && attempt < retryDelays.length && current;
+          // Emote art: glyph now. Stay `missing` through the retry wait — flipping back to `loading` blanks the button.
+          if (art && current && entry.status !== 'missing') {
+            entry.value = null;
+            entry.index = null;
+            entry.status = 'missing';
+            toldMissing = true;
+            notify(name);
+          }
+          if (again) {
             await wait(retryDelays[attempt]);
             if (entries.get(name) === entry) continue;
-            entry.status = 'missing'; // superseded by invalidate() meanwhile: the new load reports for itself
             break;
           }
-          if (!warned.has(name)) {
-            warned.add(name);
-            console.warn(`[data] ${urlFor(name)} unavailable (${err?.message || err}); continuing without it`);
+          if (current) {
+            if (!warned.has(name)) {
+              warned.add(name);
+              console.warn(`[data] ${urlFor(name)} unavailable (${err?.message || err}); continuing without it`);
+            }
+            entry.value = null;
+            entry.index = null;
+            entry.status = 'missing';
           }
-          entry.value = null;
-          entry.status = 'missing';
           break;
         }
       }
       // A load superseded by invalidate() must not announce itself (its entry is no longer cached).
-      if (entries.get(name) === entry) notify(name);
+      // An art manifest already announced `missing` does not announce that same status again.
+      if (entries.get(name) === entry && !(toldMissing && entry.status === 'missing')) notify(name);
       return entry.value;
     })();
     entries.set(name, entry);
