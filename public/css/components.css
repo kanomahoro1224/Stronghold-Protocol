@@ -1015,7 +1015,22 @@
 }
 .status-banner .icon { flex: none; width: .22rem; height: .22rem; color: var(--status-fg); }
 .status-banner__text { font-weight: 700; }
-.status-banner__sub { color: var(--text-lo); font-family: var(--font-num); font-size: .15rem; }
+/* the split-line link: mint, underlined, opens in a new tab (never drops the running match) */
+.status-banner__link {
+  color: var(--mint-400);
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: .03rem;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--mint-a35);
+}
+.status-banner__link:hover,
+.status-banner__link:focus-visible {
+  color: var(--mint-glow);
+  text-decoration-color: var(--mint-400);
+}
+.status-banner__sub { color: var(--text-lo); font-size: .15rem; }
 .status-banner__close {
   flex: none;
   padding: 0 .06rem;
