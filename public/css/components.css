@@ -961,3 +961,72 @@
   --bk-c: var(--red-premium);
 }
 .crash__box h2 { font-size: .3rem; }
+
+/* ---- emergency / maintenance banner (main.js + ui/statusBanner.js) ----------------------------------- */
+/* Operator-issued only: the client reads /runtime/status.json, a file that lives on the server and is not part of
+   the code deploy. Placement mirrors .conn-banner: top centre normally, under the battle-report bar in a match. */
+.status-banner {
+  position: fixed;
+  left: 50%;
+  top: calc(.14rem + var(--sa-t, 0px));
+  transform: translateX(-50%);
+  z-index: var(--z-conn);
+  display: flex;
+  align-items: center;
+  gap: .12rem;
+  max-width: calc(100vw - .4rem);
+  padding: .1rem .16rem .1rem .14rem;
+  background: var(--status-bg);
+  border: 1px solid var(--status-bd);
+  box-shadow: 0 .08rem .3rem rgba(0, 0, 0, .6), 0 0 .2rem var(--status-glow);
+  color: var(--text-hi);
+  font-size: .16rem;
+  /* own keyframes: toast-in's transform would drop the translateX(-50%) centring mid-animation */
+  animation: status-in var(--t-med) var(--ease-out);
+}
+@keyframes status-in { from { opacity: 0; transform: translate(-50%, -.12rem); } }
+.status-banner--emergency {
+  --status-bg: rgba(42, 10, 10, .95);
+  --status-bd: rgba(255, 71, 71, .6);
+  --status-glow: rgba(255, 71, 71, .18);
+  --status-fg: #ff8a8a;
+}
+.status-banner--maintenance {
+  --status-bg: rgba(40, 27, 6, .95);
+  --status-bd: rgba(255, 185, 46, .62);
+  --status-glow: rgba(255, 185, 46, .16);
+  --status-fg: #ffc14d;
+}
+.status-banner--info {
+  --status-bg: rgba(10, 30, 24, .95);
+  --status-bd: var(--mint-a35);
+  --status-glow: rgba(23, 249, 183, .16);
+  --status-fg: var(--mint-400);
+}
+.status-banner__badge {
+  flex: none;
+  padding: .04rem .12rem;
+  border-radius: .05rem;
+  background: var(--status-fg);
+  color: #1a1206;
+  font-size: .14rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.status-banner .icon { flex: none; width: .22rem; height: .22rem; color: var(--status-fg); }
+.status-banner__text { font-weight: 700; }
+.status-banner__sub { color: var(--text-lo); font-family: var(--font-num); font-size: .15rem; }
+.status-banner__close {
+  flex: none;
+  padding: 0 .06rem;
+  border: 0;
+  background: none;
+  color: var(--status-fg);
+  font-size: .2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.status-banner__close:hover { color: var(--text-hi); }
+/* in a match both banners sit below the battle-report bar; the notice yields when the connection banner is up too */
+.sp-in-match .status-banner { top: calc(1.34rem + var(--sa-t, 0px)); }
+.sp-in-match.sp-conn .status-banner { top: calc(2.0rem + var(--sa-t, 0px)); }
