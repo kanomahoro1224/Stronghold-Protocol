@@ -212,23 +212,32 @@ export class Lobby {
     let bots = 0;
     let fields = 0;
     let fieldsIdle = 0;
+    let fieldsInThread = 0;
+    let fieldsPooled = 0;
     let paused = 0;
     for (const r of this.rooms.values()) {
       if (r.match) {
         matches++;
         // The server's own simulation load: battles it steps on its single core (DESIGN §23). `fieldsIdle` is the
         // subset nobody is watching — a match whose humans are all disconnected still steps their takeover fields
-        // until the idle suspension (P1b) freezes it, which `paused` counts.
+        // until the idle suspension (P1b) freezes it, which `paused` counts. `fieldsInThread` is the part of `fields`
+        // the event loop itself advances (client-side combat: every bot seat / takeover field is a HeadlessJob),
+        // `fieldsPooled` the part that runs in a worker (P2).
         if (typeof r.match.hostedFields === 'function') {
           const n = r.match.hostedFields();
           fields += n;
           if (typeof r.match.liveHumans === 'function' && r.match.liveHumans() === 0) fieldsIdle += n;
         }
+        if (typeof r.match.hostedFieldStats === 'function') {
+          const st = r.match.hostedFieldStats() || {};
+          if (typeof st.inThread === 'number') fieldsInThread += st.inThread;
+          if (typeof st.pooled === 'number') fieldsPooled += st.pooled;
+        }
         if (r.match.paused) paused++;
       }
       for (const s of r.seats) if (s && !s.left) (s.isBot ? bots++ : humans++);
     }
-    return { rooms: this.rooms.size, matches, humans, bots, fields, fieldsIdle, paused, queued: this.queueSize() };
+    return { rooms: this.rooms.size, matches, humans, bots, fields, fieldsIdle, fieldsInThread, fieldsPooled, paused, queued: this.queueSize() };
   }
 
   // ---------------------------------------------------------------------------------------------------

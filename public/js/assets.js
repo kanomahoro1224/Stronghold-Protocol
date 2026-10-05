@@ -117,6 +117,8 @@ export function skillIconUrl(m, id, opts) {
 }
 
 /** UI sprite by `group/key` (e.g. 'battle/sprite_shadow'). */
+import { rewriteAssetPaths, siblingBase } from './assetOrigin.js';
+
 export const uiUrl = (m, name) => str(get(get(m, 'ui'), str(name) || ''));
 
 /** Profession icon: kind 'icon' | 'large' | 'battlecard'; profession in any case (SNIPER → sniper). */
@@ -198,7 +200,11 @@ export function hasBackSpine(m, id) {
 }
 
 export function validSpine(sp) {
-  return isObj(sp) && typeof sp.skel === 'string' && /^\/[^\s]*\.skel$/.test(sp.skel) && typeof sp.atlas === 'string' && isObj(sp.anims);
+  // The skeleton must be a real path, but it may be root-relative (`/assets/…`) or absolute (`https://…`, which is
+  // what assetOrigin.js produces for a direct-to-store deployment). Requiring root-relative here rejected every
+  // operator/enemy/token model as soon as asset URLs were rewritten, degrading the whole battlefield to static art.
+  return isObj(sp) && typeof sp.skel === 'string' && /^(?:https?:\/\/|\/\/|\/)[^\s]*\.skel$/.test(sp.skel)
+    && typeof sp.atlas === 'string' && isObj(sp.anims);
 }
 
 /** Best 2D picture for a unit asset id (operator avatar, token avatar, enemy icon, item icon). */
@@ -635,7 +641,8 @@ const transientFetch = (err) => {
  * after MANIFEST_BACKOFF_MS (bounded; a 404 or a body that is no JSON only on the next `ready()`). `onChange(fn)` is told
  * when the manifest (`'manifest'`) or the optional local-client manifest (`'local'`) arrives, so views built without it
  * resolve their models then (render/app.js → UnitView.retryAssets).
- * @param {{ url?: string, fetch?: typeof fetch, manifest?: object, localManifest?: object, loadImage?: (url) => Promise<any>,
+ * @param {{ url?: string, localUrl?: string, dataBase?: string, fetch?: typeof fetch, manifest?: object,
+ *           localManifest?: object, loadImage?: (url) => Promise<any>,
  *           loadSpine?: (entry) => Promise<any>, unloadSpine?: (entry, value, keepPages:Set<string>) => (Promise<void>|void),
  *           spineMax?: number, spineTimeout?: number, spineWeigh?: (key, spineData) => number, spineIdleBytes?: number,
  *           spineQuietBytes?: number, spineIdleGrace?: number, spineEvictDelay?: number, spineQuietDelay?: number,
@@ -644,10 +651,17 @@ const transientFetch = (err) => {
  */
 export function createAssets(options) {
   const opts = options && typeof options === 'object' ? options : {};
-  const url = opts.url || '/data/assets.json';
-  const localUrl = opts.localUrl || '/data/local-assets.json';
+  // The two manifests live in /data/ next to the game data: same immutable version prefix as this module in production
+  // (assetOrigin.js siblingBase), '/data/' in dev/tests — so an injected url / localUrl / dataBase and every existing
+  // test keep working. Asset and spine URLs are untouched (see the header): only the manifest fetches are derived.
+  const dataBase = opts.dataBase ?? siblingBase(import.meta.url, '../data/', '/data/');
+  const url = opts.url || `${dataBase}assets.json`;
+  const localUrl = opts.localUrl || `${dataBase}local-assets.json`;
+  // A versioned base is content-addressed, so forcing revalidation on every page load is pure waste (data.js does the
+  // same): only the unversioned dev/test base keeps the old `cache: 'no-cache'`.
+  const manifestOpts = dataBase === '/data/' ? { cache: 'no-cache' } : {};
   let localPromise = isObj(opts.localManifest) ? Promise.resolve(opts.localManifest) : null;
-  let localManifest = isObj(opts.localManifest) ? opts.localManifest : null;
+  let localManifest = isObj(opts.localManifest) ? rewriteAssetPaths(opts.localManifest) : null;
   const doFetch = opts.fetch || ((...a) => globalThis.fetch(...a));
   let manifest = isObj(opts.manifest) ? opts.manifest : null;
   let readyPromise = manifest ? Promise.resolve(manifest) : null;
@@ -672,7 +686,8 @@ export function createAssets(options) {
   /** Adopt a manifest (fetched or seeded): resolves `ready()`, stops the background tries, tells the listeners. */
   function adopt(m) {
     if (manifest || !isObj(m)) return false;
-    manifest = m;
+    // assetOrigin.js: rewrite /assets/** (except audio) to absolute store URLs — see the note in data.js.
+    manifest = rewriteAssetPaths(m);
     readyPromise = Promise.resolve(m);
     backoffN = 0;
     if (backoffTimer != null) { timers.clear(backoffTimer); backoffTimer = null; }
@@ -682,7 +697,7 @@ export function createAssets(options) {
 
   /** One fetch of the manifest → the JSON object, or throws (err.status / err.badJson as data.js). */
   async function fetchOnce() {
-    const res = await doFetch(url, { cache: 'no-cache' });
+    const res = await doFetch(url, manifestOpts);
     if (!res || !res.ok) throw Object.assign(new Error(`HTTP ${res ? res.status : '???'}`), { status: res ? res.status : null });
     let json;
     try { json = await res.json(); } catch (err) { throw Object.assign(err instanceof Error ? err : new Error(String(err)), { badJson: true }); }
@@ -773,10 +788,10 @@ export function createAssets(options) {
     if (!localPromise) {
       localPromise = (async () => {
         try {
-          const res = await doFetch(localUrl, { cache: 'no-cache' });
+          const res = await doFetch(localUrl, manifestOpts);
           if (!res || !res.ok) return localManifest;
           const json = await res.json();
-          if (!localManifest && isObj(json) && isObj(json.groups)) { localManifest = json; notify('local'); }
+          if (!localManifest && isObj(json) && isObj(json.groups)) { localManifest = rewriteAssetPaths(json); notify('local'); }
         } catch { /* optional art: absent */ }
         return localManifest;
       })();
@@ -796,7 +811,7 @@ export function createAssets(options) {
     /** The same for the optional local-client manifest (data.js 'local'; `{ groups }`), unless one is known. */
     seedLocal(lm) {
       if (localManifest || !isObj(lm) || !isObj(lm.groups)) return false;
-      localManifest = lm;
+      localManifest = rewriteAssetPaths(lm);
       localPromise = Promise.resolve(lm);
       notify('local');
       return true;

@@ -113,6 +113,9 @@ npm start          # 启动服务器：http://localhost:3000
 | `TRUST_PROXY` | `auto` | 是否信任 `X-Forwarded-For` 等转发头：`auto` 只信任来自本机 / 内网的代理；`1` 总是；`0` 从不 |
 | `DEBUG` | 空 | 设为任意值输出详细日志 |
 | `SP_NO_BROWSER` | 空 | 设为 `1` 时启动脚本不自动打开浏览器 |
+| `SP_IDLE_PAUSE_MS` | `20000` | 一局**没有任何真人连接**时，继续模拟多久后冻结时钟（`0` = 从不冻结）。重连即恢复；冻结期间不产生 tick |
+| `SP_BOT_REHEARSAL` | `3` | 机器人每回合推演几个候选布局（`0`–`8`，`0` = 只做启发式摆放）。这是单次机器人最贵的工作，CPU 紧张时优先调低 |
+| `SP_SIM_WORKERS` | `0` | 把**没有真人观看**的战场放进 worker 线程模拟：`0` = 关（默认，行为与不设此项完全一致），`N>0` = N 个 worker（自动钳制到可用核数 −1）。需要真实的定时器调度，测试/工具一律留在主线程 |
 
 设置方式：macOS / Linux `PORT=8080 npm start`；PowerShell `$env:PORT=8080; npm start`；cmd `set "PORT=8080" && npm start`。健康检查：`GET /healthz`。
 

@@ -16,6 +16,7 @@
 // `loadData(...)` to await, or the `useData(...)` hook to re-render when files arrive.
 
 import { useEffect, useReducer } from '../vendor/hooks.module.js';
+import { rewriteAssetPaths, siblingBase } from './assetOrigin.js';
 
 /** Known data files (name → URL basename). Unknown names are allowed too (`/data/<name>.json`). */
 export const DATA_FILES = Object.freeze({
@@ -107,7 +108,9 @@ const transientFailure = (err) => {
  *           timeoutMs?: number, setTimeout?: Function, clearTimeout?: Function }} [opts]
  */
 export function createDataStore(opts = {}) {
-  const base = opts.base ?? '/data/';
+  // Same immutable version prefix as this module in production (see assetOrigin.siblingBase); '/data/' in dev/tests, so
+  // an injected base and every existing test keep working.
+  const base = opts.base ?? siblingBase(import.meta.url, '../data/', '/data/');
   const doFetch = opts.fetch || ((...a) => globalThis.fetch(...a));
   const retryDelays = Array.isArray(opts.retryDelays) ? opts.retryDelays : RETRY_DELAYS_MS;
   const wait = opts.wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -149,11 +152,16 @@ export function createDataStore(opts = {}) {
     entry.promise = (async () => {
       for (let attempt = 0; ; attempt++) {
         try {
-          const res = await withTimeout(doFetch(urlFor(name), { cache: 'no-cache' }), timeoutMs, 'no response');
+          // A versioned URL is content-addressed, so forcing revalidation on every page load is pure waste (it made
+          // R2's own immutable headers pointless and re-downloaded ~4 MB of JSON per 5-minute window). The unversioned
+          // dev/test base keeps the old behaviour.
+          const res = await withTimeout(doFetch(urlFor(name), base === '/data/' ? { cache: 'no-cache' } : {}), timeoutMs, 'no response');
           if (!res || !res.ok) throw Object.assign(new Error(`HTTP ${res ? res.status : '???'}`), { status: res ? res.status : null });
           let json;
           try { json = await withTimeout(Promise.resolve(res.json()), timeoutMs, 'no body'); } catch (err) { throw Object.assign(err instanceof Error ? err : new Error(String(err)), { badJson: !err?.timeout }); }
-          entry.value = json;
+          // assetOrigin.js: /assets/** paths in a manifest become absolute so the browser asks the object store
+          // directly instead of following nginx's 302 for every sprite (no-op when the base is off; idempotent).
+          entry.value = rewriteAssetPaths(json);
           entry.status = 'ready';
           break;
         } catch (err) {

@@ -65,6 +65,7 @@
 import { net as appNet } from '../net.js';
 import { store as appStore } from '../store.js';
 import { unitStatsEntry, fxForm } from '../../../shared/protocol.js';
+import { siblingBase } from '../assetOrigin.js';
 
 const TICK = 1 / 30;
 /** Fast-forward budget per frame (ticks) when far behind. */
@@ -124,16 +125,33 @@ function deepFreeze(root) {
 }
 
 /**
- * Browser sim loader: the /sim/ modules + the data files (own frozen copies — the server's data is frozen too, so a
- * content bug that writes into a record fails identically on both sides).
+ * The /sim/ modules and the /data/ JSON this module loads. The SIM MODULES are imported with the historical
+ * root-relative literal base ('/sim/'): the production publisher statically resolves a literal specifier against its own
+ * version prefix, and a template base without an absolute literal default makes it refuse the whole tree
+ * ("template dynamic import but no absolute base default") — so the specifiers below stay literal and query-less, and
+ * nginx 302s /sim/** to …/Stronghold-Protocol/rel/<ver>/sim/**. The DATA files are plain fetch URLs, which that check
+ * never sees, so their base derives from the version prefix this module was served from (assetOrigin.js siblingBase:
+ * from /js/battle/ the game data is `../../data/`) and is fetched cacheably; the historical '/data/' stays the fallback
+ * for file:// (Node) and for any injected base, which keeps the revalidating fetch below.
  */
-export async function loadBrowserSim({ base = '/sim/', dataBase = '/data/', fetchFn = (...a) => globalThis.fetch(...a) } = {}) {
+export const SIM_BASE = '/sim/';
+export const SIM_DATA_BASE = siblingBase(import.meta.url, '../../data/', '/data/');
+
+/**
+ * Browser sim loader: the /sim/ modules + the data files (own frozen copies — the server's data is frozen too, so a
+ * content bug that writes into a record fails identically on both sides). Defaults to the historical literal /sim/ base
+ * and this module's immutable data prefix (SIM_DATA_BASE above); tests inject their own `base` / `dataBase`.
+ */
+export async function loadBrowserSim({ base = '/sim/', dataBase = SIM_DATA_BASE, fetchFn = (...a) => globalThis.fetch(...a) } = {}) {
   const [spec, simdata, support] = await Promise.all([
     import(`${base}spec.js`), import(`${base}simdata.js`), import(`${base}content/support/index.js`),
   ]);
   const fetchOnce = async (n) => {
     try {
-      const res = await fetchFn(`${dataBase}${n}.json`, { cache: 'no-cache' });
+      // A versioned data URL is content-addressed (…/rel/<ver>/data/…), so forcing revalidation on every page load was
+      // pure waste: the store's own immutable headers are trusted there. The unversioned dev/test base keeps the old
+      // behaviour (data.js does the same).
+      const res = await fetchFn(`${dataBase}${n}.json`, dataBase === '/data/' ? { cache: 'no-cache' } : {});
       return res && res.ok ? await res.json() : null;
     } catch { return null; }
   };

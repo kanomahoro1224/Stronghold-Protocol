@@ -39,9 +39,11 @@ import { DMG_STYLE, dmgStyleKey, HIT_TINT, PROJ, COLORS } from './style.js';
 /**
  * The sim's projectile speeds (server/sim/constants.js PROJECTILE_SPEEDS — pure data, served read-only at
  * /sim/constants.js with the rest of the client-side sim, DESIGN §14): a shot's visual flight ends when the sim lands it,
- * i.e. with its damage number. Loaded once in a browser (the game already has the module from its battle runner);
- * until it arrives — and in Node, where '/sim/' is no module path — style.js PROJ speeds (a copy the unit tests keep
- * equal to the sim's) stand in.
+ * i.e. with its damage number. Loaded once in a browser (the game already has the module from its battle runner) with a
+ * root-relative LITERAL specifier — the production publisher rewrites /sim/** into the same immutable version prefix this
+ * module was served from, which a template base defeats (it then refuses the whole tree) — and query-less, so the
+ * module identity is the one the battle runner already loaded; until it arrives — and in Node, where '/sim/' is no
+ * module path — style.js PROJ speeds (a copy the unit tests keep equal to the sim's) stand in.
  */
 let simSpeeds = null;
 /**
@@ -54,6 +56,8 @@ export function setSimProjectileSpeeds(table, boomerangReturn = null) {
   if (Number(boomerangReturn) > 0) simSpeeds.boomerangReturn = Number(boomerangReturn);
 }
 if (typeof window !== 'undefined' && typeof window.location?.origin === 'string') {
+  // A literal specifier (no template base): the publisher resolves /sim/** to the version prefix itself, and a template
+  // base makes it refuse the tree as an unresolved module ref. Query-less: the battle runner already loaded this module.
   import('/sim/constants.js').then((m) => { if (m?.PROJECTILE_SPEEDS) setSimProjectileSpeeds(m.PROJECTILE_SPEEDS, m.BOOMERANG_RETURN_SPEED); }, () => {});
 }
 /**

@@ -561,27 +561,84 @@ function ownerlessSummons(gd) { return summonIndex(gd).ownerless; }
 const WORD_RE = /[A-Za-z][A-Za-z0-9_]*/g;
 const recJson = (rec) => { try { return rec ? JSON.stringify(rec) : ''; } catch { return ''; } };
 
+/** The bond ids a text names: every word `gd.bond` accepts, first occurrence first, no duplicates. */
+function scanBondWords(gd, text) {
+  const isBond = typeof gd.bond === 'function' ? (w) => gd.bond(w) : () => false;
+  const out = [];
+  const seen = new Set();
+  for (const w of String(text ?? '').match(WORD_RE) || []) if (!seen.has(w) && isBond(w)) { seen.add(w); out.push(w); }
+  return out;
+}
+
+/**
+ * Content-keyed memo of the per-record layer work (task A): `layerBondsOf` used to stringify a player's band / effect
+ * / unit / item records and regex-scan them for bond ids on every field of every round, and `layerAllowanceOf` walked
+ * the garrisons of every unit — the same content every time, because `gd.chess` / `gd.token` / `gd.item` / `gd.band` /
+ * `gd.effect` / `gd.garrison` hand back the process-wide FROZEN data records (server/data.js deepFreeze), so the
+ * values repeat across players, fields, rounds and matches.
+ *
+ * Both caches are WeakMaps keyed on those record objects — never on ids or strings, so an entry lives exactly as long
+ * as the record it describes and the memo is bounded by the data, not by how many matches ran. The data graph the
+ * answer was computed from travels beside the value (see `dataSourceOf`): a record examined under another data source
+ * must not be served the first one's answer. A record that is not an object (an unknown id resolves to null) is
+ * computed but not cached — there is nothing to key a WeakMap on.
+ */
+const recordWordsCache = new WeakMap();
+/** @type {WeakMap<object, { src: any, entries: Array<{ extra?: true, bonds?: string[]|null, cap?: number, handed?: boolean }> }>} */
+const chessAllowCache = new WeakMap();
+
+/**
+ * The data graph a `gd` answers from: `gd.raw` (the process-wide frozen records AND the bond / garrison maps every
+ * record lookup goes through) — or `gd` itself for a data source without one. Keying on the raw graph rather than on
+ * the `GameData` object matters: every Match builds its own `new GameData(data, modeId)` over the same `getData()`
+ * singleton, so keying on the instance would make two rooms evict each other's entries field by field and the memo
+ * would never pay off outside one match.
+ */
+function dataSourceOf(gd) {
+  return gd && typeof gd === 'object' && gd.raw && typeof gd.raw === 'object' ? gd.raw : gd;
+}
+
+/**
+ * Bond ids a shared data record's own text names, memoized per record object.
+ * @returns {string[]} the record's bond ids, in the text's word order
+ */
+function recordBondWords(gd, rec) {
+  if (!rec || typeof rec !== 'object') return scanBondWords(gd, recJson(rec));
+  const src = dataSourceOf(gd);
+  const hit = recordWordsCache.get(rec);
+  if (hit && hit.src === src) return hit.words;
+  const words = scanBondWords(gd, recJson(rec));
+  recordWordsCache.set(rec, { src, words });
+  return words;
+}
+
 /**
  * Bonds an IN_BATTLE layer gain of this player can name: its bond snapshot (every bond its lineup counts), plus bonds
  * its band, its effects (机变 cards, 驻守 …), its units and their items mention (content grants layers to those —
  * e.g. 克莱门莎's <阿戈尔>, requireActive: false). Anything else is a forged gain.
+ *
+ * The player's own effects / bond snapshot are freshly built per field (PlayerBattleInput) and so are scanned as
+ * text; every content record behind them goes through `recordBondWords`, whose words are added in the same order the
+ * uncached scan added them, so the returned Set is bit-identical either way.
  */
 function layerBondsOf(p, gd) {
   const out = new Set(Object.keys(p.bonds && typeof p.bonds === 'object' ? p.bonds : {}));
   if (typeof gd.bond !== 'function') return out;
-  const texts = [recJson(p.playerEffects), recJson(p.bonds)];
+  const scan = (text) => { for (const w of String(text ?? '').match(WORD_RE) || []) if (!out.has(w) && gd.bond(w)) out.add(w); };
+  const add = (words) => { for (const w of words) if (!out.has(w)) out.add(w); };
+  scan(recJson(p.playerEffects));
+  scan(recJson(p.bonds));
   const band = p.bandId && typeof gd.band === 'function' ? gd.band(p.bandId) : null;
   if (band) {
-    texts.push(recJson(band));
-    if (band.effectId && typeof gd.effect === 'function') texts.push(recJson(gd.effect(band.effectId)));
+    add(recordBondWords(gd, band));
+    if (band.effectId && typeof gd.effect === 'function') add(recordBondWords(gd, gd.effect(band.effectId)));
   }
   for (const u of Array.isArray(p.units) ? p.units : []) {
     if (!u) continue;
-    if (u.kind === 'token') { if (typeof gd.token === 'function') texts.push(recJson(gd.token(u.tokenId))); continue; }
-    if (typeof gd.chess === 'function') texts.push(recJson(gd.chess(u.chessId)));
-    for (const it of Array.isArray(u.items) ? u.items : []) if (typeof gd.item === 'function') texts.push(recJson(gd.item(it)));
+    if (u.kind === 'token') { if (typeof gd.token === 'function') add(recordBondWords(gd, gd.token(u.tokenId))); continue; }
+    if (typeof gd.chess === 'function') add(recordBondWords(gd, gd.chess(u.chessId)));
+    for (const it of Array.isArray(u.items) ? u.items : []) if (typeof gd.item === 'function') add(recordBondWords(gd, gd.item(it)));
   }
-  for (const t of texts) for (const w of t.match(WORD_RE) || []) if (!out.has(w) && gd.bond(w)) out.add(w);
   return out;
 }
 
@@ -603,23 +660,14 @@ function layerAllowanceOf(p, gd) {
   const lineup = new Set(Object.keys(p.bonds && typeof p.bonds === 'object' ? p.bonds : {}));
   for (const u of units) for (const b of gd.chess(u.chessId)?.bonds || []) lineup.add(b);
   let extra = false;
-  const credit = (g, times, handedOut) => {
-    const bb = g.bb || {};
-    if (Number.isFinite(bb.extra_cnt)) { extra = true; return; }
-    if (!Number.isFinite(bb.bond_add_count) && !Number.isFinite(bb.bond_add_count_multi)) return;
-    const s = g.bbStr || {};
-    const bonds = s.bond_type === 'bond_by_id' ? String(s.bond_id ?? '').split(',').map((x) => x.trim()).filter((x) => gd.bond(x)) : [...lineup];
-    const override = handedOut ? GRANTED_CAP_OVERRIDE[g.garrisonId] : undefined;
-    const cap = override ?? (Number(bb.max_add_count_per_battle) > 0 ? Number(bb.max_add_count_per_battle) : Infinity);
-    for (const b of bonds) out.set(b, (out.get(b) || 0) + cap * times);
-  };
   for (const u of units) {
-    for (const gid of gd.chess(u.chessId)?.garrisonIds || []) {
-      const g = gd.garrison(gid);
-      if (!g || g.eventType !== 'IN_BATTLE') continue;
-      if (g.effectKey !== 'ADD_BOND') { credit(g, 1, false); continue; }
-      const given = gd.garrison(g.bbStr?.give_garrison_id);
-      if (given && given.eventType === 'IN_BATTLE') credit(given, units.length, true);
+    // the garrison walk belongs to the chess record, not to this player: each entry is one garrison's contribution,
+    // `handed` marking the ones an ADD_BOND trait handed out (counted for every operator of the player)
+    for (const e of chessAllowanceEntries(gd, gd.chess(u.chessId))) {
+      if (e.extra) { extra = true; continue; }
+      const bonds = e.bonds || [...lineup]; // null = every bond of the player's lineup; an empty list stays empty
+      const n = e.cap * (e.handed ? units.length : 1);
+      for (const b of bonds) out.set(b, (out.get(b) || 0) + n);
     }
   }
   if (extra) for (const b of out.keys()) out.set(b, Infinity);
@@ -627,10 +675,70 @@ function layerAllowanceOf(p, gd) {
 }
 
 /**
+ * The per-battle layer contributions of one chess's own garrisons (the walk `layerAllowanceOf` used to redo for every
+ * unit of every field), memoized on the shared chess record.
+ * @returns {Array<{ extra?: true, bonds?: string[]|null, cap?: number, handed?: boolean }>} `bonds` null = the
+ * player's lineup; `handed` entries are counted once per operator of the player (ADD_BOND 所有【X】)
+ */
+function chessAllowanceEntries(gd, rec) {
+  if (!rec || typeof rec !== 'object') return computeChessAllowance(gd, rec);
+  const src = dataSourceOf(gd);
+  const hit = chessAllowCache.get(rec);
+  if (hit && hit.src === src) return hit.entries;
+  const entries = computeChessAllowance(gd, rec);
+  chessAllowCache.set(rec, { src, entries });
+  return entries;
+}
+
+function computeChessAllowance(gd, rec) {
+  const entries = [];
+  if (typeof gd.garrison !== 'function' || typeof gd.bond !== 'function') return entries;
+  const credit = (g, handed) => {
+    const bb = g.bb || {};
+    if (Number.isFinite(bb.extra_cnt)) { entries.push({ extra: true }); return; }
+    if (!Number.isFinite(bb.bond_add_count) && !Number.isFinite(bb.bond_add_count_multi)) return;
+    const s = g.bbStr || {};
+    const bonds = s.bond_type === 'bond_by_id' ? String(s.bond_id ?? '').split(',').map((x) => x.trim()).filter((x) => gd.bond(x)) : null;
+    const override = handed ? GRANTED_CAP_OVERRIDE[g.garrisonId] : undefined;
+    const cap = override ?? (Number(bb.max_add_count_per_battle) > 0 ? Number(bb.max_add_count_per_battle) : Infinity);
+    entries.push({ bonds, cap, handed });
+  };
+  for (const gid of (rec && rec.garrisonIds) || []) {
+    const g = gd.garrison(gid);
+    if (!g || g.eventType !== 'IN_BATTLE') continue;
+    if (g.effectKey !== 'ADD_BOND') { credit(g, false); continue; }
+    const given = gd.garrison(g.bbStr?.give_garrison_id);
+    if (given && given.eventType === 'IN_BATTLE') credit(given, true);
+  }
+  return entries;
+}
+
+/** Memo of `specBounds` per spec object (one entry per field, collected with the spec). @type {WeakMap<object, { gd: any, bounds: object }>} */
+const boundsCache = new WeakMap();
+
+/**
  * Bounds of a battle derived from its spec: spawn counts per enemy key, keys content may add, bounty coins, the
  * player ids and each player's unit uids.
+ *
+ * Memoized per spec object (`boundsCache`): the bounds are a pure function of `(spec, gd)`, and a field's spec is
+ * built once (Match._ccField) and never mutated. `validateClientResult` is the hot caller, and it validates the same
+ * field's spec twice whenever an accepted result is re-checked — the SP_VERIFY re-simulation of `_verifyResult` — while
+ * these maps are the bulk of what it costs (106 µs measured for one round-1 HARD field; 290 µs of 373 µs on the
+ * auditing box): one computation per field's own result either way, but a re-check is now ~200× cheaper (measured
+ * 0.5 µs). The cached value is READ-ONLY — `validateClientResult` copies the two maps it decrements, and the other
+ * caller (`uniteBillBounds`) only iterates; a caller that mutated one would poison every later validation of the field.
  */
 export function specBounds(spec, gd = null) {
+  if (!spec || typeof spec !== 'object') return computeSpecBounds(spec, gd); // nothing to key a WeakMap on
+  const hit = boundsCache.get(spec);
+  // `gd` travels beside the bounds: a spec examined under another data source must not be served the first one's
+  if (hit && hit.gd === gd) return hit.bounds;
+  const bounds = computeSpecBounds(spec, gd);
+  boundsCache.set(spec, { gd, bounds });
+  return bounds;
+}
+
+function computeSpecBounds(spec, gd) {
   const keyCounts = new Map();
   /** `${enemyKey}|${sourcePlayerId}` → scheduled count (联防: whose leak re-enters) */
   const keySourceCounts = new Map();

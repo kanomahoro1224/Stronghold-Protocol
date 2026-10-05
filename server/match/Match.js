@@ -141,6 +141,7 @@ import {
 } from './fields.js';
 import { buildBattleSpec, createBattleFromSpec, resultDigest, compactResult as compactForVerify, battleProgress, uniteLeft } from '../sim/spec.js';
 import { CreditPool } from './finalAssault.js';
+import { createSimPool, parseSimWorkers } from './simPool.js';
 import { buildResult } from './results.js';
 import { botPrepBeginSteps, botPrepEndSteps, botPickBand, botPickCard } from './bot.js';
 
@@ -155,6 +156,23 @@ const BOT_SLICE_MS = 8;
 export const FLOW_TICKER_PRIORITY = 25;
 const GAME_TYPES = new Set(Object.keys(C2S).filter((t) => Object.hasOwn(C2S, t) && (t.startsWith('g.') || t.startsWith('b.'))));
 const env = (k) => (typeof process !== 'undefined' && process.env ? process.env[k] : undefined);
+
+/**
+ * The worker-thread simulation pool (DESIGN §23 P2, `SP_SIM_WORKERS`), one per process and OFF by default: `0` keeps
+ * every field on the event loop exactly as before, which is also the rollback. Created lazily, because the many
+ * processes that never run a real-scheduler match (the whole test suite, tools/matchrun, the balance sims) must not
+ * pay for workers they cannot use — and every virtual-scheduler match stays in-thread by construction (see
+ * `_runOnServer`). A disabled pool answers `run()` with `null` so callers need no null checks.
+ */
+let simPool = null;
+function sharedSimPool() {
+  if (simPool) return simPool;
+  const size = parseSimWorkers(env('SP_SIM_WORKERS'));
+  simPool = size
+    ? createSimPool({ size, log: console })
+    : { enabled: false, size: 0, run: () => null, stats: () => ({ size: 0, jobs: 0, busyMs: 0 }), close: () => Promise.resolve() };
+  return simPool;
+}
 
 /**
  * Idle suspension (DESIGN §23, P1b): when every human of a running match is disconnected, the server keeps stepping
@@ -322,6 +340,8 @@ export class Match {
      */
     this.battlePrefix = `${this.seed.toString(36)}${Number.isInteger(opts.matchNo) && opts.matchNo > 0 ? `-${opts.matchNo.toString(36)}` : ''}`;
     this._progressTimer = null;
+    /** a progress tick that landed on a frozen match: a resume owes the chain its next 1 s tick (see _armProgressTicker) */
+    this._progressWanted = false;
     this._bossClock = null;
     this._lastPoolAt = -Infinity;
     this._poolTimer = null;
@@ -689,14 +709,37 @@ export class Match {
   }
 
   /**
-   * Battles the server itself is stepping for this match: a FieldRunner steps every live field in lockstep, and a
-   * HeadlessPacer fast-forwards one more while a takeover catches up to the wall clock. `/healthz` sums this over all
-   * matches — it is the server's simulation load (DESIGN §23), the input to the multi-core work.
+   * Battles the server itself is stepping for this match: a FieldRunner steps every live field in lockstep, a
+   * HeadlessPacer fast-forwards one more while a takeover catches up to the wall clock, and — under client-side
+   * combat (DESIGN §14) — every field the server took over is a `HeadlessJob` on this thread (`_runOnServer`) or a
+   * worker-pool job (P2). `/healthz` sums this over all matches — it is the server's simulation load (DESIGN §23),
+   * the input to the multi-core work. A frozen match's runner (and, with it, this number) reports 0: nothing steps.
    */
   hostedFields() {
     let n = this.runner ? this.runner.hosted : 0;
     if (this.pacer && !this.pacer.stopped) n += 1;
-    return n;
+    const st = this.hostedFieldStats();
+    return n + st.inThread + st.pooled;
+  }
+
+  /**
+   * `hostedFields()` split by where the server steps each battle: `inThread` are the `HeadlessJob`s the event loop
+   * itself advances (a field with no connected human — every bot seat, every mid-disconnect takeover — under
+   * client-side combat), `pooled` their worker-pool twins (P2, `SP_SIM_WORKERS`; off by default). The runner / pacer
+   * battles are the pool's remainder (`hostedFields() - inThread - pooled`). `f.job` is the signal — the job is held
+   * on the field (`f.poolJob` marks the worker one) — and a paused match's parked jobs are still counted: `/healthz`
+   * `paused` says how many matches are frozen, and a parked job takes no steps (P1b).
+   * @returns {{ inThread: number, pooled: number }}
+   */
+  hostedFieldStats() {
+    let inThread = 0;
+    let pooled = 0;
+    for (const f of this.fields) {
+      if (!f.cc || f.done || !f.job) continue;
+      if (f.poolJob) pooled++;
+      else inThread++;
+    }
+    return { inThread, pooled };
   }
 
   /**
@@ -1163,6 +1206,14 @@ export class Match {
       if (!f.cc) continue;
       if (f.deadlineTimer) { this.cancel(f.deadlineTimer); f.deadlineTimer = null; f.rearmDeadline = true; }
       if (f.doneTimer) { this.cancel(f.doneTimer); f.doneTimer = null; f.rearmRelease = true; }
+      // P1b: an in-thread headless job (`_runOnServer`) is stepped by a `later(0)` slice chain — ~1 ms of gap after
+      // every ~8 ms slice, a ~90% duty cycle — so a frozen match used to keep simulating its bot / takeover battles to
+      // the end, exactly the CPU the idle suspension exists to stop. Cancel the pending slice; `_unfreeze` hands the
+      // SAME closure (`f.sliceStep`) its next one, like the pool job below it. The sim is tick-based, so a resumed
+      // field carries on where its shifted `startAt` says it should.
+      if (f.sliceTimer) { this.cancel(f.sliceTimer); f.sliceTimer = null; f.rearmSlice = true; }
+      // P2: a worker-run field stops being granted slices, so a frozen match costs no CPU in a worker either.
+      if (f.poolJob) f.poolJob.pause();
     }
     if (this._bossClock) { this.cancel(this._bossClock); this._bossClock = null; }
     this.markPublic();
@@ -1206,12 +1257,20 @@ export class Match {
       f.lastProgressAt += d;
       if (f.rearmDeadline && f.mode === 'client') this._armDeadline(f);
       if (f.rearmRelease && f.mode === 'server') this._armRelease(f);
+      // P1b: restart the slice chain of an in-thread server-run field `_freeze` stopped (unfinished job only): it is
+      // still owed exactly the slices its clock did not get, and nothing was simulated while it was parked.
+      if (f.rearmSlice && f.mode === 'server' && f.job && !f.poolJob && f.sliceStep) f.sliceTimer = this.later(0, f.sliceStep);
+      if (f.poolJob) f.poolJob.resume(); // P2: the worker was only paused, its battle state never moved on
       f.rearmDeadline = false;
       f.rearmRelease = false;
+      f.rearmSlice = false;
     }
     if (this._bossClockOn && !this._bossClock && (this.phase === PHASE.FINAL_ASSAULT || this.phase === PHASE.HIDDEN_CORE)) {
       this._bossClock = this.later(BOSS_CLOCK_MS, () => this._bossClockTick());
     }
+    // P1b: the 1 Hz progress ticker of a paused match parked on `_progressWanted` instead of re-arming; give the chain
+    // its next tick now — exactly once (`_armProgressTicker` is a no-op while a tick is already armed)
+    if (this._progressWanted) { this._progressWanted = false; this._armProgressTicker(); }
     this.markPublic();
   }
 
@@ -1261,6 +1320,7 @@ export class Match {
     this.soloPaused = false;
     this.idlePaused = false;
     this.idleSince = 0;
+    this._progressWanted = false; // the phase is done: a parked progress chain is not owed a tick (there is no field left)
     if (!this.paused) return;
     this.pausedMs += Math.max(0, this.sched.now() - this._pausedAt);
     this.paused = false;
@@ -1952,7 +2012,9 @@ export class Match {
   /** Aggregate a finished field's content/engine errors (battle.errors: unique records) for diagnostics. */
   _collectSimErrors(f, res) {
     this.simErrors += Number(res && res.errors) || 0;
-    const list = f && f.battle && Array.isArray(f.battle.errors) ? f.battle.errors : [];
+    // a released field (P2, `_releaseFieldBattle`): the battle is gone, its records were kept on the field
+    const list = f && Array.isArray(f.battleErrors) ? f.battleErrors
+      : f && f.battle && Array.isArray(f.battle.errors) ? f.battle.errors : [];
     for (const e of list) {
       if (!e || typeof e !== 'object') continue;
       const key = `${e.label}|${e.who || ''}|${e.message}`;
@@ -2072,6 +2134,7 @@ export class Match {
   _clearFieldTimers(f) {
     if (!f || !f.cc) return;
     for (const k of ['deadlineTimer', 'doneTimer', 'waitTimer', 'sliceTimer']) if (f[k]) { this.cancel(f[k]); f[k] = null; }
+    f.sliceStep = null; // the slice chain of a server-run field is dead with its job
     f.job = null;
   }
 
@@ -2084,10 +2147,13 @@ export class Match {
     let total = 0;
     for (const x of spec.spawns) if (x && x.tag !== 'boss' && x.tag !== 'part') total += Math.max(1, Math.floor(Number(x.count) || 1));
     return {
-      cc: true, fieldId, kind, players: players.slice(), battleId, spec, battle: null, live: true, done: false,
+      cc: true, fieldId, kind, players: players.slice(), battleId, spec, battle: null, battleErrors: null, live: true, done: false,
       mode: null, authority: null, startAt: this.sched.now(), result: null, resultSource: null, timeline: null, endGt: null,
       progress: { gt: 0, killed: 0, total, leaks: 0, done: false }, lastProgressAt: this.sched.now(),
       bossAcked: 0, bossBy: {}, lpAcked: 0, lpCum: 0, deadlineTimer: null, doneTimer: null, waitTimer: null,
+      // the in-thread headless job of a server-run field and the pause/resume bookkeeping of its slice chain:
+      // `job` is the live job, `sliceStep` its next-slice closure, `rearmSlice` that `_freeze` stopped it mid-chain
+      job: null, sliceTimer: null, sliceStep: null, rearmSlice: false,
       // boss fields: the latest client reports (re-credited as the plausibility budget grows), the server run's
       // CreditPool, humans demoted for an implausible result (never the authority of this field again), a 'cleared'
       // b.result waiting for the budget to credit the pool it emptied (`heldResult`, _onResult)
@@ -2314,20 +2380,32 @@ export class Match {
     // the former authority (still online after a timeout / an invalid result) stops reporting and keeps its view
     if (prev) this.sendTo(prev, { t: 'b.end', battleId: f.battleId, fieldId: f.fieldId, reason: 'takeover' });
     if (f.kind === 'boss' || f.kind === 'hidden') { this._bossServerRun(f); return; }
+    // P2 (SP_SIM_WORKERS > 0, off by default): a field nobody is watching may be simulated in a worker instead of on
+    // the event loop. Only a real-scheduler match with the stock Battle is eligible — virtual time (tests, tools) and
+    // an injected BattleClass always stay in-thread — and boss/hidden fields returned above because they share the
+    // boss pool object with the main thread, which cannot cross a worker boundary.
+    if (f.cc && !this.sched.virtual && Number.isFinite(this.headlessSliceMs) && this.BattleClass === Battle) {
+      const pool = sharedSimPool();
+      if (pool.enabled && this._runFieldInPool(f, pool)) { this._armProgressTicker(); return; }
+    }
     const job = new HeadlessJob(this._specBattle(f.spec), { onError: (e) => this.reportError(`field ${f.fieldId} step`, e), players: f.players });
     f.job = job;
     f.battle = job.battle;
     f.timeline = job.timeline; // grows while the job runs (the teammates' progress UI reads it on the field clock)
     if (f.sliceTimer) { this.cancel(f.sliceTimer); f.sliceTimer = null; }
+    f.sliceStep = null; // a previous slice chain of this field died with its job
     const complete = () => {
       if (f.job !== job || f.done) return;
       f.job = null;
+      f.sliceStep = null;
       const run = job.output();
       f.battle = run.battle;
       f.result = run.result;
       f.resultSource = 'server';
       f.timeline = run.timeline;
       f.endGt = Number(run.battle.time) || 0;
+      // P2: the finished battle graph is released now, not at the phase end (see _releaseFieldBattle)
+      this._releaseFieldBattle(f, run);
       this._armRelease(f);
     };
     if (!Number.isFinite(this.headlessSliceMs)) {
@@ -2339,19 +2417,92 @@ export class Match {
       const slice = () => {
         f.sliceTimer = null;
         if (f.job !== job || f.done) return;
+        // P1b: a frozen match (idle suspension / solo pause) takes no step and re-arms nothing — `_freeze` cancelled
+        // this chain and `_unfreeze` re-arms this same closure, so a parked field resumes where its clock says.
+        if (this.paused) return;
         if (job.run(this.headlessSliceMs)) complete();
         else f.sliceTimer = this.later(0, slice);
       };
-      f.sliceTimer = this.later(0, slice);
+      f.sliceStep = slice; // the chain's entry point: `_freeze` stops it, `_unfreeze` restarts it
+      // the match may already be frozen when the field is handed over (same guard as the pool hand-over): park the
+      // chain instead of arming it, `_unfreeze` owes it the first slice
+      if (this.paused) f.rearmSlice = true;
+      else f.sliceTimer = this.later(0, slice);
     }
     this._armProgressTicker();
   }
 
-  /** m.public ~1 Hz while server-run fields progress along their timelines. */
+  /**
+   * Release a server-run field's finished battle graph (P2). Called from `complete()` the moment the field's
+   * `HeadlessJob` is done — the job was the only thing stepping it, and everything the match still reads travels
+   * beside it: `f.result` (settlement / LP / lastResults), `f.timeline` (the teammates' progress UI on the field
+   * clock), `f.endGt` (what `_armRelease` waits for) and `f.battleErrors` (the engine-error records
+   * `_collectSimErrors` folds into `m.simErrorLog`). Keeping the whole graph until the phase end — `f.result` is
+   * released at the battle's natural end on the field clock, up to a whole battle's length later — cost one bot seat
+   * ~100 KB at R1 and ~200-400 KB at R7/R13 per match (`.p2tmp/mem2`, marginal-slope method). A field handed to the
+   * worker pool (`_runFieldInPool`) already leaves `f.battle` null for its whole life, so every reader tolerates this.
+   *
+   * Overridable (a test keeps the graph to compare the two paths); it changes no recorded value.
+   */
+  _releaseFieldBattle(f, run) {
+    f.battleErrors = Array.isArray(run.battle && run.battle.errors) ? run.battle.errors : null;
+    f.battle = null;
+  }
+
+  /**
+   * Simulate a server-run field in a worker (P2) instead of on the event loop. The worker advances only while it is
+   * being granted slices, so `_freeze`/`_unfreeze` stop and resume it exactly like the in-thread job and a frozen
+   * match costs no CPU there either; the main thread keeps every socket, the field clocks and the release timing, and
+   * the worker's progress samples are pushed into the same growing `f.timeline` array the progress UI reads.
+   *
+   * Returns false when the pool refused the job (all workers gone), so the caller falls back in-thread.
+   */
+  _runFieldInPool(f, pool) {
+    const timeline = [];
+    f.timeline = timeline;
+    let job = null;
+    const onDone = (run) => {
+      if (f.poolJob !== job || f.done) return;
+      f.poolJob = null;
+      f.job = null;
+      f.battle = null; // the battle lived in the worker; nothing on this thread has to be released
+      f.result = run.result;
+      f.resultSource = 'server';
+      f.timeline = Array.isArray(run.timeline) && run.timeline.length ? run.timeline : timeline;
+      // the battle's own end clock: the worker reports it, and the last progress sample is the same number
+      f.endGt = Number(run.time) || Number(f.timeline[f.timeline.length - 1]?.gt) || 0;
+      this._armRelease(f);
+    };
+    job = pool.run(f.spec, {
+      players: f.players,
+      onProgress: (s) => { if (Array.isArray(s?.timeline) && s.timeline.length) timeline.push(...s.timeline); },
+      onDone,
+      onError: (e) => this.reportError(`field ${f.fieldId} worker`, e),
+    });
+    if (!job) { f.poolJob = null; return false; }
+    f.poolJob = job;
+    f.job = job; // the guards elsewhere compare f.job identity; a pool job settles once, like a HeadlessJob
+    f.battle = null;
+    if (f.sliceTimer) { this.cancel(f.sliceTimer); f.sliceTimer = null; }
+    if (this.paused) job.pause(); // the match may already be frozen when the field is handed over
+    return true;
+  }
+
+  /**
+   * m.public ~1 Hz while server-run fields progress along their timelines.
+   *
+   * A FROZEN match (solo pause / idle suspension, 157 of them in production) schedules nothing: this ticker used to
+   * keep re-arming every second and calling `markPublic()` for its parked server fields — the only timer a paused match
+   * still ran. `_freeze` does not cancel the pending tick, so the tick itself returns on `paused` and remembers the
+   * chain in `_progressWanted`; `_unfreeze` hands it the next tick exactly once. Arming while already frozen parks it
+   * the same way instead of scheduling.
+   */
   _armProgressTicker() {
     if (this._progressTimer || this.sched.instant) return;
+    if (this.paused) { this._progressWanted = true; return; }
     const tick = () => {
       this._progressTimer = null;
+      if (this.paused) { this._progressWanted = true; return; }
       if (!this.fields.some((f) => f.cc && f.mode === 'server' && !f.done && f.timeline)) return;
       this.markPublic();
       this._progressTimer = this.later(1000, tick);
