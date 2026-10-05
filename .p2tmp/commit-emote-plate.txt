@@ -1,0 +1,36 @@
+fix(ui): the 交流 plate can never degrade to bare text again
+
+Reported: the 交流 button and its panel showed no plate at all, only the label. Both
+controls reach their official look through `has-sprite`, and that class also *switches
+off* the CSS look-alike plate (`.ewheel__panel::before`) and the button's border — so
+when the plate sprite does not paint, the wheel degrades to bare text. Two ways in, both
+closed here:
+
+* `background: var(--ewheel-btn) left bottom / 100% 100% no-repeat` — a custom property
+  inside the `background` shorthand is dropped as a whole by some engines (older WebKit,
+  in-app WebViews), and the state was "has-sprite applied, no plate painted". The four
+  plate rules (button, panel, cell, emote bubble) now use background-image / -repeat /
+  -position / -size, where the var is substituted by every engine that supports custom
+  properties at all. Same rendering, no shorthand.
+* The `--ewb-w: max(1.51rem, 72px)` sizing only existed with max(); an engine without it
+  loses the width, height *and* the plate. A plain `--ewb-w: 1.51rem` now precedes it
+  (and 96px on coarse pointers), so the fallback is a sane button instead of nothing.
+* Whatever the cause of a missing sprite — a copy absent on the server, a request an
+  in-app browser refuses — the component now finds out: `useSpriteFailed()` preloads the
+  plate once per URL and drops `has-sprite`, so the bordered button with its glyph and the
+  CSS plate come back instead of an empty box. Trusting the manifest until the image
+  actually errors keeps the official plate for everyone else.
+
+Diagnosis of the live report: the deployed client, its CSS and `data/local-assets.json`
+are byte-identical to this tree, and `node .p2tmp/emote-probe.mjs` (real Chrome, real
+match) renders the button with `--ewheel-btn: url("/assets/local/ui/battle/emoji_btn.png")`
+and the sprite loaded — so production code was never wrong, the *client* was: either its
+engine refuses the shorthand or the sprite request fails there. Both paths are fixed, and
+the third (the manifest's mirror copies under /assets/ui/... 404 everywhere, they are
+never fetched onto the box) is now survivable instead of fatal.
+
+Tests: test/ui/emotes.e2e.test.js gains "a plate sprite that fails to load falls back to
+the CSS plate" (blocks the plate sprites, asserts the button keeps its border, its glyph
+and the label, and the panel its CSS plate) — it fails against the old code and passes
+now; the rest of the suite behaves as before (the trackpad-swipe case is a pre-existing
+flake, it fails on HEAD too).

@@ -1,0 +1,33 @@
+fix(matchmaking): 取消搜寻 instantly leaves the queue, and the match-screen data load cannot hang
+
+Two defects the owner hit in the live 0.1.3 build, both on the 同盟匹配 path (DESIGN §23).
+
+取消搜寻 did nothing when the frame could not get through. The click only sent
+`queue.leave` and waited for the reply, so on a half-open socket (a phone network,
+a VPN, a proxy that swallowed the frame) the server kept the session in the pool —
+the panel never closed, the clock kept counting, and the player could still be
+seated into someone else's four-player match. Now the click ends the search
+locally at once (`exiting` hides MatchPanel) and the client keeps re-sending
+`queue.leave` until the server confirms it (`queue.state {active:false}` is the
+only thing that stops the loop): 2.5 s to answer, then `net.reconnectNow()` plus a
+re-send once `net.whenOnline()` (online again only after `welcome`, so the retry
+cannot land on the dead socket), three tries, after which the panel returns with
+the truth and a toast instead of a lie. 开始搜寻队友 right after a cancel stops the
+loop first, so a late retry cannot delete the fresh entry. `net.whenOnline()` is
+new; `queueLeave` now logs the cancel (`[lobby] queue/<d>: -<name> (n/4 真人)`) —
+the only way to tell an arrived cancel from a swallowed one.
+
+匹配成功之后会一直显示正在载入模拟数据… : the match screen waits for GAME_FILES,
+and a matchmade game has no waiting room to warm them in, so a matched player
+started downloading ~4.3 MB at the opening bell — and `createDataStore` had no
+timeout, so one stalled request meant an endless spinner with nothing to act on.
+Now main.js warms the data when the search starts (not only when a room appears),
+each download step is timed out (`DATA_TIMEOUT_MS` 30 s) and treated as a
+transient failure (retried, then missing — never an unsettled promise), and after
+6 s the loading screen names the files still downloading and offers 重试 /
+刷新页面.
+
+Tests: test/e2e/matchmaking.e2e.mjs (real browser + three protocol clients:
+cancel, cancel against a socket that swallows frames, a stalled data file named on
+the loading screen and the match opening when it arrives); playtest3 gains the
+loader-timeout and search-warm cases. Version 0.1.3 → 0.1.4.

@@ -4,6 +4,7 @@
 
 import { useState } from '../../vendor/hooks.module.js';
 import { html, Modal, Button, Icon, MicroLabel } from './components.js';
+import { ResourceRow } from './resourcePanel.js';
 import { createStore, useStore, loadPref, savePref } from '../store.js';
 import { sanitizeSettings } from './gameLogic.js';
 import { audio } from '../audio.js';
@@ -59,6 +60,7 @@ export function SettingsModal({ open, onClose }) {
     actions=${html`<${Button} variant="secondary" icon="book" class="set-guide" onClick=${() => openGuide(0)}>玩法说明<//>
       <${Button} variant="primary" icon="check" onClick=${onClose}>完成<//>`}>
     <div class="set-list">
+      <${ResourceRow} enabled=${s.preload} onChange=${(v) => updateSettings({ preload: v })} />
       <${Slider} label="背景音乐" micro="BGM" icon="play" value=${s.bgm} onInput=${(v) => updateSettings({ bgm: v })} />
       <${Slider} label="音效" micro="SFX" icon="signal" value=${s.sfx}
         onInput=${(v) => { updateSettings({ sfx: v }); if (!tested) { setTested(true); setTimeout(() => setTested(false), 400); audio.sfx('click'); } }} />

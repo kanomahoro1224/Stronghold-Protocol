@@ -462,7 +462,14 @@ function splitUrl(url) {
 const LOCAL_ART_MANIFEST = 'local-assets.json';
 const EMPTY_LOCAL_ART = Buffer.from(JSON.stringify({ version: 1, source: 'none', count: 0, groups: {} }));
 
-export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), log = noopLog }) {
+import { createResourceIndex, RESOURCE_MANIFEST_FILE } from './resources.js';
+import { rewriteAssetPaths } from '../shared/cdn.js';
+export { rewriteAssetPaths } from '../shared/cdn.js';
+
+export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), log = noopLog, cdnBase = '' }) {
+  const cdn = typeof cdnBase === 'string' ? cdnBase : '';
+  // the preload manifest (docs/ASSETS.md "Preload"): built on first request, cached until the manifests change
+  const resources = createResourceIndex({ dataDir, publicDir, cdnBase: cdn, rewrite: (v) => (cdn ? rewriteAssetPaths(v, cdn) : v), log });
   const mounts = [
     { prefix: '/data/', name: 'data', dir: path.resolve(dataDir) },
     { prefix: '/shared/', name: 'shared', dir: path.resolve(sharedDir) },
@@ -479,6 +486,34 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
     try { decoded = decodeURIComponent(rawPath); } catch { sendError(req, res, 400, '请求地址无效 · Bad request'); return; }
     if (!decoded.startsWith('/') || decoded.includes('\0') || decoded.includes('\\')) {
       sendError(req, res, 400, '请求地址无效 · Bad request');
+      return;
+    }
+    // The offline-resource manifest is generated, never read from disk, before the mount handling below.
+    if (decoded.toLowerCase() === `/data/${RESOURCE_MANIFEST_FILE}`) {
+      let idx;
+      try {
+        idx = await resources.get();
+      } catch (e) {
+        log.error('[http] cannot build the resource manifest', e);
+        sendError(req, res, 500, 'Internal error');
+        return;
+      }
+      const gz = acceptsGzip(req.headers['accept-encoding']) ? idx.gzip : null;
+      const body = gz || idx.body;
+      const stat = { size: idx.body.length, mtimeMs: idx.mtimeMs, mtime: new Date(idx.mtimeMs) };
+      const etag = gz ? `${idx.etag.slice(0, -1)}-gz"` : idx.etag;
+      const headers = {
+        'Content-Type': MIME['.json'],
+        'Cache-Control': 'no-cache',
+        ETag: etag,
+        'Last-Modified': stat.mtime.toUTCString(),
+        Vary: 'Accept-Encoding',
+      };
+      if (gz) headers['Content-Encoding'] = 'gzip';
+      if (isNotModified(req, etag, stat.mtime)) { res.writeHead(304, headers); res.end(); return; }
+      headers['Content-Length'] = body.length;
+      res.writeHead(200, headers);
+      res.end(req.method === 'HEAD' ? undefined : body);
       return;
     }
     if (decoded === '/data.js') {

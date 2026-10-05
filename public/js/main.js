@@ -394,3 +394,20 @@ boot().catch((err) => {
   const el = document.getElementById('boot-err');
   if (el) el.textContent = '启动失败，请刷新页面重试';
 });
+
+/**
+ * Optional asset preload (docs/ASSETS.md "Preload"): off by default, loaded after the first paint so a player
+ * who never enables it downloads nothing. The settings row and the title screen pill write the switch; this
+ * mirrors it into public/js/resources/index.js (idempotent: the settings store also fires for volume changes).
+ */
+function installResourcePreload() {
+  import('./resources/index.js')
+    .then((r) => {
+      const apply = (s) => { r.syncResources(!!s.preload).catch((err) => console.warn('[resources] sync failed', err)); };
+      apply(settingsStore.get());
+      settingsStore.subscribe(apply);
+    })
+    .catch((err) => console.warn('[resources] unavailable', err));
+}
+
+installResourcePreload();

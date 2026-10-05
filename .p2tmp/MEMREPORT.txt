@@ -1,0 +1,172 @@
+STRONGHOLD-PROTOCOL — WHERE THE 584 MB GOES (read-only investigation)
+====================================================================
+Nothing was restarted, reloaded, deployed or reconfigured. The live box was only
+read (3 bounded samples: /healthz + ps + free -m + systemctl show + 3 cgroup files).
+No file under server/** or public/js/** was touched; probes live in
+F:\WeChat\Stronghold-Protocol\.p2tmp\mem\* and F:\WeChat\.p2tmp\peekmem.sh.
+Local tree measured: 0.1.4. Live build: 0.1.3 (1c7c3b07a6c6) — its /healthz has no
+"mem" field, so no live heapUsed exists; live V8 slack numbers below are inferred.
+
+HOW THE PER-UNIT NUMBERS WERE OBTAINED
+--------------------------------------
+Virtual-scheduler harness (test/match/harness.js, makeMatch + Scheduler virtual=true),
+node --expose-gc, snapshot after two synchronous major GCs, then the MARGINAL method:
+build+drive batch 1, snapshot, build+drive batch 2 of the same kind, take the slope.
+The second batch pays no one-time module/hidden-class/string-table cost, so the slope is
+the honest per-match figure. (Batch totals without this correction are 1.5-2x too high;
+per-key ablation is below the noise floor and was discarded.) "Server-side" means the
+in-process SimClient battle objects were nulled before the snapshot, so what remains is
+what the server itself retains for a client-combat match. Config: NORMAL, 2 human seats
+unless stated. Every number is +/-15-20%.
+
+PER-MATCH LIVE HEAP (server-side, after GC)
+-------------------------------------------
+ 2 humans  0 bots, COMBAT R1 +10s ....................  99 KB   (the plain live match)
+ 2 humans  2 bots, COMBAT R1 +10s ................... 359 KB   => +130 KB per server-run field at R1
+ 0 humans  4 bots, COMBAT R1 +10s ................... 486 KB
+ 2 humans  0 bots, COMBAT R7 +10s ................... 353 KB
+ 2 humans  2 bots, COMBAT R7 +10s ....................1143 KB   => ~395 KB per field at R7
+ 2 humans  2 bots, COMBAT R13 +10s ...................1559 KB
+ 2 humans  2 bots, PREP R7 (NO battle in existence) . 304 KB
+ 2 humans  0 bots, PREP R13 .......................... 425 KB
+ 2 humans  2 bots, IDLE-PAUSED (m._freeze()) R1 ..... 349 KB  vs 359 KB unpaused
+ average over a random point in a match's life, 0 bots . 360 KB  (2 humans, autoplay,
+   human fields taken over at each COMBAT deadline — models absent fighters)
+ average over a random point in a match's life, 2 bots . 603 KB
+ one server-run field's Battle graph alone: 75 KB fresh, 137 KB at t=45s, 103 KB finished
+ GameData + SharedPool per match: 13.3 KB fresh (4.1+9.2, 92 us) -> 24 KB driven R1
+   -> 36 KB R7 -> 57 KB R13 (per-match lazy memo caches: bond maps, tier shops)
+ retained view JSON (m._lastPubJson + one _lastPriv per seat): 8.7 KB R1 -> 34 KB R7 -> 51 KB R13
+ player payload (board/hand/temp/shop/offers/bounties/bonds/stats/unitStats/deployMap):
+   15 KB R1 -> 38 KB R7 -> 37 KB R13
+ lastResults 5-8 KB; draft/sp/wave/unite/registry/errors 3 KB R1 -> 11 KB R13
+ process baseline: bare node 3.9 MB heap / 36 MB RSS; +data/*.json (4.15 MB on disk)
+   +8.6 MB heap / +23.5 MB RSS; booted empty server 23.0 MB heap / 78.8 MB RSS
+ ws: 1.385 MB heap for 120 connections / 60 rooms = 11.5 KB heap + 13.8 KB RSS per conn
+ (room.replay / room.lastSummary survive a match end; the Match itself is dropped by
+  onMatchEnd -> disposeMatchCtx, so an ended match costs ~13 KB + replay frames)
+ V8: after a 30-match burst heapTotal:heapUsed = 4.6x and RSS:heapUsed = 6x; dispose()+GC
+ gave back 9.2 MB heap but only 2.7 MB RSS (pages/committed space are NOT returned).
+ Phase duty cycle on the virtual clock (14-round match, 3,133 s, no console clients so
+ human fields were taken over at each deadline): PREP 49%, COMBAT 40%,
+ SP_DRAFT 4%, BAND_DRAFT 2%, FINAL_ASSAULT 2%, SETTLE/ROUND_START/INFO/UNITE 5%.
+
+LIVE SAMPLES (3, 2026-10-04T14:05:05Z / 14:05:36Z / 14:06:06Z, all rc 0, read-only)
+------------------------------------------------------------------------------------
+ /healthz: sockets 1818/1825/1826, sessions 2213/2115/2075, rooms 725/735/742,
+   matches 679/687/696, humans 1591/1604/1609, bots 391/394/396, fields 0, fieldsIdle 0,
+   paused 63/65/65, queued 4/6/3, loop p50 10.7/10.7/11.4 ms, p99 85/104/154 ms
+ ps -o pcpu,rss: 70.6/71.8/73.1 %CPU, 436912/453900/458924 KB RSS, vsz ~11.95 GB,
+   uptime 10:23/10:53/11:23, nlwp 11 (NO worker threads -> SP_SIM_WORKERS unset: all bot
+   and takeover simulations run in-process on the main thread)
+ free -m: total 1967, used 1481/1470/1475, free 320/330/324, available 485/497/492,
+   swap 2047 total / 0 used
+ systemd: MainPID 7932, NRestarts=1, MemoryAccounting=yes, MemoryHigh=infinity,
+   MemoryMax=943718400 (900 MiB — NOT the 1258291200 in the task),
+   MemoryCurrent 479981568/497913856/503140352, MemoryPeak 488902656/500183040/508076032,
+   TasksMax 2263
+ Environment: NODE_ENV=production PORT=3000 HOST=127.0.0.1 TRUST_PROXY=auto SP_VERIFY=off
+   SP_MAX_ROOMS=2500 SP_SOLO_RECONNECT_MS=7200000 SP_STATS_MS=300000 SP_BOT_REHEARSAL=0
+   SP_IDLE_PAUSE_MS=8000
+ cgroup /system.slice/stronghold.service: memory.peak 488/500/508 MB, memory.max 943718400,
+   memory.events low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 (counters are
+   post-restart; systemd recreates the cgroup on restart, so they cannot see the kill)
+
+RANKED DECOMPOSITION OF THE 584 MB PEAK (and of the 459 MB I sampled)
+--------------------------------------------------------------------
+ 1. Match plane, base per live match ....... ~170-215 MB  [per-unit MEASURED, total ESTIMATED]
+    854 matches x ~200-250 KB average. Base grows with round depth (99 KB at R1 -> 353 KB
+    at R7 -> 425 KB at R13, no battles involved); most of it is per-match PlayerState
+    payload, the retained view JSON strings, and per-match GameData memo caches.
+ 2. V8 committed-but-unused heap ........... ~150-200 MB  [MEASURED locally, ESTIMATED live]
+    Live heap is far below RSS: locally heapTotal was 4.6x heapUsed and RSS 6x, and RSS
+    stayed ~200 MB after dispose()+GC. This is the term that makes 300 MB of live data
+    show up as ~500 MB of RSS, and it is the reason the peak overshoots the live set.
+ 3. Bot / takeover field battle graphs ..... ~55-90 MB   [per-unit MEASURED, total ESTIMATED]
+    471 bot seats x ~115 KB (R1) to ~395 KB (R7) while the field exists; battles exist
+    only during COMBAT (~40% duty) and are released at phase end. Each seat taken over
+    from an absent human adds a similar graph.
+ 4. Process baseline ........................ ~79 MB  [MEASURED]
+    node runtime + 4.15 MB of data/*.json expanded to +8.6 MB heap / +23.5 MB RSS +
+    the loaded module graph (booted, zero rooms).
+ 5. Sockets/sessions + rooms/replay ......... ~35-55 MB  [sockets MEASURED, replay ESTIMATED]
+    1,826 ws connections x 11.5 KB heap (13.8 KB RSS) ~= 22-25 MB; 742 rooms holding
+    replay frames/lastSummary after their match ended, ~15-40 KB each, ~= 11-30 MB.
+ Sum ~420-540 MB -> the sampled 459 MB and the 584 MB peak are both explained without
+ any unknown leak. Order of the top two is firm; 3 vs 4 depends on the COMBAT duty cycle.
+
+RANKED LEVERS (MB saved at the observed peak: 854 matches / 471 bots / 157 paused)
+----------------------------------------------------------------------------------
+ 1. Cap the heap: NODE_OPTIONS=--max-old-space-size=384..448 (one env var, no code).
+    Saves ~100-150 MB of term 2 by keeping V8's committed free space from ballooning.
+    Cheapest change; determinism-neutral (GC timing is invisible to a seeded, tick-driven
+    sim). Cost: more GC CPU on an already 71-73% busy single core.
+ 2. Bound concurrency: SP_MAX_ROOMS 2500 -> ~900-1000 (env only). 2500 rooms x ~250 KB is
+    ~600 MB of match plane alone, more than the 900 MiB cgroup and about half the 1967 MB
+    host. Saves up to ~250 MB in the worst case, ~0 in the current normal case.
+ 3. Expire paused matches / evict their graphs: 40-130 MB at 157 paused (see Q1 below).
+    Requires a small code change under server/** (or a shorter SP_SOLO_RECONNECT_MS).
+ 4. Share the per-match GameData memo caches instead of rebuilding them per Match:
+    24-57 KB x 854 ~= 20-49 MB (memo maps over deep-frozen shared data -> hoist keyed by
+    (data, modeId)). Code change, determinism-neutral.
+ 5. Trim retained view caches (_lastPubJson/_lastPriv, 9-51 KB per match): 8-44 MB; also
+    the single fastest-growing per-round term. Drop them on pause/end and for dead seats.
+ 6. Clear f.battle as soon as a field completes (complete() keeps run.battle until the
+    phase ends): 100-480 KB per finished-but-retained field. Small in steady state.
+ 7. Sockets/rooms: 35-55 MB total. Not worth touching (11.5 KB per connection measured).
+ NOT levers: Match construction cost (GameData 4.1 KB + pool 9.2 KB = 13.3 KB / 92 us per
+ match — the known 12.7 KB / 82 us figure is confirmed; only ~11-14 MB in total, and it is
+ the *driven* memo caches up to 57 KB that add up), worker threads (nlwp 11, none used),
+ and SP_VERIFY (already off).
+
+ANSWERS TO THE FOUR QUESTIONS
+-----------------------------
+ Q1. Shrinking SP_SOLO_RECONNECT_MS / capping paused matches that keep graphs.
+     IDLE-PAUSE frees almost nothing: _freeze() only cancels timers and keeps f.job,
+     f.battle, f.spec, f.timeline (Match.js L1199-1218); measured 349 KB paused vs 359 KB
+     active at R1 — i.e. a paused match costs the same as a running one. So the saving is
+     the whole footprint of whatever stops being retained: 157 paused x ~250-350 KB
+     = ~40-55 MB central (7-9% of the peak), up to ~140 MB if each of the 157 is an
+     abandoned co-op match still holding 2 takeover + ~1 bot battle graph at mid-depth,
+     and as little as ~25 MB if they are solo runs frozen in early PREP. Evicting only the
+     battle graphs (keeping the resume) captures the field layer, ~40 MB of that.
+ Q2. Raw match count vs bots. The match count is the dominant term: 854 x ~100-425 KB
+     depending on depth ~= 100-280 MB (central ~200 MB). Bots are second: 471 seats x
+     ~115-480 KB per graph while it exists, damped by the ~40% COMBAT duty ~= 55-90 MB.
+     Ended matches are cheap (Match is disposed; ~13 KB + replay frames), so it is LIVE
+     matches that matter, not matches played.
+ Q3. Is MemoryMax binding? No — and the configured value is not the one in the task.
+     The live unit has MemoryMax=943718400 (900 MiB), not 1258291200. Node's peak RSS was
+     584 MB, and memory.current tracks RSS + ~33 MB, so the cgroup would need ~910 MB of
+     RSS to breach; memory.peak since the restart is 508 MB, with memory.events oom 0,
+     oom_kill 0. The host, however, has 1967 MB total with ~1475 MB used by everything and
+     only ~490 MB available, no swap in use. Conclusion: the cgroup cap is not binding and
+     the kill at 584 MB looks like the HOST-level OOM killer choosing the largest
+     reclaimable process. (Caveat: the surviving counters are post-restart, so a
+     pre-restart cgroup breach cannot be formally excluded — but 584 MB < 900 MiB makes it
+     unlikely.)
+ Q4. Cheapest change that most reduces OOM risk at peak concurrency: cap the process
+     (--max-old-space-size=384..448) AND cap rooms (SP_MAX_ROOMS ~900-1000), then expire
+     paused matches. Both are env-only, and both are determinism-safe: the simulator is
+     seeded and tick-driven and reads no wall clock, and a dropped battle graph is rebuilt
+     from the same frozen BattleSpec (the code already re-simulates for bot seats, for
+     takeovers, and for SP_VERIFY), so results are bit-identical. Nothing here touches
+     step order, seeds or the tick loop.
+
+WHAT COULD NOT BE MEASURED
+--------------------------
+ - Live heapUsed/heapTotal: the deployed 0.1.3 /healthz has no mem field, so the V8 slack
+   term (2) is inferred from local ratios, not read from the box.
+ - The real live mix: no per-match round depth, phase, or count of abandoned seats is
+   exposed (fields 0 / fieldsIdle 0 while CPU was 71-73%, because bot jobs finish in
+   milliseconds and their battles stay retained after complete()). The match-plane total is
+   therefore an estimate built from measured per-depth unit costs.
+ - No heap snapshot or profiler on the live box (forbidden) and none locally (too heavy):
+   attribution is by group ablation with a large signal, not by a dominator tree; ~15-30%
+   of the per-match cost stays unattributed (PlayerState objects themselves, bot recall
+   caches, per-round bookkeeping).
+ - Room replay / lastSummary byte size is read from code (lobby.js buildReplay/disposeRoom),
+   not measured.
+ - Whether the 157 paused matches are solo or abandoned co-op (which sets the width of Q1)
+   is not derivable from /healthz.
+ - The cgroup counters are post-restart, so the exact pre-kill memory.current is unknown.

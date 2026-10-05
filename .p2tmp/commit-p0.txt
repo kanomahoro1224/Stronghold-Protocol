@@ -1,0 +1,21 @@
+perf(ops): measure the server's own simulation load (P0 of the multi-core work)
+
+The live box sits at ~90% of ONE core with a full accept queue (Recv-Q 511/511),
+and that CPU is the server's own simulation: every live field in a match steps
+in lockstep at 30 Hz x GAME_SPEED (60 ticks per field-second), a tick costing
+27-45 us (10/30/70 enemies, snapshot every 3) — i.e. 1.6-2.7 ms of CPU per
+field-second, ~1.1%/field at the worst-case instant.
+
+/healthz now reports the inputs, so the multi-core work can be sized from
+production instead of guessed:
+  fields      battles the server steps (FieldRunner.hosted, summed by
+              lobby.stats(), plus a HeadlessPacer fast-forwarding a takeover)
+  fieldsIdle  the subset whose match has no connected human (Match.liveHumans):
+              a match nobody is watching still steps its takeover fields
+  loop        event-loop delay p50/p99/max over a rolling <=10 s window
+              (monitorEventLoopDelay; 10 ms resolution floors p50, so alarm on p99)
+
+test/perf/hosted-load.mjs (manual, not part of node --test) reproduces the
+numbers anywhere: one core carries ~370 hosted battles on average and ~90 at
+peak, with nothing left for sockets, lobby or JSON. 2 vCPU caps a worker split
+at ~2x, which is why suspending the fields of unwatched matches comes first.

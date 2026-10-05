@@ -13,6 +13,8 @@ import { NAME_MAX_LEN, APP_VERSION } from '../../../shared/constants.js';
 import { html, Button, Icon, MicroLabel, TextField, PingPill, OnlinePill } from '../ui/components.js';
 import { GuideButton } from '../ui/guide.js';
 import { NoticeButton } from '../ui/notice.js';
+import { updateSettings, useSettings } from '../ui/settings.js';
+import { ResourceLauncher } from '../ui/resourcePanel.js';
 import { toast } from '../ui/toasts.js';
 import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual } from '../store.js';
@@ -181,6 +183,7 @@ const STATUS_TEXT = {
 
 /** Title screen component. */
 export function TitleScreen() {
+  const settings = useSettings();
   const conn = useStore((s) => s.connection, shallowEqual);
   const pendingJoin = useStore((s) => s.ui.pendingJoin);
   const [name, setName] = useState(() => store.get().me.name || identity.loadName() || '');
@@ -271,6 +274,8 @@ export function TitleScreen() {
         </div>
       </div>
     </main>
+
+    <div class="title-preload"><${ResourceLauncher} enabled=${settings.preload} onChange=${(v) => updateSettings({ preload: v })} /></div>
 
     <footer class="title-foot">
       <div class="title-foot__legal">

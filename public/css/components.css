@@ -1045,3 +1045,11 @@
 /* in a match both banners sit below the battle-report bar; the notice yields when the connection banner is up too */
 .sp-in-match .status-banner { top: calc(1.34rem + var(--sa-t, 0px)); }
 .sp-in-match.sp-conn .status-banner { top: calc(2.0rem + var(--sa-t, 0px)); }
+
+/* preload: shared bits (public/js/ui/resourcePanel.js) */
+.res-actions { display: flex; align-items: center; gap: .12rem; flex-wrap: wrap; }
+.res-link {
+  padding: 0; background: none; border: 0; color: var(--text-dim); font-size: .13rem;
+  text-decoration: underline dotted; cursor: pointer;
+}
+.res-link:hover { color: var(--text-hi); }

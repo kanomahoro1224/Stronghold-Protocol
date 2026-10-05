@@ -13,7 +13,8 @@
 // live online count (the number in the 在线 pill) falls below it, the notice is done and stays gone for the rest of
 // the session — the operator does not have to remember to withdraw it. Re-issuing with a new id shows it again.
 //
-// NOTE: this app is not Preact — it has no useState/useEffect. Component state is read through useStore (store.js)
+// NOTE: this component deliberately uses no hooks from vendor/hooks.module.js: it only reads the store
+// (useStore) and ticks (useTicker), so it cannot take the app down the way a bad hook import would.
 // and refreshed by useTicker (ui/components.js); the fetched notice lives in this module and the ticker re-renders.
 //
 // File shape (text is required, everything else optional):

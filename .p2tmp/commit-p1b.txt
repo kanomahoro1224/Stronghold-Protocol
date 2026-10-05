@@ -1,0 +1,36 @@
+perf(match): never simulate a match nobody is watching (P1b of the multi-core work)
+
+The live box is one core at ~90% with a full accept queue, and the biggest
+single item is simulation nobody asked for. Three cases, one watch:
+
+* A match whose humans are all *disconnected* keeps its seats for the reconnect
+  window and used to keep stepping every takeover field for that whole time.
+  After IDLE_PAUSE_MS (20 s, SP_IDLE_PAUSE_MS, 0 disables) the match freezes
+  through the existing solo-pause machinery, now shared as _freeze/_unfreeze
+  with soloPaused/idlePaused as separate reasons so an owner's pause and an idle
+  suspension never cancel each other. A reconnect resumes it before the resync
+  is built (_resumeIdle); the sim is deterministic and no tick lands while
+  frozen, so there is nothing to reconcile.
+* A match with no human seat at all can never be watched again, so the watch
+  ends it exactly like a room whose last human quit (abandoned) instead of
+  freezing it. A permanent quit already ended its match (onLeave); a drop never
+  ends somebody's match.
+* A frozen match does no bot work either: every bot prep rehearses whole
+  simulated battles, which measured (node test/perf/hosted-load.mjs --rehearsal)
+  at 16.7 s of CPU for a full 4-bot match at botRehearsal 0, 17.4 s at 1 and
+  25.1 s at 3 — the default setting is 34% of that match. The prep generators
+  and rehearsal slices now check `paused` and re-arm (PAUSED_RETRY_MS), so a
+  suspended match costs nothing and still finishes its prep after a resume.
+  SP_BOT_REHEARSAL (0-8) exposes the knob for a box short of CPU.
+
+Both the watch and that guard are armed only on a real scheduler: a virtual
+clock (tests, tools/matchrun, the balance sims) drives its own time and must
+never be frozen by wall-clock idleness, unless a caller passes idlePauseMs
+explicitly — which is how the tests drive it.
+
+/healthz grows `paused` (matches suspended for being unwatched) next to the
+`fields`/`fieldsIdle`/`loop` counters from the previous commit, so the effect is
+visible in production. Tests: test/match/connection.test.js (4 new cases:
+freeze + resume, bot-only ends, a drop never ends, no bot work while frozen,
+knob parsing); test/lobby.test.js asserts the healthz wiring. test/match 499
+tests / 0 fail, lobby + docs + client-static + buildGuard 311 / 0 fail.
