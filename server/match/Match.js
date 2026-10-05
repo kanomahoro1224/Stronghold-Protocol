@@ -1578,8 +1578,15 @@ export class Match {
       return;
     }
     const watching = this.liveHumans() > 0;
-    if (watching) this.idleSince = 0;
-    else if (!this.idleSince) this.idleSince = now;
+    if (watching) {
+      this.idleSince = 0;
+      // A human connected again must lift the suspension, not only reset the timer. The only other caller of
+      // _resumeIdle is onReconnect, which a spectator / eliminated player never reaches (lobby.js:1180 calls
+      // addSpectator for them) and which refuses a seat that left. Without this, a frozen match whose seats came back
+      // that way never steps again: the boss clock stays parked, the silence watchdog never runs and the countdown
+      // sits at 00 - the reported co-op hang.
+      if (this.idlePaused) this._resumeIdle();
+    } else if (!this.idleSince) this.idleSince = now;
     if (!watching && !this.idlePaused && this.idleSince && now - this.idleSince >= this.idlePauseMs) {
       this.idlePaused = true;
       const idleMs = now - this.idleSince;
