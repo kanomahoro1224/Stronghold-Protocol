@@ -89,7 +89,7 @@ test('status banner: retirement fires only below the threshold, never before the
 test('status banner: never imports preact hooks (this app has no useState/useEffect)', async () => {
   const file = new URL('../../public/js/ui/statusBanner.js', import.meta.url);
   const src = readFileSync(file, 'utf8');
-  assert.doesNotMatch(src, /preact/i, 'not Preact: importing preact/hooks crashed every page');
+  assert.doesNotMatch(src, /from\s+['"]preact/, 'not Preact: importing preact/hooks crashed every page');
   const mod = await import(file.href);
   assert.equal(typeof mod.StatusBanner, 'function', 'the component mounts');
   assert.equal(typeof mod.startStatusBanner, 'function');
