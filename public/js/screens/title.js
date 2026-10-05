@@ -12,6 +12,7 @@ import { useMemo, useState } from '../../vendor/hooks.module.js';
 import { NAME_MAX_LEN, APP_VERSION } from '../../../shared/constants.js';
 import { html, Button, Icon, MicroLabel, TextField, PingPill, OnlinePill } from '../ui/components.js';
 import { GuideButton } from '../ui/guide.js';
+import { NoticeButton } from '../ui/notice.js';
 import { toast } from '../ui/toasts.js';
 import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual } from '../store.js';
@@ -264,6 +265,7 @@ export function TitleScreen() {
           </span>
           <span class="title-conn__actions">
             <${GuideButton} class="title-guide" />
+            <${NoticeButton} class="title-notice" />
             <${FullscreenButton} class="title-fs" />
           </span>
         </div>

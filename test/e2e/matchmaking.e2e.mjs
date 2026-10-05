@@ -41,7 +41,7 @@ test('同盟匹配: 取消搜寻 leaves the queue at once, and survives a frame 
     await c.hookRequests();
     await c.click('.mode-card', '同盟匹配');
     await c.click('button', '开始搜寻队友');
-    await sleep(1200);
+    await sleep(3400);
     assert.equal(await c.visible('.match-panel'), true, 'the search panel shows');
     assert.equal(await queued(srv.base), 1, 'the server has the session in the pool');
 
@@ -55,7 +55,7 @@ test('同盟匹配: 取消搜寻 leaves the queue at once, and survives a frame 
 
     // (1b) the socket swallows everything (a half-open connection): the client must reconnect and re-send the cancel
     await c.click('button', '开始搜寻队友');
-    await sleep(1200);
+    await sleep(3400);
     assert.equal(await queued(srv.base), 1);
     await c.page.evaluate(() => { const ws = globalThis.__SP__.net.ws; globalThis.__swallowed = []; ws.send = (d) => globalThis.__swallowed.push(String(d).slice(0, 40)); });
     await c.click('button', '取消搜寻');
@@ -92,7 +92,7 @@ test('同盟匹配: a stalled match-data file is named on the loading screen and
     await c.click('button', '开始搜寻队友');
     await sleep(800);
     peers.push(searcher(srv.port, 'P2'), searcher(srv.port, 'P3'), searcher(srv.port, 'P4'));
-    await sleep(3000);
+    await sleep(3800);
 
     const screen = () => c.page.evaluate((names) => ({
       text: document.querySelector('.gload p')?.textContent ?? null,

@@ -272,3 +272,44 @@
   color: var(--amber);
   text-shadow: 0 0 .09rem rgba(246, 163, 41, .5);
 }
+
+/* ---- 公告 (announcement; js/ui/notice.js) -------------------------------------------------------- */
+/* The trigger is GuideButton's twin (ghost/sm Button, mint icon) and the panel is the shared Modal
+   (.modal__box / .modal__body / .modal__actions in components.css), so only its content lives here: the small dim
+   section labels and their lines from data/notice.json, scrolled by .modal__body when the body is long. */
+.notice-btn .btn__icon { color: var(--mint-500); }
+.notice__body { display: flex; flex-direction: column; gap: .18rem; }
+/* One section of the notice: the label row, then its lines. The flat legacy `body` form is one unlabelled section. */
+.notice__section { display: flex; flex-direction: column; gap: .06rem; }
+/* The section label: the project's .micro idiom (theme.css) — small, dim, letter-spaced — as a row of its own above
+   the content it names. No box, no bar: the tone alone separates it. */
+.notice__label {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: .12rem;
+  line-height: 1.4;
+  letter-spacing: .18em;
+  color: var(--text-dim);
+}
+.notice__line { margin: 0; font-size: .18rem; line-height: 1.75; color: var(--text-md); }
+/* A grouping blank line ({"spacer":true} in data/notice.json): taller than the flex gap so the groups it separates
+   read as groups. aria-hidden in notice.js — it carries no text. */
+.notice__line--spacer { height: .1rem; }
+/* An inline link inside a line. The href was whitelisted by notice.js safeNoticeHref() before this element ever
+   existed, so this rule only sets the tone: mint text with a plain underline. NO fill, NO background, NO border, NO
+   box-shadow, NO padding — nothing that would draw a box around the text. It opens in a new tab without handing the
+   opened page a window.opener handle. */
+.notice__link {
+  color: var(--mint-500);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: .03rem;
+  overflow-wrap: anywhere;
+  transition: color .15s ease;
+}
+.notice__link:hover, .notice__link:focus-visible { color: var(--mint-glow); }
+.notice__hint { margin: 0 0 .04rem; font-size: .15rem; color: var(--text-lo); }
+.notice__updated { margin: 0; font-family: var(--font-num); font-size: .14rem; letter-spacing: .08em; color: var(--text-dim); }
+@media (max-height: 560px) {
+  .notice__line { font-size: .16rem; }
+}

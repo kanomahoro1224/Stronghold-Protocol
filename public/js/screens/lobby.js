@@ -49,6 +49,17 @@ export const CANCEL_RETRY_MS = 15_000;
 export const CANCEL_TRIES = 3;
 
 /**
+ * How long a fresh 开始搜寻队友 click waits locally before `queue.join` actually goes out (ms).
+ *
+ * The counter starts at once and the panel looks exactly as usual, so the delay is invisible to the player ("不告诉玩家
+ * 任何行为即可"): it is there only so a misclick can be taken back by 取消搜寻 without the server ever hearing about it —
+ * with four doctors already waiting, one stray tap would start a match at once. The gate is *this player's own* elapsed
+ * local time (`>= QUEUE_GRACE_MS`), never the timer's own idea of the wait, so a coarse or early timer cannot join early.
+ * A cancel (or leaving the screen) inside the window disarms the pending join, and nothing is sent at all.
+ */
+export const QUEUE_GRACE_MS = 3000;
+
+/**
  * Display name of a stage: stages.json when it is loaded, else derived from the id (act1 m0N → 战场#0N, act2 m0N → 战场#0(N+4)).
  * @param {string} id e.g. 'act1autochess_m01'
  */
@@ -197,21 +208,78 @@ function TipsPanel() {
 }
 
 /**
- * 搜寻队友 panel (matchmaking, DESIGN §23): what the left column shows while the server keeps this session in a
- * pool. The wait counts up locally from the server's snapshot (`queue.since`), so no extra traffic is needed.
+ * The wait (ms) a 搜寻队友 panel shows for *this* player: measured from their own click (`localStart`, taken when they
+ * pressed 开始搜寻队友) whenever this page knows it, and from the server's pool anchor (`q.since`, built in main.js from
+ * `queue.state.waitedMs`) only when it does not.
+ *
+ * The local click must win: `waitedMs` is the pool's *oldest connected waiter* (server/lobby.js queueState), so on its
+ * own it would show a newcomer the seconds somebody else has already waited — the count a late clicker used to see jump
+ * to — and every later `queue.state` broadcast would jump the newcomer's counter forward again. `localStart` is null only
+ * when this page never saw a click — a reload or reconnect re-attached to an entry that really has been waiting all
+ * along, where the server's snapshot is the only and most consistent thing to resume from.
+ * @param {{ since?: number } | null} q the store's queue slice (or the panel's local placeholder)
+ * @param {number|null|undefined} localStart this player's own click time, when this page has one
+ * @param {number} now
+ * @returns {number} ms, never negative
+ */
+export function queueWaited(q, localStart, now = Date.now()) {
+  const start = Number.isFinite(localStart) ? localStart : Number.isFinite(q?.since) ? q.since : now;
+  return Math.max(0, now - start);
+}
+
+/**
+ * MM:SS of a wait in ms — the panel's clock.
+ * @param {number} ms
+ * @returns {string}
+ */
+export function queueClock(ms) {
+  const s = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Arm one 开始搜寻队友 click: the local clock starts now (the returned `start`, which the panel counts from) and
+ * `send(difficulty)` goes out only once QUEUE_GRACE_MS of local elapsed time has passed — a timer that fires early
+ * re-arms for the remainder instead of joining too soon. `cancel()` (the player pressed 取消搜寻, or left the screen)
+ * prevents the send entirely, so a click taken back inside the grace never reaches the server; `sent` flips only on a
+ * real send, and one armed entry never sends twice.
+ * `now` / `setTimer` / `clearTimer` are injectable so the tests can drive the grace with fake timers.
+ * @param {{ difficulty: string, send: (difficulty: string) => void, now?: () => number,
+ *           setTimer?: (fn: () => void, ms: number) => any, clearTimer?: (id: any) => void, graceMs?: number }} opts
+ * @returns {{ start: number, difficulty: string, sent: boolean, cancelled: boolean, timer: any, cancel: () => void }}
+ */
+export function armQueueJoin({ difficulty, send, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, graceMs = QUEUE_GRACE_MS }) {
+  const entry = { start: now(), difficulty, sent: false, cancelled: false, timer: null };
+  const fire = () => {
+    entry.timer = null;
+    if (entry.sent || entry.cancelled) return;
+    const waited = now() - entry.start;
+    if (waited < graceMs) { entry.timer = setTimer(fire, graceMs - waited); return; } // never join before the threshold
+    entry.sent = true;
+    send(entry.difficulty);
+  };
+  entry.timer = setTimer(fire, graceMs);
+  entry.cancel = () => { entry.cancelled = true; if (entry.timer != null) clearTimer(entry.timer); entry.timer = null; };
+  return entry;
+}
+
+/**
+ * 搜寻队友 panel (matchmaking, DESIGN §23): what the left column shows while this player searches — from the click
+ * itself (the grace window, before `queue.join` went out) and then while the server keeps the session in a pool. The
+ * wait counts up from this player's own click (`start`, from armQueueJoin), falling back to the server's pool snapshot
+ * (`q.since` through queueWaited) when this page has no click of its own; neither needs extra traffic.
  * Only 取消搜寻 is offered — nobody may cut another doctor's search short by starting the pool with AI, so a lone
  * searcher is pointed at 同盟模拟 (+ AI teammates) instead (the owner, 2026-10-04).
  * @param {{ q: { difficulty: string, size: number, max: number, solo: boolean, since: number },
- *           busy?: string|null, onCancel: () => void }} props
+ *           start?: number|null, busy?: string|null, onCancel: () => void }} props
  */
-function MatchPanel({ q, busy = null, onCancel }) {
+function MatchPanel({ q, start = null, busy = null, onCancel }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 500);
     return () => clearInterval(id);
   }, []);
-  const waited = Math.max(0, Date.now() - (q.since || Date.now()));
-  const clock = `${String(Math.floor(waited / 60_000)).padStart(2, '0')}:${String(Math.floor((waited % 60_000) / 1000)).padStart(2, '0')}`;
+  const clock = queueClock(queueWaited(q, start));
   const max = q.max || MAX_SEATS;
   const size = Math.min(Math.max(0, Number(q.size) || 0), max);
   return html`<${Panel} class="match-panel" tone="mint" title="正在搜寻队友" micro="SEARCHING FOR DOCTORS"
@@ -293,15 +361,31 @@ export function LobbyScreen() {
   // stares at a searching panel that a swallowed frame never ends (the server would still have the session queued
   // and could still put it into a match).
   const [exiting, setExiting] = useState(false);
+  // The client's own side of a 搜寻队友 click: `joinRef` holds the armed search (armQueueJoin) — this player's own click
+  // time, which the panel's clock counts from, and the silently delayed `queue.join`. `pending` keeps the panel on
+  // screen (and counting) during the grace window, before the server has an entry to report, so the wait looks
+  // identical on both sides of the join.
+  const joinRef = useRef(null);
+  const [pending, setPending] = useState(false);
   const [recent] = useState(recentRooms);
   const alive = useRef(true);
   const inFlight = useRef(false); // synchronous guard against double clicks (state updates are async)
-  useEffect(() => () => { alive.current = false; }, []);
+  // Leaving the lobby inside the grace window must reach the server as nothing: disarm the pending join on unmount.
+  useEffect(() => () => { alive.current = false; if (joinRef.current) joinRef.current.cancel(); joinRef.current = null; }, []);
 
   const online = conn.status === 'online';
   const codeOk = CODE_RE.test(code);
   const q = useStore((s) => s.queue, shallowEqual); // 搜寻队友 search state, or null (DESIGN §23)
   const searching = roomMode === 'match';
+  // This player is searching: the local grace window (no server entry yet) or the server's pool. 取消搜寻 takes the
+  // panel away at once (`exiting`) — the player is out of the search the moment they ask.
+  const waiting = !!q || pending;
+  const showPanel = waiting && !exiting;
+  // What the panel renders from: the server's state once it has one, else the shape a lone searcher's `queue.state`
+  // carries (this player alone — what the server reports for a pool of one, so a really lone search is identical
+  // before and after the join). Its `since` is never used: the clock runs off the local click.
+  const panelQ = q || { difficulty, size: 1, max: MAX_SEATS, solo: true, since: null };
+  const panelStart = joinRef.current ? joinRef.current.start : null;
 
   const pickMode = (m) => { setRoomMode(m); savePref('lobby.mode', m); };
   const pickDifficulty = (d) => { setDifficulty(d); savePref('lobby.difficulty', d); };
@@ -316,14 +400,35 @@ export function LobbyScreen() {
       if (alive.current) setBusy(null);
     }
   };
+  /**
+   * The grace expired: this player really is joining the pool now. Only this callback sends `queue.join` — arming a
+   * search is the only path to it, and a cancel inside the window disarms the entry before it can fire, so nothing is
+   * sent at all. A join that never got through drops the local search (the player is back at 开始搜寻队友 and can try
+   * again) instead of counting up in front of a panel the server knows nothing about.
+   */
+  const joinQueue = async (d) => {
+    if (!alive.current) return;
+    const back = () => { joinRef.current = null; if (alive.current) setPending(false); };
+    if (store.get().connection.status !== 'online') { back(); toast('尚未连接到服务器，请稍候', 'warn'); return; }
+    try {
+      await net.request('queue.join', { difficulty: d });
+    } catch (err) { back(); toastError(err); }
+  };
+  /** 开始搜寻队友: the clock starts now, `queue.join` leaves QUEUE_GRACE_MS later, and the panel tells the player nothing. */
+  const armJoin = (d) => {
+    joinRef.current = armQueueJoin({ difficulty: d, send: joinQueue });
+    setPending(true);
+  };
   const create = () => {
     // A search started right after 取消搜寻: stop the background cancel first, or its next retry would remove the
     // fresh pool entry (the player would look queued while the server had already dropped them).
     cancelRef.current.wanted = false;
     setExiting(false);
-    return searching
-      ? run('create', () => net.request('queue.join', { difficulty }))
-      : run('create', () => net.request('room.create', { mode: roomMode, difficulty }));
+    if (!searching) return run('create', () => net.request('room.create', { mode: roomMode, difficulty }));
+    // 搜寻队友: one click, at most one `queue.join`. A repeated click — or a click after a reconnect re-attached to an
+    // entry this page did not create — must not add a second entry, so an armed (or sent) search is left alone.
+    if (joinRef.current) return;
+    armJoin(difficulty);
   };
   // 取消搜寻 must take the player out of the queue *now*, even when the frame cannot get through: on a half-open
   // socket (a phone network, a VPN, a proxy that swallowed it) `queue.leave` reaches nobody, the server keeps this
@@ -337,7 +442,12 @@ export function LobbyScreen() {
   // this is the confirmation that ends the retry loop — never a local guess.
   useEffect(() => {
     const c = cancelRef.current;
-    if (!q && c.wanted) { c.wanted = false; setExiting(false); }
+    // The server's entry arrived: the grace window is over. The armed entry stays (its `start` is this player's own
+    // click, which the clock keeps counting from — a `queue.state` must never reset or jump it).
+    if (q) { setPending(false); return; }
+    // Out of the pool (never joined, cancelled, or matched): the next click starts a fresh local clock.
+    joinRef.current = null;
+    if (c.wanted) { c.wanted = false; setExiting(false); }
   }, [q]);
   useEffect(() => () => { cancelRef.current.wanted = false; }, []);
   const leaveSearch = async () => {
@@ -363,6 +473,16 @@ export function LobbyScreen() {
     }
   };
   const cancelSearch = () => {
+    // Inside the grace window nothing has reached the server yet, so there is nothing to cancel: the click is simply
+    // taken back (the armed join is disarmed, the panel goes) and *nothing* is sent — no `queue.leave` for an entry
+    // that was never created. That is the whole point of the grace: a misclick must not put the player in the pool.
+    const armed = joinRef.current;
+    if (armed && !armed.sent) {
+      armed.cancel();
+      joinRef.current = null;
+      setPending(false);
+      return;
+    }
     const c = cancelRef.current;
     if (c.wanted) return;
     c.wanted = true;
@@ -412,8 +532,8 @@ export function LobbyScreen() {
 
     <div class="lobby-body screen__scroll">
       <section class="lobby-left">
-        ${q && !exiting
-          ? html`<${MatchPanel} q=${q} busy=${busy} onCancel=${cancelSearch} />`
+        ${showPanel
+          ? html`<${MatchPanel} q=${panelQ} start=${panelStart} busy=${busy} onCancel=${cancelSearch} />`
           : html`<div class="lobby-prep">
             <div class="section-label"><span class="section-label__idx num">01</span>模拟方式<${MicroLabel}>MODE<//></div>
             <div class="mode-cards">
@@ -443,10 +563,10 @@ export function LobbyScreen() {
       <section class="lobby-right">
         <div class="section-label"><span class="section-label__idx num">02</span>模拟难度<${MicroLabel}>DIFFICULTY<//></div>
         <div class="diff-list">
-          ${DIFFICULTIES.map((d) => html`<${DifficultyCard} key=${d} roomMode=${roomMode} difficulty=${d} selected=${difficulty === d} disabled=${!!q} onSelect=${pickDifficulty} />`)}
+          ${DIFFICULTIES.map((d) => html`<${DifficultyCard} key=${d} roomMode=${roomMode} difficulty=${d} selected=${difficulty === d} disabled=${waiting} onSelect=${pickDifficulty} />`)}
         </div>
         <div class="create-box">
-          ${q && !exiting
+          ${showPanel
             ? html`<div class="create-box__searching">
                 <${Spinner} size="sm" label="SEARCHING" />
                 <span>正在搜寻其他博士…匹配成功后直接开始模拟</span>

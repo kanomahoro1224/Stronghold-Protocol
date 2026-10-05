@@ -1,0 +1,76 @@
+{
+  "_doc": "公告数据 — 客户端「公告」面板 (public/js/ui/notice.js). Shape: { \"title\": \"服务器公告\", \"sections\": [ { \"label\": \"小节名\", \"lines\": [ ... ] } ], \"updatedAt\": \"2026-10-05\" }. Sections render in order as 「小号暗色标签行 + 下面的内容行」. Each `lines` entry is one of: (1) a PLAIN-TEXT string — the original form; (2) { \"segments\": [ { \"t\": \"文本\" }, { \"t\": \"裸链接文字\", \"href\": \"https://…\" } ] } — structured text, NEVER markup: the client parses no tags and builds no HTML, each segment becomes a text node and a segment with an href becomes an <a>; (3) { \"spacer\": true } — a blank line inside a section. 链接文字只写要显示的内容本身（站点名或裸域名），不要写括号（（）()「」），也不要塞说明性文字。 An `href` is rendered ONLY when it is https: on one of space.bilibili.com / ai.xiaolubao.com / wpa.qq.com / github.com, or a mailto: address — javascript:, data:, http:, //host and every other host silently render as plain text. 旧的扁平结构 { \"title\", \"body\": [ ... ] }（元素与 lines 相同）仍然兼容，会渲染成一个无标签的节。 有意省略的两节：联系邮箱、GitHub 仓库 — 用户没有提供值，所以这里既没有占位符也没有编造的内容；以后要加，只需在本文件 sections 里追加一节：邮箱节 label 写「联系邮箱」，lines 里放一个段 { \"t\": 邮箱地址, \"href\": \"mailto:邮箱地址\" }；仓库节 label 写「GitHub」，lines 里放一个段 { \"t\": github.com 上的裸路径, \"href\": \"https://github.com/同一路径\" } — github.com 已在白名单内，无需改代码。 Unknown keys (such as this one) are ignored. Caps: 20 sections / 40 lines / 200 chars per line (segment text included) / 4000 chars in total — the rest is truncated, and a long body scrolls inside the dialog. The client fetches this file at runtime from the root-relative /data/notice.json with cache:'no-cache', so republishing THIS FILE ALONE is the update path: players see the new text on their next open, with no client rebuild, no server route and no restart. Any failure (404, offline, invalid JSON) falls back to the built-in text in notice.js NOTICE_FALLBACK.",
+  "title": "服务器公告",
+  "sections": [
+    {
+      "label": "服务说明",
+      "lines": [
+        "本站为纯公益的非官方同人站点，与游戏官方及其关联方无关",
+        "可能会不定期重启更新版本等　对此造成的游戏中断致歉",
+        "不过目前正在制作闪断不丢掉游戏进度功能　相信在不久之后即可上线"
+      ]
+    },
+    {
+      "label": "联系",
+      "lines": [
+        {
+          "segments": [
+            {
+              "t": "QQ："
+            },
+            {
+              "t": "永远喜欢着鹿乃 🍓𐂂",
+              "href": "https://wpa.qq.com/msgrd?v=3&uin=3497593286&site=qq&menu=yes"
+            },
+            {
+              "t": "　3497593286"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "反馈",
+      "lines": [
+        {
+          "segments": [
+            {
+              "t": "B 站："
+            },
+            {
+              "t": "鹿可可Official",
+              "href": "https://space.bilibili.com/426276698"
+            }
+          ]
+        },
+        "如遇服务器方面的问题，可以通过B站私信或发送邮件联系。"
+      ]
+    },
+    {
+      "label": "赞助",
+      "lines": [
+        {
+          "segments": [
+            {
+              "t": "本服务器不要求赞助　可以前往 "
+            },
+            {
+              "t": "花鹿云心AI中转站",
+              "href": "https://ai.xiaolubao.com"
+            },
+            {
+              "t": "消费　盈利部分大部分会用来为爱发电　升级服务器　制作额外功能"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "制作中",
+      "lines": [
+        "目前正在制作功能：闪断不丢掉游戏进度功能　键位设置　皮肤功能（正在考量）"
+      ]
+    }
+  ],
+  "updatedAt": "2026-10-05"
+}
