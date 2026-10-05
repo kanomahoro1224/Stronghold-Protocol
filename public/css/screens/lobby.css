@@ -279,10 +279,10 @@
   line-height: 1.5;
   letter-spacing: .02em;
   text-align: center;
-  color: rgba(233, 245, 240, .78);
-  background: var(--mint-a10, rgba(78, 216, 175, .10));
-  border: 1px solid var(--mint-a35, rgba(78, 216, 175, .35));
-  border-radius: 8px;
+  color: #f4f7f5;
+  background: rgba(20, 24, 22, .9);
+  border: 1px solid var(--line-2, #3e4b45);
+  border-radius: 6px;
 }
 .lobby-tip__text { white-space: nowrap; }
 .lobby-tip__link {
