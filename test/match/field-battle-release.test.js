@@ -20,16 +20,37 @@ const CFG = {
   mode: 'coop', difficulty: 'NORMAL', humans: 2, bots: 2, clientCombat: true, pace: 'paced', headlessSliceMs: 8, captureFrames: false,
 };
 
-/** Drive a virtual-time match to COMBAT and on until `n` server-run fields have their result (so `complete()` ran). */
+/**
+ * Drive a virtual-time match to COMBAT and on until `n` server-run fields have their result (so `complete()` ran).
+ *
+ * Each field is also observed the instant its OWN result appears (`h.atResult`), not only once all `n` have one. The
+ * release seam runs inside the same `complete()` callback, but `_armRelease` arms a *zero-delay* timer under the
+ * virtual scheduler's instant mode (`Match._armRelease`: `this.sched.instant ? 0 : …`), so the field that finishes
+ * first is `f.done` (and its published progress turns into its result's totals) as soon as one more scheduler callback
+ * runs. The two fields' `HeadlessJob` slice chains (`headlessSliceMs`: the 8 ms budget is checked against the wall
+ * clock every 16 ticks) need not take the same number of slices, so which field finishes first — and by how many
+ * slices — varies with machine load. Waiting for both fields would therefore sometimes observe the earlier one
+ * *after* its release timer fired (`f.done === true`), which says nothing about the release. `atResult` holds
+ * `{ done, at, progress }` at the one interleaving-independent instant: that field's own result, after the release
+ * seam and before its field-clock release timer can run.
+ */
 function toCompleted(n, seed, { release = true } = {}) {
   const h = makeMatch({ ...CFG, seed });
   h.autoHumans();
   // `release: false` reproduces the pre-lever behaviour: the finished battle stays on the field until the phase ends.
   if (!release) h.m._releaseFieldBattle = () => {};
   h.m.start();
-  h.run(() => !!h.m.ended
-    || (h.m.phase === PHASE.COMBAT && h.m.fields.filter((f) => f.cc && f.mode === 'server' && f.result).length >= n),
-  { maxSteps: 4e7 });
+  const hasResult = (f) => !!f.cc && f.mode === 'server' && !!f.result;
+  const atResult = new Map();
+  for (let k = 1; k <= n; k++) {
+    h.run(() => !!h.m.ended || (h.m.phase === PHASE.COMBAT && h.m.fields.filter(hasResult).length >= k), { maxSteps: 4e7 });
+    for (const f of h.m.fields) {
+      if (!hasResult(f) || atResult.has(f.fieldId)) continue;
+      const view = h.m.publicView().fields.find((x) => x.fieldId === f.fieldId);
+      atResult.set(f.fieldId, { done: f.done, at: h.m._fieldElapsed(f), progress: view ? view.progress : null });
+    }
+  }
+  h.atResult = atResult;
   return h;
 }
 
@@ -44,7 +65,11 @@ test('a completed server-run field drops its battle graph and keeps result / tim
     assert.equal(m.phase, PHASE.COMBAT, 'the release happens inside COMBAT, not at the phase end');
     for (const f of done) {
       assert.equal(f.battle, null, `${f.fieldId}: the battle graph is released`);
-      assert.equal(f.done, false, `${f.fieldId}: its result still waits for the field clock (_armRelease)`);
+      // `done` and the published progress are read at this field's own result (toCompleted): both change later, on the
+      // virtual scheduler's zero-delay `_armRelease` timer, which is a harness-clock artifact, not the release.
+      const obs = h.atResult.get(f.fieldId);
+      assert.ok(obs, `${f.fieldId}: the field was observed the moment its result appeared`);
+      assert.equal(obs.done, false, `${f.fieldId}: its result still waits for the field clock (_armRelease)`);
       assert.ok(f.result && typeof f.result === 'object' && f.result.perPlayer, `${f.fieldId}: result kept`);
       assert.ok(Array.isArray(f.timeline) && f.timeline.length > 0, `${f.fieldId}: timeline kept`);
       assert.ok(Number.isFinite(f.endGt) && f.endGt > 0, `${f.fieldId}: endGt kept`);
@@ -58,12 +83,13 @@ test('a completed server-run field drops its battle graph and keeps result / tim
 
       // the teammates' progress view of the released field still reports what the battle had done at the FIELD clock
       // (the job ran ahead of it in slices), computed from the kept timeline — and the rebuilt battle's identical
-      // timeline says the same thing at that clock
-      const at = m._fieldElapsed(f);
+      // timeline says the same thing at that clock. Read at the field's own result (`obs`): once the harness's
+      // zero-delay `_armRelease` timer has run, the published progress is the result's totals with `done: true`.
+      const at = obs.at;
       const view = m.publicView().fields.find((x) => x.fieldId === f.fieldId);
       assert.ok(view, `${f.fieldId}: still published in m.public.fields`);
       const [, killed, total] = timelineAt(f.timeline, at);
-      assert.deepEqual(view.progress, { killed, total, done: false },
+      assert.deepEqual(obs.progress, { killed, total, done: false },
         `${f.fieldId}: progress comes from the timeline, not the released battle`);
       const freshAt = timelineAt(fresh.timeline, at);
       assert.deepEqual([killed, total], [freshAt[1], freshAt[2]],
@@ -85,7 +111,9 @@ function snapshot(h) {
     kind: f.kind,
     players: f.players.slice(),
     mode: f.mode,
-    done: f.done,
+    // read at the field's own result (`toCompleted`) — `f.done` flips later on the harness's zero-delay `_armRelease`
+    // timer, and that timing is not the release's doing (client-run fields are not observed there, so keep the live flag)
+    done: h.atResult.get(f.fieldId)?.done ?? f.done,
     result: f.result ?? null,
     timeline: f.timeline ?? null,
     endGt: f.endGt ?? null,
