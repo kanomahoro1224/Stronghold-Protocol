@@ -4,6 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { normalizeStatus, normalizeLink, retireByOnline, STATUS_SOURCE } from '../../public/js/ui/statusBanner.js';
 
 test('status banner: reads the operator file outside the code deploy', () => {
@@ -83,4 +84,13 @@ test('status banner: retirement fires only below the threshold, never before the
   assert.equal(retireByOnline(1900, 2000), false);
   assert.equal(retireByOnline(1900, 0), false, 'online count not known yet');
   assert.equal(retireByOnline(0, 5), false, 'no threshold configured');
+});
+
+test('status banner: never imports preact hooks (this app has no useState/useEffect)', async () => {
+  const file = new URL('../../public/js/ui/statusBanner.js', import.meta.url);
+  const src = readFileSync(file, 'utf8');
+  assert.doesNotMatch(src, /preact/i, 'not Preact: importing preact/hooks crashed every page');
+  const mod = await import(file.href);
+  assert.equal(typeof mod.StatusBanner, 'function', 'the component mounts');
+  assert.equal(typeof mod.startStatusBanner, 'function');
 });

@@ -10,8 +10,11 @@
 // switcher. Dismissal is remembered per message id for the session, so a newly issued notice shows up again.
 //
 // minOnline retires an emergency notice by itself: while the server is busier than that, the banner shows; once the
-// live online count (the same number as the 在线 pill) falls below it, the notice is done and stays gone for the rest
-// of the session — the operator does not have to remember to withdraw it. Re-issuing with a new id shows it again.
+// live online count (the number in the 在线 pill) falls below it, the notice is done and stays gone for the rest of
+// the session — the operator does not have to remember to withdraw it. Re-issuing with a new id shows it again.
+//
+// NOTE: this app is not Preact — it has no useState/useEffect. Component state is read through useStore (store.js)
+// and refreshed by useTicker (ui/components.js); the fetched notice lives in this module and the ticker re-renders.
 //
 // File shape (text is required, everything else optional):
 //   { "id": "2026-10-05-load",
@@ -21,8 +24,7 @@
 //     "detail": "匹配可留在此服务器",
 //     "minOnline": 1900 }
 
-import { html, Icon } from './components.js';
-import { useEffect, useState } from 'preact/hooks';
+import { html, Icon, useTicker } from './components.js';
 import { useStore } from '../store.js';
 
 export const STATUS_SOURCE = '/runtime/status.json';
@@ -70,27 +72,37 @@ function writeSession(key, id) {
   try { sessionStorage.setItem(key, id); } catch { /* private mode: worst case the banner comes back */ }
 }
 
-export function StatusBanner() {
-  const [status, setStatus] = useState(null);
-  const [dismissed, setDismissed] = useState(() => readSession(DISMISS_KEY));
-  const [retired, setRetired] = useState(() => readSession(RETIRED_KEY));
-  const online = useStore((s) => (s.connection && s.connection.onlineCount) || 0);
-  useEffect(() => {
-    let alive = true;
+// module state: the store has no slot for an operator notice, so the fetch result lives here and useTicker
+// re-renders the component until it arrives (and afterwards, so the online rule can retire the notice).
+let current = null;
+let started = false;
+let retiredWritten = '';
+
+/** Fetch the operator notice once per page load. Safe to call twice. */
+export function startStatusBanner() {
+  if (started || typeof fetch !== 'function') return;
+  started = true;
+  try {
     fetch(STATUS_SOURCE, { cache: 'no-store' })
       .then((r) => (r && r.ok ? r.json() : null))
-      .then((raw) => { if (alive) setStatus(normalizeStatus(raw)); })
+      .then((raw) => { current = normalizeStatus(raw); })
       .catch(() => { /* missing file / offline: no banner */ });
-    return () => { alive = false; };
-  }, []);
-  const gone = !!status && (dismissed === status.id || (retired === status.id && status.minOnline > 0));
-  useEffect(() => {
-    if (!status || !status.minOnline || gone) return;
-    if (retireByOnline(status.minOnline, online)) { writeSession(RETIRED_KEY, status.id); setRetired(status.id); }
-  }, [status, online, gone]);
-  if (!status || gone) return null;
+  } catch { /* no document (node tests): the banner simply never appears */ }
+}
+
+startStatusBanner();
+
+export function StatusBanner() {
+  useTicker(1000);
+  const online = useStore((s) => (s && s.connection && s.connection.onlineCount) || 0);
+  const status = current;
+  if (!status) return null;
+  const goneByOnline = status.minOnline > 0 && retireByOnline(status.minOnline, online);
+  if (goneByOnline && retiredWritten !== status.id) { retiredWritten = status.id; writeSession(RETIRED_KEY, status.id); }
+  if (readSession(DISMISS_KEY) === status.id) return null;
+  if (goneByOnline || (status.minOnline > 0 && readSession(RETIRED_KEY) === status.id)) return null;
   const tone = TONES[status.tone];
-  const close = () => { writeSession(DISMISS_KEY, status.id); setDismissed(status.id); };
+  const close = () => writeSession(DISMISS_KEY, status.id);
   return html`<div class=${`status-banner status-banner--${status.tone}`} role="alert">
     <span class="status-banner__badge">${tone.badge}</span>
     <${Icon} name=${tone.icon} />
