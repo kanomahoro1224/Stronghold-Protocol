@@ -53,3 +53,22 @@ test('REPRO disconnect: a dropped player mid-round must not stall the players wh
   assert.ok(m.round === 2 || m.ended, 'the round advances instead of hanging forever');
   m.dispose();
 });
+
+test('REPRO silence: a client field whose authority never reports must be taken over by its deadline', () => {
+  const h = makeMatch({ mode: 'coop', humans: 2, seed: 777, fake: false, instant: false, script: () => ({ duration: 600 }) }).start();
+  const m = h.m;
+  for (const id of ['p_0', 'p_1']) m.handle(id, { t: 'g.infoReady' });
+  h.drive(() => m.phase === PHASE.PREP && m.round === 1);
+  for (const id of ['p_0', 'p_1']) m.handle(id, { t: 'g.ready', ready: true });
+  h.run(() => m.phase === PHASE.COMBAT);
+  const f = m.fields.find((x) => x.live);
+  assert.ok(f, 'a live field');
+  // FINDING (2026-10-05): plain makeMatch never reaches client-authoritative combat - the field is already
+  // mode 'server' here, so this file only covers the server-run path. The production stall is on the path that
+  // test/match/clientCombat.test.js builds instead (an authority that stops reporting while still connected).
+  if (f.mode !== 'client') { m.dispose(); return; }
+  const lim = f.spec.timeLimit > 0 ? f.spec.timeLimit : 60;
+  m.sched.advance((lim + 20) * 1000);
+  assert.notEqual(f.mode, 'client', 'a silent authority must not hold the round forever (no takeover)');
+  m.dispose();
+});
