@@ -114,6 +114,8 @@
 //                      with a virtual one); the rest runs in later callbacks (scheduleBotPrep)
 //   opts.headlessSliceMs  wall-clock ms per callback of a server-run normal / 联防 field (client-side combat: bots,
 //                      takeovers; default 8 with a real scheduler, at once with a virtual one)
+//   opts.stateSink     (reason, match) => void, called at SETTLE / ROUND_START and every STATE_HEARTBEAT_MS while a
+//                      round runs (server/state/*, P0/P1). Fire-and-forget, never awaited: the sink owns the disk.
 // Seats may be all bots (tools/matchrun.mjs); the lobby always has ≥ 1 human.
 //
 // Diagnostics: m.errors / m.errorCount (engine), m.dispatcher.errors / .errorsByKey (meta handlers), m.simErrors
@@ -263,6 +265,14 @@ export const DELAYS = Object.freeze({
 });
 
 /**
+ * Match-state persistence heartbeat (server/state/*, P0/P1): while a round is active the match hands its state to the
+ * injected `opts.stateSink` every this-many ms, so a crash mid-round loses at most a few seconds. It rides the match's
+ * own scheduler (`later`, unref'd) and parks on a frozen match like the 1 Hz progress ticker — the game loop still
+ * never awaits a disk write; the sink is fire-and-forget.
+ */
+export const STATE_HEARTBEAT_MS = 4000;
+
+/**
  * Seconds of one turn of the co-op strategy draft (user playtest #4 item 4: the old 12 s per turn — research 06 §724,
  * itself [ASSUMED] — inside the 50 s step was far too little and counted apart from the header's 50 s). [ASSUMED]: the
  * official data only gives the whole BAND_CHECK step (autoChessData.enterStepList: 50 s, hint 15 s); the turn clock is
@@ -358,6 +368,15 @@ export class Match {
     this._poolTimer = null;
     this._lastPoolKey = '';
     this.pacer = null;
+    /**
+     * Match-state persistence (server/state/*, P0/P1): `(reason, match) => void`, injected by the lobby
+     * (server/lobby.js → StateBridge). This module never touches the disk — a phase transition only calls the sink,
+     * which enqueues a snapshot on a single-writer queue and returns immediately (no await anywhere in the tick path).
+     */
+    this.stateSink = typeof opts.stateSink === 'function' ? opts.stateSink : null;
+    this._stateTimer = null;
+    /** a heartbeat that landed on a frozen match: the resume owes the chain its next tick (see _armStateHeartbeat) */
+    this._stateWanted = false;
 
     const rng = (name) => createRng(deriveSeed(this.seed, name));
     this.rngSetup = rng('setup');
@@ -469,6 +488,49 @@ export class Match {
       this.enterInfoCheck();
       this._watchIdle();
     });
+  }
+
+  /**
+   * Re-enter a round of a REBUILT match (server/state/resume.js, P0/P1 — the P2a order contract is below): the match
+   * was reconstructed from a persisted record (same seed / mode / matchNo / seats), the recording process is gone, and
+   * this is the only supported way back in. The briefing and its timers are dropped and the recorded round starts
+   * through the normal round-start path, so every later phase behaves exactly as it does in a live match.
+   *
+   * The recorded payload is applied by the CALLER (server/state/resume.js `applyRecord`), and the ORDER depends on the
+   * recorded phase — it must mirror what the recording process did next:
+   *   * ROUND_START: the record was written at the END of `startRound`, so the payload already contains everything the
+   *     round start produced (income, the lower upgrade price, the rolled shop). `playerStart:false` therefore skips
+   *     `PlayerState.startRound` (the payload follows), and `drawWave:false` keeps the recorded round's wave instead of
+   *     drawing the NEXT one (rngWaves already consumed it — see the `wave`/`bossWaves` options).
+   *   * SETTLE: the record is the settled round, so the payload is applied first and the next round start runs normally.
+   *     That is the caller's order, not this method's.
+   * The Match-level `dispatch(ps, 'onRoundStart')` always runs (round-start effects are not part of the payload's own
+   * fields, and the caller re-applies the payload after this call, so anything they derive is overwritten).
+   *
+   * NOT a replay: the outcome of the rounds the dead process already ran is not reproduced — the payload IS that
+   * outcome. See server/state/snapshot.js and server/state/playerstate.js for exactly what is restorable.
+   * @param {number} round 1-based round index
+   * @param {{ playerStart?: boolean, drawWave?: boolean, wave?: any, bossWaves?: any }} [opts]
+   * @returns {boolean} false when the match is already over (or round is unusable)
+   */
+  resumeAt(round, { playerStart = true, drawWave = true, wave = undefined, bossWaves = undefined } = {}) {
+    if (this.disposed || this.ended) return false;
+    const r = Number.isInteger(round) && round > 0 ? Math.min(round, this.gd.lastRound) : 1;
+    this.cancel(this._phaseTimer);
+    this._phaseTimer = null;
+    this.draft = null;
+    this.sp = null;
+    // the briefing is over: a seat that never sent g.infoReady must not hold a rebuilt round back
+    for (const ps of this.order) { if (!ps.isBot && !ps.left) ps.infoReady = true; }
+    // the recorded round's enemies are RESTORED, not re-drawn: the record was written after rngWaves consumed the
+    // recorded round's draw, so a fresh draw would build the next round's wave (P2a chose to persist the wave by value
+    // rather than rewind the stream — see server/state/snapshot.js)
+    if (!drawWave) {
+      this.wave = wave === undefined ? null : wave;
+      this.bossWaves = bossWaves === undefined ? null : bossWaves;
+    }
+    this.startRound(r, { playerStart, drawWave });
+    return true;
   }
 
   /**
@@ -671,6 +733,7 @@ export class Match {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this._stopStateHeartbeat();
     if (this.runner) { try { this.runner.stop(); } catch { /* ignore */ } }
     this._stopClientCombat();
     for (const h of this._timers) { try { this.sched.clearTimeout(h); } catch { /* ignore */ } }
@@ -713,6 +776,112 @@ export class Match {
     if (!h) return;
     this.sched.clearTimeout(h);
     this._timers.delete(h);
+  }
+
+  // ---------------------------------------------------------------------------------------------------
+  // match-state persistence (server/state/*, P0/P1)
+  // ---------------------------------------------------------------------------------------------------
+
+  /**
+   * Hand a snapshot request to the injected sink. Fire-and-forget by contract: the sink may not throw and may not
+   * await anything of this match — the queue behind it owns the disk (server/state/persist.js). A missing sink (tests,
+   * tools, simulations) makes this a no-op.
+   * @param {string} reason 'round_start' | 'settle' | 'heartbeat'
+   */
+  _persistState(reason) {
+    const sink = this.stateSink;
+    if (!sink) return;
+    try { sink(reason, this); } catch (e) { this.reportError('stateSink', e); }
+  }
+
+  /**
+   * The volatile RUN state a persisted record has to carry on top of the per-seat payload (server/state/snapshot.js,
+   * record v2 / P2a). A rebuilt match re-derives everything the constructor derives from the seed, but NOT:
+   *   * the six random streams (rng.js mulberry32 `state()` / `setState()`), each one a single uint32 — a rebuilt match
+   *     would otherwise replay the setup stream from the start;
+   *   * `uidSeq` and `_battleSeq` (piece uids, battleIds) — restored so the rebuilt match allocates exactly the ids the
+   *     recording process would have allocated next (`battlePrefix` is seed-derived; it rides along for completeness);
+   *   * the shared pool's remaining copies (`pool.snapshot()`, restored by `pool.restore()` clamps);
+   *   * the recorded round's enemies BY VALUE: at a ROUND_START record rngWaves has already consumed that round's draw,
+   *     so re-drawing would build the NEXT round's wave — the wave is captured instead (P2a's choice; the alternative,
+   *     a pre-round rng rewind, needs a per-round snapshot and still re-draws).
+   * A match without a pool (the platform stub) captures nothing: `null` means "no engine state", which is what the
+   * re-entry gate in resume.js reads.
+   * @returns {object | null}
+   */
+  captureRunState() {
+    if (!this.pool || typeof this.pool.snapshot !== 'function' || !this.rngSetup || typeof this.rngSetup.state !== 'function') return null;
+    return {
+      rng: {
+        setup: this.rngSetup.state(),
+        shop: this.rngShop.state(),
+        waves: this.rngWaves.state(),
+        draft: this.rngDraft.state(),
+        bots: this.rngBots.state(),
+        meta: this.rngMeta.state(),
+      },
+      uidSeq: this.uidSeq,
+      battleSeq: this._battleSeq,
+      battlePrefix: this.battlePrefix,
+      pool: this.pool.snapshot(),
+      // undefined → null on purpose: the record goes through JSON, where `undefined` disappears and would read back as
+      // "draw a fresh wave" instead of "this round had no wave" (a boss round keeps its enemies in `bossWaves`)
+      wave: this.wave ?? null,
+      bossWaves: this.bossWaves ?? null,
+    };
+  }
+
+  /**
+   * Put a rebuilt match back where `captureRunState` recorded it. No randomness is consumed here, so a caller may
+   * restore the streams both before a transition it wants REPLAYED (a SETTLE record → the next round start draws from
+   * the recorded position) and after one it wants DISCARED (a ROUND_START record → the payload is the state, the
+   * effects' own draws must not move the stream).
+   * @param {object | null} state
+   * @returns {number} how many random streams were restored
+   */
+  restoreRunState(state) {
+    if (!state || typeof state !== 'object') return 0;
+    const rng = state.rng && typeof state.rng === 'object' ? state.rng : {};
+    const streams = {
+      setup: this.rngSetup, shop: this.rngShop, waves: this.rngWaves,
+      draft: this.rngDraft, bots: this.rngBots, meta: this.rngMeta,
+    };
+    let n = 0;
+    for (const [name, fn] of Object.entries(streams)) {
+      if (Number.isFinite(rng[name]) && fn && typeof fn.setState === 'function') { fn.setState(rng[name]); n++; }
+    }
+    if (Number.isInteger(state.uidSeq) && state.uidSeq >= 0) this.uidSeq = state.uidSeq;
+    if (Number.isInteger(state.battleSeq) && state.battleSeq >= 0) this._battleSeq = state.battleSeq;
+    if (typeof state.battlePrefix === 'string' && state.battlePrefix) this.battlePrefix = state.battlePrefix;
+    if (this.pool && typeof this.pool.restore === 'function' && state.pool) this.pool.restore(state.pool);
+    this.wave = state.wave ?? null;
+    this.bossWaves = state.bossWaves ?? null;
+    return n;
+  }
+
+  /** Stop the persistence heartbeat (the round ended / the match is over). */
+  _stopStateHeartbeat() {
+    if (this._stateTimer) { this.cancel(this._stateTimer); this._stateTimer = null; }
+    this._stateWanted = false;
+  }
+
+  /**
+   * Start (or keep) the mid-round persistence heartbeat (STATE_HEARTBEAT_MS). Like the 1 Hz progress ticker it
+   * schedules nothing while a frozen match would otherwise wake up every few seconds for nothing: the tick parks on
+   * `paused` and `_unfreeze` hands it the next one exactly once. (Unlike the progress ticker it is NOT skipped on an
+   * instant scheduler: the sink itself is the gate — a virtual-clock run without one schedules nothing.)
+   */
+  _armStateHeartbeat() {
+    if (!this.stateSink || this._stateTimer) return;
+    if (this.paused) { this._stateWanted = true; return; }
+    const tick = () => {
+      this._stateTimer = null;
+      if (this.disposed || this.ended) return;
+      if (this.paused) { this._stateWanted = true; return; }
+      this._persistState('heartbeat');
+      this._armStateHeartbeat();
+    };
+    this._stateTimer = this.later(STATE_HEARTBEAT_MS, tick);
   }
 
   scaled(ms) { return Math.max(0, Math.round(ms * this.timerScale)); }
@@ -1367,6 +1536,8 @@ export class Match {
     // P1b: the 1 Hz progress ticker of a paused match parked on `_progressWanted` instead of re-arming; give the chain
     // its next tick now — exactly once (`_armProgressTicker` is a no-op while a tick is already armed)
     if (this._progressWanted) { this._progressWanted = false; this._armProgressTicker(); }
+    // the persistence heartbeat parks the same way (P0/P1): a frozen match writes nothing while frozen
+    if (this._stateWanted) { this._stateWanted = false; this._armStateHeartbeat(); }
     this.markPublic();
   }
 
@@ -1657,27 +1828,38 @@ export class Match {
     this.markPublic();
   }
 
-  startRound(r) {
+  /**
+   * Begin round `r`.
+   * @param {number} r @param {{ playerStart?: boolean, drawWave?: boolean }} [opts] resume options (see `resumeAt`):
+   *   `playerStart:false` keeps `PlayerState.startRound` (income / upgrade price / shop roll) from running a second
+   *   time on top of a payload that already contains it; `drawWave:false` keeps `this.wave` / `this.bossWaves` the
+   *   caller restored from the record instead of drawing the round's enemies.
+   */
+  startRound(r, { playerStart = true, drawWave = true } = {}) {
     this.phase = PHASE.ROUND_START;
     this.round = r;
     this.fields = [];
     this.watchers.clear();
     this.unitePlan = null;
     this.sp = null;
-    this.wave = null;
-    this.bossWaves = null;
+    if (drawWave) {
+      this.wave = null;
+      this.bossWaves = null;
+    }
     const alive = this.alivePlayers();
     // the round's enemies (shared composition, generated now so the prep preview is exact). Planned BEFORE the players'
     // round start: its recompute() checks the board on the field the player deploys on this round (deployFieldOf reads
     // the boss pairing), so R14 → R15 never re-checks a boss-field board against the normal field (user playtest #5
     // item 7). rngWaves is used only here, so the order leaves every random stream unchanged.
     const isBoss = r === this.gd.bossRound || r === this.gd.hiddenRound;
-    if (isBoss) {
-      this._planBossWaves();
-    } else {
-      this.wave = buildNormalWave(this.gd, this.rngWaves, this.factions, r);
+    if (drawWave) {
+      if (isBoss) {
+        this._planBossWaves();
+      } else {
+        this.wave = buildNormalWave(this.gd, this.rngWaves, this.factions, r);
+      }
     }
-    for (const ps of alive) ps.startRound(r);
+    for (const ps of alive) if (playerStart) ps.startRound(r);
     for (const ps of alive) this.dispatch(ps, 'onRoundStart', { round: r });
     // an eliminated player's pending 信标 gift still goes to its teammate (effects flagged afterElimination; GitHub #86)
     for (const ps of this.order) {
@@ -1687,6 +1869,10 @@ export class Match {
     for (const ps of alive) ps.recompute();
     this.setDeadline(DELAYS.ROUND_START / 1000, () => this.afterRoundStart(), { silent: this.soloUntimed });
     this.markPublic();
+    // match-state persistence (P0/P1): the round boundary is one of the two durable points, and it starts the
+    // mid-round heartbeat that bounds what a crash can lose to a few seconds
+    this._persistState('round_start');
+    this._armStateHeartbeat();
   }
 
   /** The boss round's fields (seat pairs of the alive players) and their templates, generated for the prep preview. */
@@ -3136,6 +3322,11 @@ export class Match {
 
   settle(plan, uniteResult) {
     this.phase = PHASE.SETTLE;
+    // match-state persistence (P0/P1): the second durable point. The mid-round heartbeat stops here (the round is over;
+    // the next ROUND_START restarts it), and the RECORD is written at the END of this method, once the settlement below
+    // has run: P2a resumes a SETTLE record by re-entering the NEXT round, so "the settled round is what a resume must
+    // see" (as this used to claim while writing before the settlement) has to be true of the payload.
+    this._stopStateHeartbeat();
     this.runner = null;
     this._stopClientCombat();
     // the pending in-battle gains the views showed become persistent below (alive players) or lapse (DESIGN §20.15)
@@ -3194,6 +3385,8 @@ export class Match {
     this.fields = [];
     this.watchers.clear();
     this.markPublic();
+    // the settled round is the second durable point (see the note at the top of settle())
+    this._persistState('settle');
     this.setDeadline(DELAYS.SETTLE / 1000, () => this.afterSettle(), { silent: this.soloUntimed });
   }
 
@@ -3476,6 +3669,7 @@ export class Match {
     this._stopClientCombat();
     this.cancel(this._phaseTimer);
     this.cancel(this._turnTimer);
+    this._stopStateHeartbeat(); // the match is over: its record is deleted by the lobby (onMatchEnd)
     for (const h of this._timers) { try { this.sched.clearTimeout(h); } catch { /* ignore */ } }
     this._timers.clear();
     this.phase = PHASE.RESULT;

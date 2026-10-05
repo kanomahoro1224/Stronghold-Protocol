@@ -164,6 +164,25 @@ export class SharedPool {
     return o;
   }
 
+  /**
+   * Restore `left` counts from `snapshot()` (server/state/resume.js, P2a). Every value is clamped to [0, cap] so a
+   * corrupt or hand-edited record can never over-fill the pool (the 0 ≤ left ≤ cap invariant is not the caller's to
+   * keep); a base chess missing from the snapshot keeps its current count.
+   * @param {Record<string, number>} snap
+   * @returns {number} entries restored
+   */
+  restore(snap) {
+    if (!snap || typeof snap !== 'object') return 0;
+    let n = 0;
+    for (const [id, e] of this.entries) {
+      const v = snap[id];
+      if (!Number.isFinite(v)) continue;
+      e.left = Math.max(0, Math.min(e.cap, Math.floor(v)));
+      n++;
+    }
+    return n;
+  }
+
   totalLeft() {
     let n = 0;
     for (const e of this.entries.values()) n += e.left;

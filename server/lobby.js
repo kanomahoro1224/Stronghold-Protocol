@@ -83,6 +83,8 @@ import { checkLoadout } from '../shared/protocol.js';
 import { encode, isDroppable, isErrCode, sendRaw, sendSession } from './net.js';
 import { getData as defaultGetData, lookup } from './data.js';
 import { Match as DefaultMatch } from './match/Match.js';
+import { tokenHash } from './state/snapshot.js';
+import { recordSeats, applyRecord } from './state/resume.js';
 
 /** Room code alphabet: uppercase letters without I and O (and no digits, so no 0/1). */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -202,9 +204,10 @@ export class Lobby {
    *   now?: () => number,
    *   seedFn?: () => number,
    *   options?: Partial<typeof LOBBY_DEFAULTS>,
+   *   state?: import('./state/resume.js').StateBridge | null,
    * }} opts
    */
-  constructor({ registry, log = noopLog, MatchClass = DefaultMatch, getData = defaultGetData, now = Date.now, seedFn, options = {} }) {
+  constructor({ registry, log = noopLog, MatchClass = DefaultMatch, getData = defaultGetData, now = Date.now, seedFn, options = {}, state = null }) {
     this.registry = registry;
     this.log = log;
     this.MatchClass = MatchClass;
@@ -212,6 +215,12 @@ export class Lobby {
     this.now = now;
     this.seedFn = seedFn || (() => randomInt(2 ** 32));
     this.opts = { ...LOBBY_DEFAULTS, ...options };
+    /**
+     * Match-state persistence (server/state/resume.js, P0/P1). The lobby only ever calls it on its own lifecycle
+     * edges and passes it into the match as `opts.stateSink`; `null` (tests, tools, SP_STATE=off) disables all of it.
+     * @type {import('./state/resume.js').StateBridge | null}
+     */
+    this.state = state;
     /** @type {Map<string, Room>} */
     this.rooms = new Map();
     /** @type {Map<string, NodeJS.Timeout>} lobby grace timers by playerId */
@@ -230,6 +239,126 @@ export class Lobby {
 
   /** @param {string} code @returns {Room | null} */
   getRoom(code) { return this.rooms.get(String(code).toUpperCase()) || null; }
+
+  // ---------------------------------------------------------------------------------------------------
+  // match-state persistence (server/state/resume.js, P0/P1)
+  // ---------------------------------------------------------------------------------------------------
+
+  /**
+   * Durable identity of a returning client (called by server/net.js on a `hello` whose token this process does not
+   * know — i.e. after a crash/restart). The persisted record holds `sha256(token)` per human seat, so the seat's
+   * ORIGINAL playerId comes back and the match below can be rebuilt for it. One-shot: see StateBridge.claim.
+   * @param {unknown} token the token the client presented
+   * @returns {{ playerId: string, roomCode: string } | null}
+   */
+  adoptIdentity(token) {
+    const hit = this.state && typeof this.state.claim === 'function' ? this.state.claim(token) : null;
+    if (!hit) return null;
+    return { playerId: hit.playerId, roomCode: hit.code };
+  }
+
+  /**
+   * Hand a running match to the state bridge (opts.stateSink + the start/end edges). No I/O: the bridge only enqueues
+   * on its single-writer queue, so this is safe from a phase transition.
+   * @param {Room} room @param {any} match @param {string} reason
+   */
+  noteMatch(room, match, reason) {
+    if (!this.state) return false;
+    // a bot-only room, a room whose humans all departed, and a finished match are never persisted (design §8)
+    if (!room || room.disposed || !room.activeHumans().length) return false;
+    void reason;
+    return this.state.noteMatch(match, {
+      tokenHashOf: (playerId) => tokenHash(this.registry.byId(playerId)?.token),
+      now: this.now(),
+    });
+  }
+
+  /**
+   * Rebuild the persisted room + match of `session.roomCode` because a human just came back (P0/P1, lazy). Called
+   * only from onHello: a returning player is the trigger, so a rehydrated match never exists while nobody is there to
+   * play it (and `idlePauseMs` still freezes it if that player drops again).
+   * @param {import('./net.js').Session} session
+   * @returns {boolean} true when the caller may continue down the normal resume path
+   */
+  rehydrate(session) {
+    const code = session.roomCode;
+    const rec = this.state && typeof this.state.record === 'function' ? this.state.record(code) : null;
+    if (!rec) return false;
+    if (this.rooms.has(code)) return true; // already rebuilt (a second tab of the same player)
+    if (this.rooms.size >= this.opts.maxRooms) {
+      this.limitWarn(`resume of ${code} refused: room limit (${this.opts.maxRooms}) reached`);
+      return false;
+    }
+    const room = new Room(rec.code, rec.mode, rec.difficulty, this.now());
+    for (const s of recordSeats(rec)) {
+      room.seats[s.seat] = {
+        seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot, ready: true, connected: false, left: false,
+        loadout: s.loadout || null,
+      };
+    }
+    const first = room.activeHumans()[0] || null;
+    room.hostId = first ? first.playerId : null;
+    room.matchCount = Math.max(0, (rec.matchNo || 1) - 1);
+    this.rooms.set(room.code, room);
+    this.log.info(`[lobby] ${room.code} resuming match #${rec.matchNo ?? '?'} `
+      + `(R${rec.round} ${rec.phase}, ${rec.mode}/${rec.difficulty}, seed ${rec.seed})`);
+    if (this.resumeMatch(room, rec)) return true;
+    // the record could not be rebuilt: drop it so a returning player is not trapped in a room that cannot exist
+    room.disposed = true;
+    this.rooms.delete(room.code);
+    this.state.forget(room.code);
+    return false;
+  }
+
+  /**
+   * Construct the match of a persisted record (same seed / matchNo / seats ⇒ the same match the dead process ran),
+   * start it, then re-enter the recorded round and apply the recorded per-player payload (server/state/resume.js).
+   * @param {Room} room @param {any} rec
+   */
+  resumeMatch(room, rec) {
+    const seats = recordSeats(rec).map((s) => ({
+      seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot, connected: s.connected, loadout: s.loadout,
+    }));
+    if (!seats.length) return false;
+    // lastPublic / results: the latest m.public broadcast and the m.result frames (encoded), kept for the replay.
+    const ctx = { live: true, ended: false, disposed: false, match: null, lastPublic: null, sharedResult: null, results: new Map() };
+    try {
+      const match = new this.MatchClass({
+        roomCode: room.code,
+        mode: rec.mode,
+        difficulty: rec.difficulty,
+        modeId: rec.modeId || modeIdFor(rec.mode, rec.difficulty),
+        seats,
+        spectators: room.spectators.map((s) => s.playerId),
+        seed: rec.seed,
+        matchNo: rec.matchNo || room.matchCount + 1,
+        idlePauseMs: this.opts.idlePauseMs,
+        idleCheckMs: this.opts.idleCheckMs,
+        data: this.safeData(),
+        log: this.log,
+        now: this.now,
+        stateSink: (reason, m) => this.noteMatch(room, m, reason),
+        send: (playerId, msg) => (ctx.live ? this.matchSend(room, ctx, playerId, msg) : false),
+        broadcast: (msg) => { if (ctx.live) this.matchBroadcast(room, ctx, msg); },
+        onEnd: (summary) => this.onMatchEnd(room, ctx, summary),
+      });
+      ctx.match = match;
+      room.match = match;
+      room.matchCtx = ctx;
+      room.replay = null;
+      room.matchCount = rec.matchNo || room.matchCount + 1;
+      match.start();
+      // the recorded round + payload, unless start() already ended the match (unusable data, bot-only room)
+      if (!match.ended && !match.disposed) applyRecord(match, rec);
+      this.broadcastState(room);
+      return true;
+    } catch (e) {
+      this.log.error(`[lobby] ${room.code} failed to resume its persisted match`, e);
+      if (room.matchCtx === ctx) { room.match = null; room.matchCtx = null; room.matchKey = null; }
+      this.disposeMatchCtx(ctx);
+      return false;
+    }
+  }
 
   /** Counters for /healthz. */
   stats() {
@@ -286,7 +415,13 @@ export class Lobby {
    * @param {{ resumed: boolean, repeat: boolean }} info
    */
   onHello(session, { resumed, repeat }) {
-    if (!resumed && !repeat) return;
+    // P0/P1 (server/state/resume.js): a FRESH session may still be a returning player — net.js handed it the playerId
+    // and room code a persisted record proves for the token it presented (adoptIdentity). Nothing is rebuilt until
+    // exactly this moment: the lazy half of the design (boot only marks matches resumable).
+    if (!resumed && !repeat) {
+      if (!session.roomCode) return;
+      if (!this.rehydrate(session)) { session.roomCode = null; return; }
+    }
     const pool = this.queueOf(session);
     if (pool) {
       // Reconnected while searching: bring the 搜寻 panel back. The reconnect may also be the fourth doctor the pool
@@ -908,6 +1043,9 @@ export class Lobby {
         data: this.safeData(),
         log: this.log,
         now: this.now,
+        // match-state persistence (P0/P1): the match calls this at ROUND_START / SETTLE and every few seconds in
+        // between; the lobby turns it into a record on the write queue (never I/O in the match)
+        stateSink: (reason, m) => this.noteMatch(room, m, reason),
         send: (playerId, msg) => (ctx.live ? this.matchSend(room, ctx, playerId, msg) : false),
         broadcast: (msg) => { if (ctx.live) this.matchBroadcast(room, ctx, msg); },
         onEnd: (summary) => this.onMatchEnd(room, ctx, summary),
@@ -921,6 +1059,9 @@ export class Lobby {
       this.log.info(`[lobby] ${room.code} match #${room.matchCount} starting (${room.mode}/${room.difficulty}, ${seats.length} seats, seed ${seed})`);
       this.broadcastState(room);
       match.start();
+      // match-state persistence (P0/P1): the record is created when the match starts, so a crash in the first seconds
+      // of a match is still resumable (the phase transitions below only refresh it)
+      this.noteMatch(room, match, 'start');
     } catch (e) {
       this.log.error(`[lobby] ${room.code} match failed to start`, e);
       if (room.matchCtx === ctx) { room.match = null; room.matchCtx = null; room.matchKey = null; }
@@ -935,6 +1076,8 @@ export class Lobby {
   onMatchEnd(room, ctx, summary) {
     if (ctx.ended || !ctx.live || room.matchCtx !== ctx || room.disposed) return;
     ctx.ended = true;
+    // the match is over: its persisted record must not survive it (P0/P1 — a finished match is never resumable)
+    if (this.state) this.state.forget(room.code);
     room.lastSummary = summary ?? null;
     room.match = null;
     room.matchCtx = null;
@@ -1231,6 +1374,8 @@ export class Lobby {
     if (room.disposed) return;
     room.disposed = true;
     if (this.rooms.get(room.code) === room) this.rooms.delete(room.code);
+    // a disposed room has nothing to come back to (P0/P1): delete its record now, not on the next TTL sweep
+    if (this.state) this.state.forget(room.code);
     const ctx = room.matchCtx;
     room.match = null;
     room.matchCtx = null;

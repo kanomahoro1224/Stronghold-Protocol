@@ -35,6 +35,9 @@
 //                                          straight to the running match through it; without it they reach onMessage
 //   onDisconnect(session)                  the session's socket closed (session kept for the reconnect window)
 //   onExpire(session)                      the session was purged (disconnected longer than the window)
+//   adoptIdentity(token) → { playerId, roomCode } | null   (optional, server/state/*) a `hello` presented a token this
+//                                          process does not know: the lobby may resolve it to a persisted match seat.
+//                                          Only the playerId survives to `welcome`; roomCode is put on the session.
 
 import { randomBytes } from 'node:crypto';
 import { isIP } from 'node:net';
@@ -142,12 +145,18 @@ export class SessionRegistry {
    * Create a new session with a fresh playerId and token. Evicts the oldest idle (disconnected, roomless)
    * session when the registry is full. Returns null when full of active sessions.
    * @param {string} name
+   * @param {{ playerId?: string }} [opts] `playerId` adopts an identity the lobby resolved (server/state/resume.js:
+   *   a returning client whose token this process no longer knows, but whose persisted match still holds its seat)
    * @returns {Session | null}
    */
-  create(name) {
+  create(name, { playerId: prefer = null } = {}) {
     if (this.byPlayerId.size >= this.maxSessions && !this.evictOne()) return null;
     let playerId;
-    do playerId = 'p_' + randomBytes(5).toString('hex'); while (this.byPlayerId.has(playerId));
+    if (typeof prefer === 'string' && prefer && !this.byPlayerId.has(prefer)) {
+      playerId = prefer;
+    } else {
+      do playerId = 'p_' + randomBytes(5).toString('hex'); while (this.byPlayerId.has(playerId));
+    }
     let token;
     do token = newToken(); while (this.byTokenMap.has(token));
     const s = new Session({ playerId, token, name, now: this.now() });
@@ -702,8 +711,17 @@ export class Network {
         resumed = true;
         if (session.ws && session.ws !== conn.ws) this.detachReplaced(session.ws);
       } else {
-        session = this.registry.create(name);
+        // Match-state persistence (server/state/resume.js): this process does not know the token — it was restarted,
+        // or the session expired. The lobby may still resolve it to a persisted match seat, and the SAME playerId is
+        // then handed back here (before `welcome`), which is what lets a returning player be put into that match.
+        // Purely opt-in: without the hook (or with resume disabled) this is exactly the old behaviour.
+        let adopted = null;
+        if (typeof msg.token === 'string' && typeof this.handler.adoptIdentity === 'function') {
+          try { adopted = this.handler.adoptIdentity(msg.token); } catch (e) { this.log.error('[net] adoptIdentity crashed', e); }
+        }
+        session = this.registry.create(name, adopted ? { playerId: adopted.playerId } : undefined);
         if (!session) { this.reply(conn, errorMsg(ERR.INTERNAL, rid, 'server full')); return; }
+        if (adopted && session.playerId === adopted.playerId && adopted.roomCode) session.roomCode = adopted.roomCode;
       }
       conn.session = session;
       session.ws = conn.ws;

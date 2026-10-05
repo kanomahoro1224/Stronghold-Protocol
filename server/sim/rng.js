@@ -41,6 +41,14 @@ export function createRng(seed = 1) {
   };
   /** current internal state (for debugging / hashing) */
   rng.state = () => s;
+  /**
+   * Restore an internal state captured by `state()` — the ONE way a persisted match puts a rebuilt stream back where
+   * the recording process left it (server/state/resume.js → Match.restoreRunState). Exactly a uint32 round-trip: `s`
+   * is the whole mulberry32 state, so nothing else has to be restored. A non-finite value (a corrupt record) is
+   * ignored, which keeps the stream usable instead of poisoning it with NaN.
+   * @param {number} v
+   */
+  rng.setState = (v) => { if (Number.isFinite(v)) s = Number(v) >>> 0; };
   return rng;
 }
 

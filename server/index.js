@@ -41,8 +41,11 @@ import { fileURLToPath } from 'node:url';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { WebSocketServer } from 'ws';
 import { Network, SessionRegistry, NET_DEFAULTS } from './net.js';
-import { Lobby } from './lobby.js';
+import { Lobby, LOBBY_DEFAULTS } from './lobby.js';
 import { getData, loadData } from './data.js';
+import { createStore } from './state/store.js';
+import { PersistQueue, DEFAULT_MAX_PENDING } from './state/persist.js';
+import { StateBridge, loadResumable, rulesHash, recordTtlMs } from './state/resume.js';
 import { PROTOCOL_VERSION, APP_VERSION } from '../shared/constants.js';
 import { MEDIA_PREFIX, AUDIO_EXTS } from '../shared/media.js';
 
@@ -88,6 +91,72 @@ export function memStats() {
   const m = process.memoryUsage();
   const mb = (bytes) => Math.round((Number(bytes) || 0) / 1048576);
   return { rss: mb(m.rss), heap: mb(m.heapUsed) };
+}
+
+/** The live state bridge of the last `startServer` (there is one per process in production); /healthz reads it. */
+let stateProbe = null;
+
+/**
+ * Match-state persistence counters for `/healthz.state` (P0/P1, server/state/*): the write queue's depth and totals,
+ * the last write error (null while healthy — the field worth alarming on) and how many persisted matches this process
+ * has loaded as resumable (`resumedCount`; `resumed` says whether a returning player may actually be put back into
+ * one). Reading it is a few property reads — /healthz is polled by every open page.
+ */
+export function stateStats() {
+  const idle = { queued: 0, written: 0, dropped: 0, errors: 0, lastError: null, resumedCount: 0, resumed: false, store: 'off' };
+  try {
+    return stateProbe ? stateProbe.stats() : idle;
+  } catch {
+    return { ...idle, store: 'error' };
+  }
+}
+
+/** A truthy env flag (`1/true/yes/on`). */
+function envFlag(v, dflt = false) {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (!s) return dflt;
+  return ['1', 'true', 'yes', 'on'].includes(s);
+}
+
+/**
+ * Build the persistence bridge of this process. `config === false` disables it outright (tests, `SP_STATE=off`); a
+ * backend failure degrades to a disabled bridge with one error line — a broken state directory must never take the
+ * server down (persistence is a recovery aid, not a dependency of the live match loop).
+ * @param {{ config?: false | object, log: object }} opts
+ * @returns {StateBridge}
+ */
+function createStateBridge({ config, log }) {
+  if (config === false) return StateBridge.disabled('off');
+  const cfg = config && typeof config === 'object' ? config : {};
+  // Under the Node test runner (`node --test`) persistence defaults to OFF unless the backend is set explicitly
+  // (SP_STATE=... or startServer({ state: {...} })): the existing suites boot real servers on the real state
+  // directory, and a test run must not write records into the working tree.
+  if (cfg.backend == null && process.env.NODE_TEST_CONTEXT && process.env.SP_STATE == null) {
+    return StateBridge.disabled('test');
+  }
+  try {
+    const store = createStore({ backend: cfg.backend, dir: cfg.dir, log });
+    const persist = new PersistQueue({
+      store,
+      maxPending: cfg.maxPending ?? (Number(process.env.SP_STATE_MAX_PENDING) || DEFAULT_MAX_PENDING),
+      log,
+    });
+    const bridge = new StateBridge({
+      store,
+      persist,
+      // the version gate: a record is only resumable by the build + rules that wrote it (server/state/resume.js)
+      build: buildTag(),
+      rulesHash: rulesHash(),
+      ttlMs: recordTtlMs(),
+      resume: cfg.resume !== undefined ? !!cfg.resume : envFlag(process.env.SP_STATE_RESUME),
+      log,
+    });
+    bridge.startSweeper();
+    return bridge;
+  } catch (e) {
+    log.error(`[state] persistence disabled (${e && e.message ? e.message : e})`);
+    return StateBridge.disabled('error');
+  }
 }
 
 /** Browser stand-in of server/data.js, served at /data.js (see the header). */
@@ -647,7 +716,9 @@ function makeLogger(quiet) {
  *   maxConnectionsPerAddr?: number, maxRoomsPerAddr?: number, maxMatchesPerAddr?: number, resyncMinGapMs?: number,
  *   heavyPerSec?: number, heavyBurst?: number, trustProxy?: 'auto' | boolean, soloReconnectWindowMs?: number,
  *   matchQueueMax?: number, matchQueueMaxPerAddr?: number,
- * }} [opts]
+ *   state?: false | { backend?: string, dir?: string, maxPending?: number, resume?: boolean },
+ * }} [opts] `state` configures match-state persistence (server/state/*): omitted = the env defaults (SP_STATE,
+ *   SP_STATE_DIR, SP_STATE_RESUME), `false` = off (tests keep an untouched working tree).
  * @returns {Promise<{ port: number, host: string, url: string, server: http.Server, wss: WebSocketServer,
  *                     lobby: Lobby, network: Network, registry: SessionRegistry, close: () => Promise<void> }>}
  */
@@ -674,13 +745,20 @@ export async function startServer(opts = {}) {
     'matchQueueMax', 'matchQueueMaxPerAddr', 'idlePauseMs', 'idleCheckMs']) {
     if (opts[k] != null) lobbyOptions[k] = opts[k];
   }
-  const lobby = new Lobby({ registry, log, MatchClass: opts.MatchClass, getData: () => data, seedFn: opts.seedFn, options: lobbyOptions });
+  // The tag is per process (see buildTag): read the browser runtime once, here, not on every /healthz. It is also the
+  // build half of the resume version gate, so it must be read before the state bridge is built.
+  resetBuildTag();
+  buildTag();
+  // Match-state persistence (server/state/*, P0/P1). The bridge exists before the lobby (the lobby hands it to every
+  // Match as opts.stateSink); the persisted index is only READ after `listen` below, so boot never waits for the disk.
+  const state = createStateBridge({ config: opts.state, log });
+  stateProbe = state;
+  const lobby = new Lobby({ registry, log, MatchClass: opts.MatchClass, getData: () => data, seedFn: opts.seedFn, options: lobbyOptions, state });
+  // the TTL sweeper may never delete the record of a room this process still holds (a frozen match writes nothing)
+  state.isLive = (code) => lobby.rooms.has(String(code));
   const network = new Network({ registry, handler: lobby, log, options: netOptions });
   const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, log });
   const startedAt = Date.now();
-  // The tag is per process (see buildTag): read the browser runtime once, here, not on every /healthz.
-  resetBuildTag();
-  buildTag();
 
   const server = http.createServer((req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -712,6 +790,9 @@ export async function startServer(opts = {}) {
         // (`fieldsInThread` / `fieldsPooled` say where it is paid), `loop` is the symptom players feel, `mem` is the
         // third load signal (RSS / used heap in MB). All are tiny, and /healthz is also the build guard's poll.
         loop: loopStats(), mem: memStats(),
+        // match-state persistence (P0/P1): queue depth/totals, the last write error and the number of persisted
+        // matches this process has marked resumable. Never throws, always a few numbers.
+        state: stateStats(),
       });
       return;
     }
@@ -766,12 +847,39 @@ export async function startServer(opts = {}) {
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
   const url = `http://${host === '0.0.0.0' || host === '::' ? 'localhost' : host}:${actualPort}`;
 
+  // The persisted index is read AFTER `listen` — boot never waits for the disk — and lazily: a record is only marked
+  // resumable, nothing is rebuilt until a player actually comes back (server/lobby.js rehydrate). The scan is paced
+  // (≈20 records/s) and hard-capped, so a large state directory or a slow disk can only delay the marks.
+  if (state.enabled) {
+    const cap = Math.max(0, Math.min(
+      Number.isFinite(opts.maxRooms) ? opts.maxRooms : LOBBY_DEFAULTS.maxRooms,
+      Number(process.env.SP_MAX_ROOMS) > 0 ? Number(process.env.SP_MAX_ROOMS) : Infinity,
+    ));
+    loadResumable(state.store, {
+      // paced at ≈20 records/s (the disk is not worth a boot spike) inside a hard time budget: a huge state directory
+      // delays the marks, never the serving — `listen` already happened
+      build: state.build, rulesHash: state.rulesHash, ttlMs: state.ttlMs, maxRecords: cap, budgetMs: 15_000, log,
+    }).then(({ records, refused }) => {
+      state.noteRefused(refused);
+      state.markResumable(records, { maxRooms: cap });
+      state.logRefusals();
+      state.purgeRefused(); // a refused record can never become resumable: delete it instead of re-reading it forever
+      if (state.resumedCount) {
+        log.info(`[state] ${state.resumedCount} persisted match(es) resumable `
+          + `(${state.resume ? 'resume enabled' : 'resume disabled'}${refused.length ? `, ${refused.length} refused` : ''})`);
+      }
+    }).catch((e) => log.error('[state] resume scan failed', e));
+  }
+
   let closing = null;
   async function close() {
     if (closing) return closing;
     closing = (async () => {
       try { lobby.shutdown('shutdown'); } catch (e) { log.error('[shutdown] lobby', e); }
       network.close();
+      // the queue's final drain (the room disposal above only ENQUEUES the record deletions) is bounded by flushMs
+      try { state.close(); await state.persist?.close(); } catch (e) { log.error('[shutdown] state', e); }
+      if (stateProbe === state) stateProbe = null;
       await new Promise((resolve) => {
         server.close(() => resolve());
         server.closeIdleConnections?.();
