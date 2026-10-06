@@ -7,6 +7,10 @@
 // starts by itself; the host can also fill what is left with AI (room.addBot), which starts it just the same. Nothing
 // here needs 准备. Solo rooms keep room.start, which needs every *other* human connected and ready (the host's start
 // counts as the host's ready).
+// 开始匹配 keeps the old queue's 3 s 冷静期 (QUEUE_GRACE_MS, lobby.js armQueueJoin): the click only ARMS the search and
+// room.matchmake leaves after the grace, so 取消匹配 inside it takes the click back without ever touching the server —
+// otherwise a room that the pool can fill at once (or the host's own AI fill) started the match under the player's hand
+// (owner report, 2026-10-06: 「开始匹配没有 3s 冷静期啊，直接开了」).
 // Solo rooms show a single seat.
 // Spectator seats (community report #26, a remake feature): a co-op room with spectators shows the 观战席 strip under
 // the seats — names, offline marks, the host's ✕ (room.removeSpectator) — and a spectator's own view swaps the ready
@@ -20,6 +24,7 @@ import {
 import { toast, toastError } from '../ui/toasts.js';
 import { copyText } from '../ui/clipboard.js';
 import { GuideButton } from '../ui/guide.js';
+import { armQueueJoin } from './lobby.js';
 import { LoadoutButton } from './loadout.js';
 import { net } from '../net.js';
 import { store, useStore, shallowEqual, emptyMatch, isSpectating } from '../store.js';
@@ -195,13 +200,18 @@ export function RoomScreen() {
   const [busy, setBusy] = useState(null);
   const alive = useRef(true);
   const inFlight = useRef(false); // synchronous guard against double clicks (state updates are async)
-  useEffect(() => () => { alive.current = false; }, []);
+  // The armed 开始匹配 grace (see the header): `armRef` holds the one pending search and `arming` gives the panel the
+  // searching look from the click itself, so 取消匹配 is on screen for the whole grace.
+  const armRef = useRef(null);
+  const [arming, setArming] = useState(false);
+  useEffect(() => () => { alive.current = false; armRef.current?.cancel(); armRef.current = null; }, []);
 
   if (!room) return null;
   const online = conn.status === 'online';
   const coop = room.mode !== 'solo';
-  // 同盟匹配: true while this alliance waits in the pool (server/lobby.js roomMatchmake) — every seat sees it
-  const searching = !!room.searching;
+  // 同盟匹配: true while this alliance waits in the pool (server/lobby.js roomMatchmake) — every seat sees it. `arming`
+  // covers the 3 s grace before room.matchmake even left, so the host sees 取消匹配 from the click.
+  const searching = !!room.searching || arming;
   const facts = roomFacts(room, me.playerId);
   const myReady = !!facts.mine?.ready;
   const info = difficultyInfo(room.mode, room.difficulty);
@@ -218,9 +228,28 @@ export function RoomScreen() {
   };
 
   const toggleReady = () => run('ready', () => net.request('room.ready', { ready: !myReady }));
-  // Solo: room.start. Alliance: 同盟匹配 — the host puts the room in the pool, and calls it off with `on: false`.
-  const start = () => run('start', () => net.request(coop ? 'room.matchmake' : 'room.start', {}));
-  const cancelSearch = () => run('cancel', () => net.request('room.matchmake', { on: false }));
+  // Solo: room.start, immediately (a local decision, nothing to take back). Alliance: 同盟匹配 behind the 3 s 冷静期 —
+  // the click arms armQueueJoin and room.matchmake only leaves when the grace is out; 取消匹配 inside it cancels the
+  // armed entry and sends nothing at all. The host's AI fill (addBot) is untouched: it starts the room just the same.
+  const start = () => {
+    if (!coop) { run('start', () => net.request('room.start', {})); return; }
+    if (armRef.current || room.searching) return;
+    setArming(true);
+    armRef.current = armQueueJoin({
+      difficulty: room.difficulty,
+      send: () => {
+        armRef.current = null;
+        if (!alive.current) return;
+        setArming(false);
+        run('start', () => net.request('room.matchmake', {}));
+      },
+    });
+  };
+  const cancelSearch = () => {
+    const armed = armRef.current;
+    if (armed) { armed.cancel(); armRef.current = null; setArming(false); return; } // inside the grace: nothing was sent
+    run('cancel', () => net.request('room.matchmake', { on: false }));
+  };
   const addBot = () => run('add', () => net.request('room.addBot', {}));
   const removeBot = (seat) => run(`rm${seat}`, () => net.request('room.removeBot', { seat }));
   // the host removes a human before the match (community report #17): asked first; the player may join again. The
