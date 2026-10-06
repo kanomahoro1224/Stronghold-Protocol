@@ -112,6 +112,23 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export const KEY_PREFIX = 'match:';
 export const matchKey = (code) => `${KEY_PREFIX}${String(code)}`;
 
+/**
+ * The state directory as the scan report may disclose it: its last path segment plus a short hash of the full path. The
+ * report travels on `/healthz`, which is public and polled by every client, so it must identify the directory (is this
+ * the one I think it is?) without publishing the deploy path of the host.
+ */
+export function dirTag(dir) {
+  if (!dir) return null;
+  const s = String(dir);
+  return `${path.basename(s)}#${createHash('sha256').update(s).digest('hex').slice(0, 8)}`;
+}
+
+/**
+ * The refusal reasons whose record can NEVER be resumed again — the only ones `purgeRefused` deletes at boot. Anything
+ * else (`phase`, `build`, `rules`) is unusable for THIS process only and is kept (see `purgeRefused` for why).
+ */
+export const PURGEABLE_REFUSALS = new Set(['version', 'shape', 'ended', 'no-human', 'key-mismatch', 'expired']);
+
 /** The default record TTL. It is never shorter than `SP_SOLO_RECONNECT_MS` (see recordTtlMs). */
 export const RESUME_TTL_MS = 20 * 60 * 1000;
 
@@ -183,8 +200,47 @@ export function rulesHash({ root = ROOT, dataDir = null, extraFiles = null } = {
   return rulesCache;
 }
 
-/** Drop the cache: the next `rulesHash()` re-reads the files (tests). */
-export function resetRulesHash() { rulesCache = null; }
+/** The server's own code as one hash. `rulesHash` covers the CONTENT that decides a match's rules (`data/*.json` minus
+ * the art/text manifests, plus `shared/constants.js`) and nothing else, so an ENGINE-only deploy (`server/**`) is
+ * invisible to the version gate — and with `SP_STATE_IGNORE_BUILD` the build half is skipped as well, which means an
+ * old payload could be replayed into changed engine code with nothing able to notice.
+ *
+ * This is REPORTED and never gated on, deliberately: refusing every record after every code deploy is the opposite of
+ * "a restart must not interrupt a match". It surfaces through `/healthz.state.scan.gate.engine`, so a record written
+ * by other engine code than the one now reading it is at least visible to an operator. Computed once per process.
+ * @param {{ root?: string }} [opts] used by the first call only
+ */
+let engineCache = null;
+
+/** Drop the caches: the next `rulesHash()` / `engineHash()` re-reads the files (tests). */
+export function resetRulesHash() { rulesCache = null; engineCache = null; }
+
+export function engineHash({ root = ROOT } = {}) {
+  // only the default root is cached: a caller passing another tree (tests) must get that tree's hash, not the cache's
+  if (root === ROOT && engineCache !== null) return engineCache;
+  const h = createHash('sha256');
+  const files = [];
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== 'node_modules') walk(abs); } else if (e.name.endsWith('.js')) files.push(abs);
+    }
+  };
+  walk(path.join(root, 'server'));
+  files.sort();
+  for (const abs of files) {
+    let buf;
+    try { buf = fs.readFileSync(abs); } catch { continue; }
+    h.update(`${path.relative(root, abs).split(path.sep).join('/')}\0${buf.length}\0`);
+    h.update(buf);
+    h.update('\n');
+  }
+  const digest = h.digest('hex');
+  if (root === ROOT) engineCache = digest;
+  return digest;
+}
 
 /**
  * May this record be resumed by THIS process? The order of the checks is the order of the reasons a resume is refused;
@@ -234,10 +290,16 @@ export function checkRecord(record, { now = Date.now(), ttlMs = RESUME_TTL_MS, b
  * Read every persisted record under `match:` — paced (`perSecond`) and hard-capped (`maxRecords`, `budgetMs`) so a
  * large state directory can never stall boot. Records that fail the gate are reported, not thrown.
  *
- * @param {{ list: Function, get: Function }} store
+ * `onRecord(record, key)` is called for each ACCEPTED record as it is read, which is what lets the caller mark it
+ * immediately (server/index.js): batching the marks until the whole scan finished meant a player who reconnected
+ * during the scan — seconds to a minute of reading — was given a fresh, identity-less session.
+ *
+ * @param {{ list: Function, get: Function, listError?: string | null, readErrors?: number }} store
  * @param {{ now?: number, ttlMs?: number, build?: string | null, rulesHash?: string | null, maxRecords?: number,
- *           perSecond?: number, budgetMs?: number, log?: object, sleep?: (ms: number) => Promise<unknown> }} [opts]
- * @returns {Promise<{ records: any[], refused: { key: string, reason: string }[], scanned: number, capped: boolean }>}
+ *           perSecond?: number, budgetMs?: number, log?: object, sleep?: (ms: number) => Promise<unknown>,
+ *           onRecord?: ((record: any, key: string) => void) | null }} [opts]
+ * @returns {Promise<{ records: any[], refused: { key: string, reason: string }[], scanned: number, capped: boolean,
+ *           listed: number, listError: string | null, readErrors: number }>}
  */
 export async function loadResumable(store, {
   now = Date.now(),
@@ -249,32 +311,44 @@ export async function loadResumable(store, {
   budgetMs = 2000,
   log = noopLog,
   sleep = delay,
+  onRecord = null,
 } = {}) {
-  const out = { records: [], refused: [], scanned: 0, capped: false };
+  const out = { records: [], refused: [], scanned: 0, capped: false, listed: 0, listError: null, readErrors: 0 };
   if (!store || typeof store.list !== 'function' || typeof store.get !== 'function') return out;
   let keys = [];
   try { keys = await store.list(KEY_PREFIX); } catch (e) {
-    log.warn?.(`[state] resume scan failed: ${e && e.message ? e.message : e}`);
+    // the CODE, not the message: an fs message embeds the path, and this string is published on a public /healthz
+    out.listError = String((e && (e.code || e.message)) || e);
+    log.warn?.(`[state] resume scan failed: ${out.listError}`);
     return out;
   }
+  // how many keys the store actually reported (`scanned` is only how many the budget allowed): the difference is what
+  // the cap skipped, and 0 here versus a directory full of files is what tells "empty" from "unreadable" apart
+  out.listed = keys.length;
   const started = Date.now();
   const gap = Number.isFinite(perSecond) && perSecond > 0 ? Math.ceil(1000 / perSecond) : 0;
   for (const key of keys) {
     if (out.scanned >= maxRecords || Date.now() - started > budgetMs) { out.capped = true; break; }
     out.scanned++;
     let record = null;
-    try { record = await store.get(key); } catch { record = null; }
+    try { record = await store.get(key); } catch { record = null; out.readErrors++; }
     const verdict = checkRecord(record, { now, ttlMs, build, rulesHash: hash });
     if (verdict.ok) {
       // the key owns the identity: a record whose `code` disagrees with its key is not trusted
       if (matchKey(record.code) !== key) { out.refused.push({ key, reason: 'key-mismatch' }); continue; }
       out.records.push(record);
+      // an accepted record is marked as soon as it is read (see the doc comment); a hook that throws may not stop the boot
+      if (typeof onRecord === 'function') { try { onRecord(record, key); } catch { /* the scan is never a control path */ } }
     } else {
       out.refused.push({ key, reason: verdict.reason });
     }
     if (gap) await sleep(gap);
   }
   if (out.capped) log.warn?.(`[state] resume scan capped at ${out.scanned} record(s) (more remain on disk)`);
+  // A store may SWALLOW a readdir/read failure and answer "empty" instead (FileStore does, deliberately: a broken record
+  // must not take the boot down). Re-report it here, so the scan report can tell an empty directory from an unreadable one.
+  if (!out.listError && typeof store.listError === 'string' && store.listError) out.listError = store.listError;
+  if (Number.isFinite(store.readErrors) && store.readErrors > 0) out.readErrors = Math.max(out.readErrors, store.readErrors);
   return out;
 }
 
@@ -551,9 +625,16 @@ export class StateBridge {
   }
 
   /**
-   * Delete the records the gate refused. A record that cannot be resumed is dead weight on disk — and a `build` /
-   * `rules` mismatch can NEVER become resumable again (the running rules only change by restarting the process), so
-   * deleting is strictly better than ignoring it. `missing` means there is nothing to delete.
+   * Delete the records that can NEVER become resumable again. Only those: `version`, `shape`, `ended`, `no-human`,
+   * `key-mismatch`, `expired` are terminal, but `phase`, `build` and `rules` are not.
+   *
+   *   * `phase` (COMBAT / SP_DRAFT / INFO_CHECK / UNITE / FINAL_ASSAULT) is the ONLY record a mid-combat room has —
+   *     `noteRoom` refuses to write while a match runs — so purging it threw away the last trace of a live match AND
+   *     the P2 lobby around it (host, seats, spectators): the returning players got a brand-new room.
+   *   * `build` / `rules` are undone by rolling the deploy back, and a rolled-back process can use them again.
+   *
+   * A kept record costs one refused verdict per boot and ages out through its own TTL, which is cheaper than the
+   * irreplaceable data it holds. `missing` means there is nothing to delete.
    * @returns {number} keys queued for deletion
    */
   purgeRefused() {
@@ -561,6 +642,7 @@ export class StateBridge {
     let n = 0;
     for (const r of this.refused) {
       if (!r || !r.key || r.reason === 'missing') continue;
+      if (!PURGEABLE_REFUSALS.has(r.reason)) continue;
       this.persist.remove(r.key);
       n++;
     }

@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PersistQueue } from '../../server/state/persist.js';
+import { PersistQueue, DEFAULT_MAX_PENDING } from '../../server/state/persist.js';
 import { MemoryStore } from '../../server/state/store.js';
 
 const quiet = { info() {}, warn() {}, error() {}, debug() {} };
@@ -117,4 +117,16 @@ test('close() flushes what is pending and closes the store; idle() is determinis
   assert.equal(store.deletes, 1);
   assert.equal(q.stats().queued, 0);
   assert.equal(q.stats().lastError, null);
+});
+
+test('the cap is a real number: a huge maxPending is not truncated into a negative 32-bit int', () => {
+  const store = new MemoryStore({ log: quiet });
+  // `Number(x) | 0` wraps above 2^31, so `SP_STATE_MAX_PENDING=3000000000` used to become a NEGATIVE int, `Math.max(1,…)`
+  // turned that into a cap of 1, and the queue then kept a single pending entry and dropped nearly every write.
+  assert.equal(new PersistQueue({ store, maxPending: 3e9, log: quiet }).cap, 3e9, 'a huge cap stays a real number');
+  assert.equal(new PersistQueue({ store, maxPending: 4096.7, log: quiet }).cap, 4096, 'a fractional cap is floored');
+  assert.equal(new PersistQueue({ store, maxPending: 0, log: quiet }).cap, 1, '0 keeps its old meaning (the smallest queue)');
+  assert.equal(new PersistQueue({ store, maxPending: -5, log: quiet }).cap, 1);
+  assert.equal(new PersistQueue({ store, maxPending: Number.NaN, log: quiet }).cap, DEFAULT_MAX_PENDING, 'garbage falls back');
+  assert.equal(new PersistQueue({ store, log: quiet }).cap, DEFAULT_MAX_PENDING);
 });

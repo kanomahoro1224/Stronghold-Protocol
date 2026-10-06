@@ -45,7 +45,7 @@ import { Lobby, LOBBY_DEFAULTS } from './lobby.js';
 import { getData, loadData } from './data.js';
 import { createStore } from './state/store.js';
 import { PersistQueue, DEFAULT_MAX_PENDING } from './state/persist.js';
-import { StateBridge, loadResumable, rulesHash, recordTtlMs } from './state/resume.js';
+import { StateBridge, loadResumable, rulesHash, recordTtlMs, engineHash, dirTag } from './state/resume.js';
 import { PROTOCOL_VERSION, APP_VERSION } from '../shared/constants.js';
 import { MEDIA_PREFIX, AUDIO_EXTS } from '../shared/media.js';
 
@@ -894,6 +894,17 @@ export async function startServer(opts = {}) {
     const scanPerSecond = 100;
     const scanBudgetMs = 60_000;
     const scanT0 = Date.now();
+    const gate = {
+      build: ignoreBuild ? 'ignored (SP_STATE_IGNORE_BUILD)' : String(state.build),
+      // rulesHash covers `data/*.json` + shared/constants.js; the ENGINE is reported too, so a record written by other
+      // server code than the one now reading it is at least visible. Report-only on purpose: refusing a record whose
+      // engine hash differs would break resume after every code deploy, which is the opposite of this feature's point.
+      engine: engineHash().slice(0, 12),
+      maxRecords: cap, perSecond: scanPerSecond, budgetMs: scanBudgetMs, ttlMs: state.ttlMs,
+    };
+    // "still scanning" and "never ran" must not look the same: until the first record is marked, a returning player is
+    // handed a fresh session, so this window is the one that decides whether a reconnect resumes.
+    state.noteScan({ at: new Date(scanT0).toISOString(), scanning: true, gate });
     loadResumable(state.store, {
       // paced (see `perSecond`) inside a hard time budget: a huge state directory delays the marks, never the serving —
       // `listen` already happened
@@ -908,39 +919,43 @@ export async function startServer(opts = {}) {
       // disk"): every record past the cap keeps its match unresumable, i.e. a restart still interrupts it. 100/s over
       // 60 s covers 6000 records — past `maxRooms`, and reading these small JSON files is nothing next to a match.
       perSecond: scanPerSecond, budgetMs: scanBudgetMs, log,
-    }).then(async ({ records, refused, scanned, capped }) => {
+      // Each accepted record is marked AS IT IS READ, so `claim` can resolve a token for a player who reconnects while
+      // the directory is still being read — batching the marks until the scan ended meant every hello in that window
+      // (seconds, or a minute with a big directory) got a brand-new, identity-less session and a brand-new room.
+      onRecord: (record) => state.markResumable([record], { maxRooms: cap }),
+    }).then(({ records, refused, scanned, capped, listed, listError, readErrors }) => {
       state.noteRefused(refused);
-      const marked = state.markResumable(records, { maxRooms: cap });
+      const marked = records.length; // the marks themselves already happened through `onRecord`
       state.logRefusals();
-      const purged = state.purgeRefused(); // a refused record can never become resumable: delete it instead of re-reading it forever
-      // What the scan SAW, not just what survived it: `resumedCount: 0` on the live box twice (at 14:25 and 14:31) could
-      // mean an empty directory, a scan that ran out of budget, or records the gate turned away — and the app's own
-      // log does not reach the journal, so this report is the only window onto the boot path. /healthz carries it.
-      let listed = null;
-      try { listed = (await state.store.list('match:')).length; } catch { /* a diagnostic count is never fatal */ }
+      const purged = state.purgeRefused(); // terminal refusals only: `phase`/`build`/`rules` records stay (state/resume.js)
+      // What the scan SAW, not just what survived it: `resumedCount: 0` means "this process marked nothing", which is
+      // an empty directory, a scan that ran out of budget, records the gate turned away, or an unreadable directory —
+      // and the app's own log does not reach the journal, so this report is the only window onto the boot path.
       state.noteScan({
         at: new Date(scanT0).toISOString(),
         durationMs: Date.now() - scanT0,
-        dir: state.store && state.store.dir ? state.store.dir : null,
+        scanning: false,
+        dirTag: dirTag(state.store && state.store.dir), // NEVER the raw path: /healthz is public and every client polls it
         listed,
         scanned,
         capped,
         marked,
+        loaded: state.records.size,
         refused: refused.length,
         reasons: refused.reduce((m, r) => { const k = (r && r.reason) || 'unknown'; m[k] = (m[k] || 0) + 1; return m; }, {}),
         samples: refused.slice(0, 3),
         purged,
-        gate: {
-          build: ignoreBuild ? 'ignored (SP_STATE_IGNORE_BUILD)' : String(state.build),
-          maxRecords: cap, perSecond: scanPerSecond, budgetMs: scanBudgetMs, ttlMs: state.ttlMs,
-        },
+        // the two fields that tell an unreadable state directory apart from an empty one (a store answers "empty" for both)
+        listError: listError || null,
+        readErrors,
+        gate,
       });
       if (state.resumedCount) {
         log.info(`[state] ${state.resumedCount} persisted match(es) resumable `
           + `(${state.resume ? 'resume enabled' : 'resume disabled'}${refused.length ? `, ${refused.length} refused` : ''})`);
       }
     }).catch((e) => {
-      state.noteScan({ at: new Date(scanT0).toISOString(), durationMs: Date.now() - scanT0, error: String((e && e.message) || e) });
+      state.noteScan({ at: new Date(scanT0).toISOString(), durationMs: Date.now() - scanT0, scanning: false, error: String((e && e.message) || e) });
       log.error('[state] resume scan failed', e);
     });
   }

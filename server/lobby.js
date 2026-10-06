@@ -233,6 +233,8 @@ export class Lobby {
      * @type {import('./state/resume.js').StateBridge | null}
      */
     this.state = state;
+    /** true while `shutdown()` is disposing every room: then a disposal must NOT delete the persisted records */
+    this.shuttingDown = false;
     /** @type {Map<string, Room>} */
     this.rooms = new Map();
     /** @type {Map<string, NodeJS.Timeout>} lobby grace timers by playerId */
@@ -323,7 +325,12 @@ export class Lobby {
     const code = session.roomCode;
     const rec = this.state && typeof this.state.record === 'function' ? this.state.record(code) : null;
     if (!rec) return false;
-    if (this.rooms.has(code)) return true; // already rebuilt (a second tab of the same player)
+    // Already rebuilt: a repeated hello of the SAME player is fine, but a stranger who happens to present this code must
+    // never be handed someone else's room (the caller would then dereference a seat that is not theirs).
+    if (this.rooms.has(code)) {
+      const held = this.rooms.get(code);
+      return !!(held && (held.seatOf(session.playerId) || held.spectatorOf(session.playerId)));
+    }
     if (this.rooms.size >= this.opts.maxRooms) {
       this.limitWarn(`resume of ${code} refused: room limit (${this.opts.maxRooms}) reached`);
       return false;
@@ -404,6 +411,12 @@ export class Lobby {
       match.start();
       // the recorded round + payload, unless start() already ended the match (unusable data, bot-only room)
       if (!match.ended && !match.disposed) applyRecord(match, rec);
+      // The re-entry writes a snapshot of its own (applyRecord → resumeAt → startRound → _persistState('round_start'))
+      // BEFORE the payloads are applied, so for up to one heartbeat the disk holds a pre-payload skeleton — funds 0, an
+      // empty shop. Dying inside that window would re-enter at ROUND_START, replay the 机变 draft the record was written
+      // AFTER, and lose the round's income and shop. One more enqueue puts the applied state back at once; the queue
+      // coalesces it with the skeleton write into a single store call, so this costs no extra I/O.
+      this.noteMatch(room, match, 'resume');
       this.broadcastState(room);
       return true;
     } catch (e) {
@@ -582,6 +595,11 @@ export class Lobby {
    * @param {string} [reason]
    */
   shutdown(reason = 'shutdown') {
+    // P0/P1: a graceful shutdown must NOT delete the persisted records — they are exactly what the next process resumes
+    // from. `disposeRoom` skips `state.forget` while this flag is set (a REAL disposal still forgets). Deleting them
+    // here is what made every `systemctl restart` resume nothing: the next boot scanned an empty directory and reported
+    // `resumedCount: 0` while the players, their seats and their run were gone.
+    this.shuttingDown = true;
     for (const room of [...this.rooms.values()]) this.disposeRoom(room, reason);
     for (const t of this.graceTimers.values()) clearTimeout(t);
     this.graceTimers.clear();
@@ -1531,8 +1549,10 @@ export class Lobby {
     room.disposed = true;
     if (room.searching) { room.searching = false; this.dropSearching(room); }
     if (this.rooms.get(room.code) === room) this.rooms.delete(room.code);
-    // a disposed room has nothing to come back to (P0/P1): delete its record now, not on the next TTL sweep
-    if (this.state) this.state.forget(room.code);
+    // A disposed room has nothing to come back to (P0/P1): delete its record now, not on the next TTL sweep — EXCEPT on
+    // a graceful shutdown, where that record is the whole point (the next process resumes from it; `shutdown()` sets
+    // `shuttingDown`). A real disposal (empty room, kick, match over) still forgets.
+    if (this.state && !this.shuttingDown) this.state.forget(room.code);
     const ctx = room.matchCtx;
     room.match = null;
     room.matchCtx = null;
@@ -1565,7 +1585,10 @@ export class Lobby {
     for (let attempt = 0; attempt < 1000; attempt++) {
       let code = '';
       for (let i = 0; i < ROOM_CODE_LEN; i++) code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
-      if (!this.rooms.has(code)) return code;
+      // A marked record owns its code (P0/P1): a new room taking it would overwrite the record a returning player is
+      // about to resume into — and `rehydrate` would then hand a stranger's room back for that code.
+      if (this.rooms.has(code) || (this.state && this.state.record(code))) continue;
+      return code;
     }
     return null;
   }

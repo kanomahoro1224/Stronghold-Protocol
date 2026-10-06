@@ -10,6 +10,10 @@
 //           is written to a temp file in the same directory and renamed over the target, so a crash mid-write can
 //           never leave a half-record behind (the temp file is unlinked on failure). One JSON document per file also
 //           keeps the crash window to a single rename and makes a partially written file impossible to observe.
+//           WARNING: that default sits INSIDE the checkout, and `state/` is gitignored — so a fresh clone, a
+//           `git clean -xfd` or an unpack into a new path silently orphans (or deletes) every record. Production sets
+//           `SP_STATE_DIR` (see the host runbook); changing it on a running host requires MOVING the existing files
+//           too, otherwise the next boot scans an empty directory and resumes nothing.
 //   memory  in-process Map. Tests only: nothing survives a restart, which is exactly the feature under test.
 //   redis   NOT IMPLEMENTED on purpose — a documented stub that throws rather than a dependency (the repo has a hard
 //           "zero new npm dependencies" rule). `createStore({ backend: 'redis' })` throws; it never silently degrades.
@@ -27,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 /** Repository root (server/state/ → ../..). */
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-/** Default state directory (`SP_STATE_DIR` overrides it). */
+/** Default state directory (`SP_STATE_DIR` overrides it). Inside the checkout — see the WARNING in the header. */
 export const DEFAULT_STATE_DIR = path.join(ROOT, 'state', 'matches');
 
 /** Backends `createStore` accepts. */
@@ -72,6 +76,15 @@ export class FileStore {
     /** @type {Promise<void> | null} the one mkdir in flight/done */
     this._ready = null;
     this._seq = 0;
+    /**
+     * The last NON-ENOENT `readdir` failure (null while the directory reads fine). Reported by the boot scan as
+     * `scan.listError`: without it an unreadable directory (EACCES, EIO, an unmounted disk) is byte-identical to an
+     * empty one — `listed: 0, scanned: 0, marked: 0` — which is exactly the ambiguity the scan report exists to remove.
+     * @type {string | null}
+     */
+    this.listError = null;
+    /** Non-ENOENT `readFile` failures: a record that is unreadable is counted and skipped, never thrown (boot continues). */
+    this.readErrors = 0;
   }
 
   /** Create the directory once (lazily: a store nothing writes to never touches the disk). */
@@ -116,6 +129,7 @@ export class FileStore {
       text = await fsp.readFile(this._file(key), 'utf8');
     } catch (e) {
       if (e && e.code === 'ENOENT') return null;
+      this.readErrors++;
       this.log.warn?.(`[state] read ${key} failed: ${e && e.message ? e.message : e}`);
       return null;
     }
@@ -151,6 +165,9 @@ export class FileStore {
       names = await fsp.readdir(this.dir, { withFileTypes: true });
     } catch (e) {
       if (e && e.code === 'ENOENT') return []; // nothing was ever written
+      // the error CODE, never the message: this string is re-reported on the public /healthz, and an fs message embeds
+      // the absolute path of the state directory (which the scan report deliberately does not publish — see dirTag)
+      this.listError = String((e && (e.code || e.message)) || e);
       this.log.warn?.(`[state] list ${this.dir} failed: ${e && e.message ? e.message : e}`);
       return [];
     }

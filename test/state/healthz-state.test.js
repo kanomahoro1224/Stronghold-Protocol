@@ -58,23 +58,30 @@ test('startServer wires a state bridge into the lobby and /healthz reports it', 
     // the same call marked 151 of 293 records offline, so the boot path has to be measurable from /healthz alone (the
     // app's own log.info/warn does not reach the journal).
     let scan = h.state.scan;
-    for (let i = 0; i < 100 && !scan; i++) {
+    for (let i = 0; i < 100 && !(scan && scan.scanning === false); i++) {
       await new Promise((r) => setTimeout(r, 10)); // the scan runs after `listen`, so it may still be in flight
       scan = (await httpReq(srv.port, '/healthz')).body.state.scan;
     }
     assert.ok(scan && typeof scan === 'object', `the boot scan is reported: ${JSON.stringify(scan)}`);
+    assert.equal(scan.scanning, false, 'the report says the scan FINISHED — "still scanning" and "never ran" must differ');
     assert.equal(scan.listed, 0, 'nothing on disk to list');
     assert.equal(scan.scanned, 0);
     assert.equal(scan.marked, 0);
+    assert.equal(scan.loaded, 0);
     assert.equal(scan.refused, 0);
     assert.deepEqual(scan.reasons, {});
     assert.equal(scan.capped, false);
+    assert.equal(scan.listError, null, 'a readable (empty) directory is not an unreadable one');
+    assert.equal(scan.readErrors, 0);
+    assert.equal(scan.dirTag, null, 'a memory store has no directory — and the raw path is never published');
     assert.equal(typeof scan.durationMs, 'number');
     assert.equal(typeof scan.at, 'string');
-    assert.deepEqual(Object.keys(scan.gate).sort(), ['budgetMs', 'build', 'maxRecords', 'perSecond', 'ttlMs'], 'the gate parameters are reported');
+    assert.deepEqual(Object.keys(scan.gate).sort(), ['budgetMs', 'build', 'engine', 'maxRecords', 'perSecond', 'ttlMs'], 'the gate parameters are reported');
     assert.equal(typeof scan.gate.budgetMs, 'number');
     assert.equal(typeof scan.gate.perSecond, 'number');
     assert.equal(typeof scan.gate.build, 'string', 'which build the gate compared is reported');
+    assert.equal(typeof scan.gate.engine, 'string', 'and which ENGINE read the records (reported, never gated on)');
+    assert.equal(scan.gate.engine.length, 12);
     assert.ok(JSON.stringify(h).length < 4000, 'the frame stays small');
     assert.equal(stateStats().store, 'memory', 'the exported probe reads the live bridge');
   } finally {

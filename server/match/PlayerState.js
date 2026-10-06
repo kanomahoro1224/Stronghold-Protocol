@@ -99,6 +99,14 @@ export class PlayerState {
     this.name = seat.name;
     this.isBot = !!seat.isBot;
     this.connected = this.isBot ? true : !!seat.connected;
+    /**
+     * May a DROP make this seat engine-played at once? True only in a match where somebody else is waiting (co-op):
+     * there a stalled seat holds everyone up. A solo run (独立模拟, or a 同盟 room started alone) is `soloUntimed` and
+     * deliberately WAITS for its player instead — that is the official reconnect promise, and no phase is timed at all —
+     * so auto-playing it would hand the player's own run to the engine while they are briefly offline. Match sets this
+     * once at construction, from `!soloUntimed`.
+     */
+    this.autoPlayOnDrop = false;
     this.left = false;
     this.autoplay = false;
     this.alive = true;
@@ -172,13 +180,14 @@ export class PlayerState {
   get isHumanActive() { return !this.isBot && !this.left; }
   /**
    * The engine acts for this seat (AI teammate or "AI 托管"; a departed human is eliminated, so nothing is left to do).
-   * A DROPPED human (connected false — the seat is kept for the 10-minute reconnect window) is engine-played too:
-   * every interactive gate is keyed on this (Match.enterInfoCheck's auto-infoReady, the two drafts, PREP's bot prep
+   * A DROPPED human in a match where somebody else is waiting (`autoPlayOnDrop`, i.e. NOT soloUntimed) is engine-played
+   * too: every interactive gate is keyed on this (Match.enterInfoCheck's auto-infoReady, the two drafts, PREP's bot prep
    * that readies the seat), so without it a dropped seat never acts and each phase waits out its OWN timer instead —
-   * a match with one drop ran ~11x longer in virtual time (measured: 155 s -> 1.8 M ms). Match.onDisconnect applies
-   * this policy on the spot; a reconnect flips it back, and the scheduled bot jobs then abort on their valid() guard.
+   * a co-op match with one drop ran ~11x longer in virtual time (measured: 155 s -> 1.8 M ms). Match.onDisconnect
+   * applies this policy on the spot; a reconnect flips it back, and the scheduled bot jobs then abort on their valid()
+   * guard. A SOLO run keeps `autoPlayOnDrop` false: nobody is waiting on it, so it waits for its player instead.
    */
-  get botControlled() { return this.isBot || this.left || this.autoplay || !this.connected; }
+  get botControlled() { return this.isBot || this.left || this.autoplay || (this.autoPlayOnDrop && !this.connected); }
 
   get deployCap() { return Math.max(1, this.gd.deployCap + this.deployCapBonus, this.deployCapMin); }
   get deployCount() { let n = 0; for (const p of this.board.values()) if (p.kind === 'chess') n++; return n; }

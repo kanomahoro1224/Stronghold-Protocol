@@ -379,6 +379,10 @@ export class Match {
      * (draft order and skip, 6 机变 cards, 联防 …) stay.
      */
     this.loneHuman = this.order.filter((p) => !p.isBot).length === 1;
+    // The drop policy of THIS match (PlayerState.botControlled): where another human is waiting, a dropped seat is
+    // engine-played at once so the others are not held up (Match.onDisconnect); a solo run WAITS for its player, which
+    // is the official reconnect promise (soloReconnectTime) and the one thing `soloUntimed` exists to express.
+    for (const ps of this.order) ps.autoPlayOnDrop = !this.soloUntimed;
 
     // per-match setup (DESIGN §6.5)
     const setup = setupMatchWaves(this.gd, this.rngSetup);
@@ -569,10 +573,12 @@ export class Match {
       // a paused solo battle resumes (the server takes the field over; nobody is left to resume it)
       this._resume();
       if (this.clientCombat) this._authorityLost(ps, 'disconnect');
-      // The auto-play policy this hook promises (class header, line ~45): the seat is engine-controlled from here
-      // (PlayerState.botControlled covers !connected), so take its current turn AT ONCE — the info check, a draft
-      // turn and the prep all read `botControlled`, and without this they simply wait out their own timer each.
-      this.kickBot(ps);
+      // The auto-play policy this hook promises (class header, line ~45): where OTHER humans are waiting, the seat is
+      // engine-controlled from here (PlayerState.botControlled covers !connected for such a match), so take its current
+      // turn AT ONCE — the info check, a draft turn and the prep all read `botControlled`, and without this they simply
+      // wait out their own timer each. A solo run (soloUntimed) does NOT do this on purpose: nobody is waiting on it and
+      // the run must wait for its player, so auto-playing it would advance their own game behind their back.
+      if (ps.autoPlayOnDrop) this.kickBot(ps);
       this.markPublic();
     });
   }

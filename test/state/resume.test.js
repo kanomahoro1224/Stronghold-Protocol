@@ -13,7 +13,7 @@ import { MemoryStore } from '../../server/state/store.js';
 import { PersistQueue } from '../../server/state/persist.js';
 import {
   checkRecord, loadResumable, matchKey, recordTtlMs, rulesHash, resetRulesHash, recordSeats,
-  RESUME_TTL_MS, StateBridge, KEY_PREFIX,
+  RESUME_TTL_MS, StateBridge, KEY_PREFIX, dirTag, engineHash,
 } from '../../server/state/resume.js';
 import { RECORD_VERSION, tokenHash } from '../../server/state/snapshot.js';
 
@@ -164,6 +164,37 @@ test('loadResumable: reads the index, keeps the eligible records and reports eve
   assert.equal(KEY_PREFIX, 'match:');
 });
 
+test('dirTag: the scan report identifies the state directory without publishing its path', () => {
+  assert.equal(dirTag(null), null);
+  const a = dirTag('/opt/Stronghold-Protocol/state/matches');
+  const b = dirTag('/srv/other/matches');
+  assert.match(a, /^matches#[0-9a-f]{8}$/, 'the last path segment + a short hash');
+  assert.ok(!a.includes('opt') && !a.includes('Stronghold'), 'no part of the deploy path leaks onto the public /healthz');
+  assert.equal(dirTag('/opt/Stronghold-Protocol/state/matches'), a, 'deterministic');
+  assert.notEqual(a, b, 'two directories with the same basename stay distinguishable');
+});
+
+test('engineHash: a hash of the server code — stable, cached, and sensitive to one changed file', () => {
+  resetRulesHash();
+  const h1 = engineHash();
+  assert.match(h1, /^[0-9a-f]{64}$/);
+  assert.equal(engineHash(), h1, 'cached per process');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-engine-'));
+  try {
+    fs.mkdirSync(path.join(tmp, 'server', 'match'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'server', 'a.js'), 'export const a = 1;\n');
+    fs.writeFileSync(path.join(tmp, 'server', 'match', 'b.js'), 'export const b = 2;\n');
+    const x = engineHash({ root: tmp });
+    assert.match(x, /^[0-9a-f]{64}$/);
+    assert.notEqual(x, h1, 'a different tree hashes differently');
+    fs.writeFileSync(path.join(tmp, 'server', 'match', 'b.js'), 'export const b = 3;\n');
+    assert.notEqual(engineHash({ root: tmp }), x, 'one changed byte changes the hash');
+    assert.equal(engineHash(), h1, 'and the default root keeps its own cached value');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('loadResumable: the scan is hard-capped (maxRecords / budgetMs) so a full state dir cannot stall boot', async () => {
   const store = new MemoryStore({ log: quiet });
   for (let i = 0; i < 10; i++) await store.put(matchKey(`R${i}`), record({ code: `R${i}` }));
@@ -180,29 +211,66 @@ test('loadResumable: the scan is hard-capped (maxRecords / budgetMs) so a full s
 
 test('loadResumable: a missing/unreadable store is not an error (boot continues)', async () => {
   const out = await loadResumable(null, { log: quiet });
-  assert.deepEqual(out, { records: [], refused: [], scanned: 0, capped: false });
+  assert.deepEqual(out, { records: [], refused: [], scanned: 0, capped: false, listed: 0, listError: null, readErrors: 0 });
   const broken = { list: async () => { throw new Error('io'); }, get: async () => null };
   const out2 = await loadResumable(broken, { log: quiet });
   assert.deepEqual(out2.records, []);
+  assert.equal(out2.listError, 'io', 'a FAILED directory scan is reported as such, not as an empty directory');
+  // FileStore swallows a non-ENOENT readdir/read failure on purpose (one corrupt record must not take the boot down):
+  // the counters it keeps are what the scan report re-exports, so "empty" and "unreadable" stop looking identical.
+  const swallowed = { list: async () => [], get: async () => null, listError: 'EACCES: permission denied', readErrors: 2 };
+  const out3 = await loadResumable(swallowed, { log: quiet });
+  assert.equal(out3.listError, 'EACCES: permission denied');
+  assert.equal(out3.readErrors, 2);
+  assert.equal(out3.listed, 0);
+});
+
+test('loadResumable: onRecord marks each accepted record AS IT IS READ (a hello mid-scan resolves its token)', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const store = {
+    list: async () => [matchKey('A'), matchKey('B')],
+    get: async (key) => {
+      if (key === matchKey('B')) await held; // the second read is still in flight while the first is already usable
+      return record({ code: key === matchKey('A') ? 'A' : 'B' });
+    },
+  };
+  const seen = [];
+  const done = loadResumable(store, { now: NOW, perSecond: 0, log: quiet, onRecord: (r) => seen.push(r.code) });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(seen, ['A'], 'A is marked while B is still being read — batching until the end is what left early hellos identity-less');
+  release();
+  const out = await done;
+  assert.deepEqual(seen, ['A', 'B']);
+  assert.deepEqual(out.records.map((r) => r.code), ['A', 'B']);
+  assert.equal(out.listed, 2, 'the report counts the keys the store actually listed');
+  // a hook that throws may never stop the boot
+  const out2 = await loadResumable(store, { now: NOW, perSecond: 0, log: quiet, onRecord: () => { throw new Error('hook'); } });
+  assert.deepEqual(out2.records.map((r) => r.code), ['A', 'B']);
 });
 
 // ---------------------------------------------------------------------------------------------------
 // StateBridge
 // ---------------------------------------------------------------------------------------------------
 
-test('StateBridge: an ineligible record is never marked resumable, and purgeRefused deletes what it refused', async () => {
+test('StateBridge: an ineligible record is never marked resumable; purgeRefused deletes only TERMINAL refusals', async () => {
   const store = new MemoryStore({ log: quiet });
   const persist = new PersistQueue({ store, log: quiet });
   const bridge = new StateBridge({ store, persist, build: 'build-a', rulesHash: 'rules-a', ttlMs: RESUME_TTL_MS, resume: true, log: quiet });
   await store.put(matchKey('GOOD'), record({ code: 'GOOD' }));
   await store.put(matchKey('BAD'), record({ code: 'BAD', rulesHash: 'rules-b' }));
+  await store.put(matchKey('DEAD'), record({ code: 'DEAD', ended: true }));
   const out = await loadResumable(store, { now: NOW, build: 'build-a', rulesHash: 'rules-a', perSecond: 0, log: quiet });
   bridge.noteRefused(out.refused);
   bridge.markResumable(out.records);
   assert.equal(bridge.resumedCount, 1);
   bridge.purgeRefused();
   await persist.idle();
-  assert.equal(await store.get(matchKey('BAD')), null, 'a record that can never resume is deleted');
+  // A rules mismatch is only unusable for THIS process: rolling the deploy back makes it resumable again, and a
+  // mid-combat record is the newest truth of a live match (the only one such a room has). Deleting those is what lost
+  // a mid-combat room and the P2 lobby around it, so they are kept and left to their own TTL.
+  assert.ok(await store.get(matchKey('BAD')), 'a rules mismatch is KEPT (a rollback makes it resumable again)');
+  assert.equal(await store.get(matchKey('DEAD')), null, 'an ended match never comes back: its record is deleted');
   assert.ok(await store.get(matchKey('GOOD')), 'the eligible one is left alone');
   assert.deepEqual(bridge.stats().resumedCount, 1);
   assert.equal(bridge.stats().store, 'memory');

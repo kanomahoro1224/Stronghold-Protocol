@@ -33,7 +33,10 @@ export class PersistQueue {
       throw new TypeError('PersistQueue: store with put/del required');
     }
     this.store = store;
-    this.cap = Math.max(1, Number(maxPending ?? cap ?? DEFAULT_MAX_PENDING) | 0);
+    // `Number(...) | 0` would wrap anything above 2^31 into a NEGATIVE 32-bit int, so a large `SP_STATE_MAX_PENDING`
+    // (or a big `cap`) collapsed the queue to a single entry and dropped nearly every write. Clamp on the real number.
+    const wanted = Number(maxPending ?? cap ?? DEFAULT_MAX_PENDING);
+    this.cap = !Number.isFinite(wanted) ? DEFAULT_MAX_PENDING : wanted < 1 ? 1 : Math.floor(wanted);
     this.log = log;
     /** @type {Map<string, { op: 'put' | 'del', value?: unknown }>} insertion-ordered, one entry per key */
     this.pending = new Map();

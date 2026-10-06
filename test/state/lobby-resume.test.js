@@ -167,7 +167,36 @@ test('after a restart the presented token rebuilds the match lazily, on the firs
   assert.equal(s2.roomCode, code, 'the session stays in the room');
   p2.lobby.shutdown('test');
   await p2.persist.idle();
-  assert.equal(await p2.store.get(matchKey(code)), null, 'disposing the room deleted its record');
+  // A graceful shutdown must NOT delete the record: it is exactly what the next process resumes from. Deleting it here
+  // is what made every `systemctl restart` resume nothing — the next boot scanned an empty directory (`resumedCount: 0`)
+  // while the players, their seats and their run were gone.
+  assert.ok(await p2.store.get(matchKey(code)), 'a graceful shutdown KEEPS the record (the next process resumes from it)');
+});
+
+test('a real disposal (not a graceful shutdown) still deletes the record, and genCode never takes a marked code', async () => {
+  const stateDir = new MemoryStore({ log: quiet });
+  const p1 = newProcess({ store: stateDir });
+  const s1 = sessionOf(p1.registry, { name: 'Host', token: 'g'.repeat(32) });
+  const code = startRoom(p1.lobby, s1);
+  await p1.persist.idle();
+  const room = p1.lobby.rooms.get(code);
+  // mark it the way a boot does (the record is written either way; only a scan turns it into a claimable match)
+  p1.bridge.markResumable([await p1.store.get(matchKey(code))]);
+  assert.ok(p1.bridge.record(code), 'the match record is marked');
+  // A marked record reserves its room code: a new room taking it would overwrite the record a returning player is about
+  // to resume into. `rooms` is emptied for this code first, so only the record can be what refuses it.
+  p1.lobby.rooms.delete(code);
+  for (let i = 0; i < 40; i++) assert.notEqual(p1.lobby.genCode(), code, 'a marked code is never handed to a new room');
+  // and only its own members are handed the live room
+  p1.lobby.rooms.set(code, room);
+  assert.equal(p1.lobby.rehydrate({ roomCode: code, playerId: 'not-a-member' }), false, 'a stranger is never given it');
+  assert.equal(p1.lobby.rehydrate({ roomCode: code, playerId: s1.playerId }), true, 'its own player still is');
+  // a REAL disposal (empty room, kick, match over) has nothing to come back to, so it forgets
+  room.match.dispose();
+  p1.lobby.disposeRoom(room, 'empty');
+  await p1.persist.idle();
+  assert.equal(await p1.store.get(matchKey(code)), null, 'an empty room has nothing to come back to');
+  assert.equal(p1.bridge.record(code), null, 'and the mark is gone with it');
 });
 
 test('resume disabled (SP_STATE_RESUME off): records are still written, but no identity is handed out', async () => {
@@ -183,7 +212,7 @@ test('resume disabled (SP_STATE_RESUME off): records are still written, but no i
   p1.lobby.shutdown('test');
 });
 
-test('a record whose build changed is refused and deleted, never resumed', async () => {
+test('a record whose build changed is refused and never resumed (and is KEPT: a rollback brings it back)', async () => {
   const stateDir = new MemoryStore({ log: quiet });
   const p1 = newProcess({ store: stateDir });
   const s1 = sessionOf(p1.registry, { name: 'Host', token: 'd'.repeat(32) });
@@ -199,7 +228,9 @@ test('a record whose build changed is refused and deleted, never resumed', async
   p2.bridge.purgeRefused();
   await p2.persist.idle();
   assert.equal(p2.bridge.resumedCount, 0, 'a record from another build can never be resumed');
-  assert.equal(await p2.store.get(matchKey(code)), null, 'and its record is deleted');
+  // A build mismatch is only unusable for THIS process: it is undone by rolling the deploy back, and this record is the
+  // newest truth of a live match. Deleting it here is what lost exactly that.
+  assert.ok(await p2.store.get(matchKey(code)), 'the record is KEPT (roll the deploy back and it resumes again)');
 });
 
 test('a PREP record survives a restart: claim → rehydrate rebuilds the exact mid-prep match (real engine)', async () => {
@@ -255,6 +286,16 @@ test('a PREP record survives a restart: claim → rehydrate rebuilds the exact m
     assert.equal(canon(captureProps(m2.players.get(p.playerId))), recorded.get(p.playerId),
       `${p.playerId}: the rebuilt seat is the recorded one (canonical digest)`);
   }
+
+  // F3: re-entry writes a snapshot of its own (applyRecord → resumeAt → startRound → _persistState('round_start')) BEFORE
+  // the payloads are applied, so without the follow-up enqueue (lobby.resumeMatch) the disk holds a pre-payload skeleton
+  // until the next heartbeat. It is asserted HERE, before the scheduler runs, where that skeleton would still be the
+  // newest write: a crash in this window re-entered at ROUND_START and replayed the 机变 draft the record was written
+  // after, losing the round's income and its shop.
+  await p2.persist.idle();
+  const reloaded = await p2.store.get(matchKey(code));
+  assert.equal(canon(reloaded.players.find((p) => p.playerId === s1.playerId).props), recorded.get(s1.playerId),
+    'the record on disk already carries the APPLIED payload, not the pre-payload skeleton');
 
   // and the continuation is real: the prep reopens (the engine's own ROUND_START → PREP) with the recorded progress
   // intact — no free income, no second upgrade-price drop, no re-rolled shop
