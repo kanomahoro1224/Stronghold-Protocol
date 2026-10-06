@@ -170,7 +170,7 @@ async function coopMatch(P, base, { bots = 1, prefix }) {
   }
   assert.ok(await guestReady(), 'guest ready');
   for (let i = 0; i < 4; i++) await host.click('button', '添加 AI 队友', { optional: true, timeout: 1500 });
-  await host.click('.room-bar__right button', '开始匹配', { timeout: 20000 });
+  await host.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
   for (const c of [host, guest]) await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);
   for (const c of [host, guest]) await c.click('.brief__foot .btn--primary', '准备就绪');
   for (const c of [host, guest]) await c.waitFor((s) => s.phase !== 'INFO_CHECK', 'band draft', 40000);
@@ -259,7 +259,7 @@ describe('DESIGN §20.15 — the bond strip shows the watched teammate\'s bonds 
       }
       assert.ok(await guestReady(), 'guest ready');
       for (let i = 0; i < 4; i++) await host.click('button', '添加 AI 队友', { optional: true, timeout: 1500 });
-      await host.click('.room-bar__right button', '开始匹配', { timeout: 20000 });
+      await host.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
       for (const c of [host, guest]) await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);
       for (const c of [host, guest]) await c.click('.brief__foot .btn--primary', '准备就绪');
       for (const c of [host, guest]) await c.waitFor((s) => s.phase !== 'INFO_CHECK', 'band draft', 40000);

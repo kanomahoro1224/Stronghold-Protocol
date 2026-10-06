@@ -213,6 +213,8 @@ export function buildRoomRecord(room, { build = null, rulesHash = null, now = Da
     matchNo: Number.isInteger(room?.matchCount) ? room.matchCount : 0,
     mode: room?.mode ?? null,
     difficulty: room?.difficulty ?? null,
+    /** the 同盟匹配 entry flag (room.pool): a rebuilt pool room must still offer 开始匹配, not 开始模拟 */
+    pool: !!room?.pool,
     modeId: null,
     seed: null,
     round: 0,

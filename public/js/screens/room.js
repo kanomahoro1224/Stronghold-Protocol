@@ -2,11 +2,13 @@
 // host controls (difficulty picker, add/remove AI in co-op, start), invite code with copy code /
 // copy link, ready toggle and leave.
 //
-// Start rule: an alliance (co-op) starts through 同盟匹配 — the host's 开始匹配 puts the room in its difficulty's pool
-// (room.matchmake), whole groups from other searching alliances are moved in while the seats fit, and a full alliance
-// starts by itself; the host can also fill what is left with AI (room.addBot), which starts it just the same. Nothing
-// here needs 准备. Solo rooms keep room.start, which needs every *other* human connected and ready (the host's start
-// counts as the host's ready).
+// Start rule: only a 同盟匹配 alliance (the card that created the room, `pool: true`) starts through the pool — the
+// host's 开始匹配 puts it in its difficulty's pool (room.matchmake), whole groups from other searching alliances are
+// moved in while the seats fit, and a full alliance starts by itself; the host can also fill what is left with AI
+// (room.addBot), which starts it just the same. Nothing there needs 准备. A 同盟模拟 alliance keeps the old flow: its
+// host's 开始模拟 sends room.start at once, with the friends it invited and AI, never a stranger (owner report
+// 2026-10-06: 「现在的同盟模拟强制匹配队友了」). Solo rooms keep room.start, which needs every *other* human connected
+// and ready (the host's start counts as the host's ready).
 // 开始匹配 keeps the old queue's 3 s 冷静期 (QUEUE_GRACE_MS, lobby.js armQueueJoin): the click only ARMS the search and
 // room.matchmake leaves after the grace, so 取消匹配 inside it takes the click back without ever touching the server —
 // otherwise a room that the pool can fill at once (or the host's own AI fill) started the match under the player's hand
@@ -209,6 +211,9 @@ export function RoomScreen() {
   if (!room) return null;
   const online = conn.status === 'online';
   const coop = room.mode !== 'solo';
+  // The pool follows the CARD the room was created from (Room.pool, owner report 2026-10-06: 「现在的同盟模拟强制匹配
+  // 队友了」): a 同盟匹配 room starts through 开始匹配 / the public pool, a 同盟模拟 room starts directly with 开始模拟.
+  const pool = coop && !!room.pool;
   // 同盟匹配: true while this alliance waits in the pool (server/lobby.js roomMatchmake) — every seat sees it. `arming`
   // covers the 3 s grace before room.matchmake even left, so the host sees 取消匹配 from the click.
   const searching = !!room.searching || arming;
@@ -228,11 +233,11 @@ export function RoomScreen() {
   };
 
   const toggleReady = () => run('ready', () => net.request('room.ready', { ready: !myReady }));
-  // Solo: room.start, immediately (a local decision, nothing to take back). Alliance: 同盟匹配 behind the 3 s 冷静期 —
-  // the click arms armQueueJoin and room.matchmake only leaves when the grace is out; 取消匹配 inside it cancels the
-  // armed entry and sends nothing at all. The host's AI fill (addBot) is untouched: it starts the room just the same.
+  // 同盟模拟: room.start, immediately (the friends in the room, nothing to take back). 同盟匹配: 开始匹配 behind the 3 s
+  // 冷静期 — the click arms armQueueJoin and room.matchmake only leaves when the grace is out; 取消匹配 inside it
+  // cancels the armed entry and sends nothing at all. The host's AI fill (addBot) is untouched in both.
   const start = () => {
-    if (!coop) { run('start', () => net.request('room.start', {})); return; }
+    if (!pool) { run('start', () => net.request('room.start', {})); return; }
     if (armRef.current || room.searching) return;
     setArming(true);
     armRef.current = armQueueJoin({
@@ -357,7 +362,7 @@ export function RoomScreen() {
       <div class="room-bar__right">
         <${LoadoutButton} from="room" size="lg" class="room-loadout" />
         ${facts.isHost
-          ? coop
+          ? pool
             ? searching
               ? html`<${Button} variant="secondary" size="xl" icon="close" loading=${busy === 'cancel'} disabled=${!online} onClick=${cancelSearch}>取消匹配<//>`
               : html`<${Tooltip} text="发起匹配：进入公共池等待其他博士，人数不足时可用 AI 队友补位；同盟满员即自动开始">

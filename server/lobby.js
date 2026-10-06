@@ -130,8 +130,11 @@ function freezeLoadout(loadout) {
 
 /** One room: 4 seat slots, host, difficulty, optional running match. */
 export class Room {
-  /** @param {string} code @param {'solo'|'coop'} mode @param {string} difficulty @param {number} now */
-  constructor(code, mode, difficulty, now) {
+  /**
+   * @param {string} code @param {'solo'|'coop'} mode @param {string} difficulty @param {number} now
+   * @param {boolean} [pool] created from the 同盟匹配 card: this alliance may enter the public pool
+   */
+  constructor(code, mode, difficulty, now, pool = false) {
     this.code = code;
     this.mode = mode;
     this.difficulty = difficulty;
@@ -162,6 +165,12 @@ export class Room {
      * itself is the pool entry — its seats are never given up, so friends who joined by invite code stay together.
      */
     this.searching = false;
+    /**
+     * 同盟匹配 entry flag (owner report 2026-10-06: 「现在的同盟模拟强制匹配队友了」). The pool follows the CARD the room
+     * was created from, not every co-op room: 同盟模拟 plays with the friends it invited (plus AI), so only a room built
+     * from the 同盟匹配 card may enter the pool (`roomMatchmake` refuses the others). Survives a rebuild (snapshot.js).
+     */
+    this.pool = !!pool && mode !== 'solo';
     this.createdAt = now;
     this.disposed = false;
   }
@@ -191,6 +200,7 @@ export class Room {
       difficulty: this.difficulty,
       inMatch: !!this.match,
       searching: this.searching,
+      pool: this.pool,
       seats: this.seats.map((s) => (s
         ? { seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot, ready: s.ready, connected: s.connected && !s.left }
         : null)),
@@ -322,7 +332,7 @@ export class Lobby {
       this.limitWarn(`resume of ${code} refused: room limit (${this.opts.maxRooms}) reached`);
       return false;
     }
-    const room = new Room(rec.code, rec.mode, rec.difficulty, this.now());
+    const room = new Room(rec.code, rec.mode, rec.difficulty, this.now(), rec.pool);
     // The room's own `ready` flag lives on the RECORD's seat rows (a match record keeps it in the seat payload instead,
     // which applyRecord applies). `recordSeats` is the Match-constructor view and deliberately does not carry it.
     const recordedSeat = new Map((Array.isArray(rec.seats) ? rec.seats : []).filter(Boolean).map((s) => [s.playerId, s]));
@@ -589,7 +599,7 @@ export class Lobby {
   // room.* handlers
   // ---------------------------------------------------------------------------------------------------
 
-  create(session, { mode, difficulty }) {
+  create(session, { mode, difficulty, pool = false }) {
     const cur = this.roomOf(session);
     if (cur && cur.match) return fail(ERR.ROOM_STARTED, 'leave your running match first');
     if (this.rooms.size >= this.opts.maxRooms) return fail(ERR.INTERNAL, 'too many rooms');
@@ -608,7 +618,7 @@ export class Lobby {
     // client would be left showing a search panel the server has already forgotten (DESIGN §23).
     this.dequeue(session, { notify: false });
     if (cur) this.removeMember(cur, session.playerId);
-    const room = new Room(code, mode, difficulty, this.now());
+    const room = new Room(code, mode, difficulty, this.now(), pool);
     room.ownerKey = key;
     room.seats[0] = this.humanSeat(0, session);
     room.hostId = session.playerId;
@@ -1079,6 +1089,9 @@ export class Lobby {
     if (room.hostId !== session.playerId) return fail(ERR.NOT_HOST);
     if (room.match) return fail(ERR.ROOM_STARTED);
     if (room.mode === 'solo') return fail(ERR.BAD_MSG, 'a solo room has nobody to match with');
+    // The pool follows the card (Room.pool): a 同盟模拟 alliance plays with the friends it invited, so it may not be
+    // pushed into the public pool — the client's 开始模拟 sends room.start instead.
+    if (!room.pool) return fail(ERR.BAD_MSG, 'this alliance was not created for 同盟匹配');
     if (!on) {
       if (room.searching) {
         room.searching = false;

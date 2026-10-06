@@ -78,7 +78,7 @@ describe('spectator seats (community report #26, real server)', { skip: !ENABLED
 
       // the match: a spectator is no player to wait for
       for (let i = 0; i < 4; i++) await host.click('button', '添加 AI 队友', { optional: true, timeout: 1500 });
-      await host.click('.room-bar__right button', '开始匹配', { timeout: 20000 });
+      await host.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
       for (const c of [host, spec]) await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);
       assert.match(await spec.page.evaluate(() => document.querySelector('.brief__foot .btn--primary')?.textContent || ''), /观战中/);
       await host.click('.brief__foot .btn--primary', '准备就绪');

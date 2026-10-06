@@ -20,7 +20,8 @@ test('the room screen arms 开始匹配 instead of sending room.matchmake on the
   assert.match(start[0], /armQueueJoin\(/, 'it arms the search');
   assert.match(start[0], /room\.matchmake/, 'the armed send is room.matchmake');
   assert.doesNotMatch(SRC, /net\.request\(coop \? 'room\.matchmake'/, 'nothing is sent on the click itself');
-  assert.match(start[0], /if \(!coop\) \{ run\('start', \(\) => net\.request\('room\.start', \{\}\)\); return; \}/, 'solo stays immediate');
+  assert.match(start[0], /if \(!pool\) \{ run\('start', \(\) => net\.request\('room\.start', \{\}\)\); return; \}/, '同盟模拟 stays immediate');
+  assert.match(SRC, /const pool = coop && !!room\.pool;/, 'the pool follows the card the room was created from');
 });
 
 test('a cancel inside the grace sends nothing; a cancel after it calls the pool off', () => {

@@ -31,11 +31,30 @@ function sessionOf(registry, name) {
   return s;
 }
 
-/** room.create + the room it made. */
-function create(lobby, session, { mode = 'coop', difficulty = 'NORMAL' } = {}) {
-  assert.equal(lobby.onMessage(session, { t: 'room.create', mode, difficulty }).ok, true, 'room.create');
+/** room.create + the room it made. `pool: true` is the 同盟匹配 card; without it the room is a 同盟模拟 alliance. */
+function create(lobby, session, { mode = 'coop', difficulty = 'NORMAL', pool = true } = {}) {
+  assert.equal(lobby.onMessage(session, { t: 'room.create', mode, difficulty, pool }).ok, true, 'room.create');
   return lobby.roomOf(session);
 }
+
+test('a 同盟模拟 alliance may not enter the public pool (owner report 2026-10-06)', () => {
+  const { registry, lobby } = newLobby();
+  const a = sessionOf(registry, 'A');
+  const room = create(lobby, a, { pool: false });
+
+  assert.equal(room.pool, false, 'the room carries the card it was created from');
+  assert.equal(room.toState().pool, false, 'and tells the client, so it offers 开始模拟');
+  const refused = lobby.onMessage(a, { t: 'room.matchmake' });
+  assert.equal(refused.error, ERR.BAD_MSG, 'room.matchmake is refused: 同盟模拟 never meets a stranger');
+  assert.equal(room.searching, false, 'and nothing was queued');
+  assert.equal(lobby.onMessage(a, { t: 'room.start' }).ok, true, 'the host starts it directly instead');
+
+  const b = sessionOf(registry, 'B');
+  const pooled = create(lobby, b);
+  assert.equal(pooled.pool, true, 'a 同盟匹配 room may search');
+  assert.equal(pooled.toState().pool, true);
+  assert.equal(lobby.onMessage(b, { t: 'room.matchmake' }).ok, true, 'and room.matchmake works there');
+});
 
 test('room.matchmake: the host starts the search; a solo room never searches and a guest may not start it', () => {
   const { registry, lobby } = newLobby();

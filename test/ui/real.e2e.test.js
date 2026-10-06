@@ -459,7 +459,7 @@ describe('real server + real browsers', { skip: !ENABLED && 'set SP_REAL_E2E=1 (
       await guest.click('.room-bar__right button', '准备就绪');
       await host.shot('room');
       for (let i = 0; i < 4; i++) await host.click('button', '添加 AI 队友', { optional: true, timeout: 1500 });
-      await host.click('.room-bar__right button', '开始匹配', { timeout: 20000 });
+      await host.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
 
       // ---- briefing ---------------------------------------------------------------------------------------------------
       for (const c of both) await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);

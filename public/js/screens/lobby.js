@@ -445,9 +445,10 @@ export function LobbyScreen() {
     setExiting(false);
     if (!searching) {
       // 同盟匹配 makes the same alliance as 同盟模拟 (the server has no 'match' mode): the card differs in its copy and
-      // in what the room's 开始匹配 does — the search lives in the room, not in the lobby.
+      // in `pool` — a 同盟匹配 room may enter the public pool (开始匹配 / 野排), a 同盟模拟 room never does (owner report
+      // 2026-10-06: 「现在的同盟模拟强制匹配队友了」 — the pool must follow the CARD, not every co-op room).
       const mode = roomMode === 'match' ? 'coop' : roomMode;
-      return run('create', () => net.request('room.create', { mode, difficulty }));
+      return run('create', () => net.request('room.create', { mode, difficulty, pool: roomMode === 'match' }));
     }
     // 搜寻队友: one click, at most one `queue.join`. A repeated click — or a click after a reconnect re-attached to an
     // entry this page did not create — must not add a second entry, so an armed (or sent) search is left alone.
