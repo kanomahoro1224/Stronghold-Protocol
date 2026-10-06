@@ -452,13 +452,13 @@ describe('real server + real browsers', { skip: !ENABLED && 'set SP_REAL_E2E=1 (
       await host.click('.diff-card', '险境模拟');
       await host.click('.create-box button', '创建同盟');
       const room = (await host.waitFor((s) => !!s.room?.code, 'room created')).room;
-      await .send('room.addBot');
+      await host.send('room.addBot');
       await guest.open(`?room=${room.code}`);
       await guest.enter('阿米娅');
       await guest.waitFor((s) => s.room?.code === room.code, 'guest joined via invite link');
       await guest.click('.room-bar__right button', '准备就绪');
       await host.shot('room');
-      for (let i = 0; i < 4; i++) await .send('room.addBot');
+      for (let i = 0; i < 4; i++) await host.send('room.addBot');
       await host.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
 
       // ---- briefing ---------------------------------------------------------------------------------------------------

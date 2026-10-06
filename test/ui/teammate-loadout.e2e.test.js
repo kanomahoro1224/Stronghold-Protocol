@@ -76,7 +76,7 @@ describe('DESIGN §16 — a teammate\'s unit shows its owner\'s loadout (real se
         await sleep(500);
       }
       assert.ok(await guestReady(), 'guest ready');
-      for (let i = 0; i < 4; i++) await .send('room.addBot');
+      for (let i = 0; i < 4; i++) await host.send('room.addBot');
       await host.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
       for (const c of [host, guest]) await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);
       const loOf = (c) => c.page.evaluate(() => globalThis.__SP__.store.get().match.private?.loadout ?? null);

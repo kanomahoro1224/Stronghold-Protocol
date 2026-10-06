@@ -224,9 +224,9 @@ describe('user playtest #2 item 6 — 前往查看 → 返回战场 in combat (r
       await c.click('.diff-card', '标准模拟');
       await c.click('.create-box button', '创建同盟');
       await c.waitFor((s) => !!s.room?.code, 'room created');
-      await .send('room.addBot');
+      await c.send('room.addBot');
       await sleep(500);
-      for (let i = 0; i < 4; i++) await .send('room.addBot');
+      for (let i = 0; i < 4; i++) await c.send('room.addBot');
       await c.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
       await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);
       await c.click('.brief__foot .btn--primary', '准备就绪');
@@ -362,7 +362,7 @@ describe('user playtest #2 item 10 — boss-round prep on the boss field (real s
       await guest.waitFor((s) => s.room?.code === room.code, 'guest joined');
       await guest.click('.room-bar__right button', '准备就绪');
       await sleep(400);
-      for (let i = 0; i < 4; i++) await .send('room.addBot');
+      for (let i = 0; i < 4; i++) await host.send('room.addBot');
       await host.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
       for (const c of [host, guest]) await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);
       for (const c of [host, guest]) await c.click('.brief__foot .btn--primary', '准备就绪');
