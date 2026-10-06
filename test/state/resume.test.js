@@ -5,6 +5,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { MemoryStore } from '../../server/state/store.js';
 import { PersistQueue } from '../../server/state/persist.js';
@@ -80,7 +83,7 @@ test('TTL: a record older than the window expires, one inside it does not', () =
   assert.equal(recordTtlMs({ ttlMs: 5000, env: { SP_SOLO_RECONNECT_MS: '3600000' } }), 5000, 'an explicit ttl wins');
 });
 
-test('rulesHash is a stable sha256 over data/*.json + shared/constants.js, cached per process', () => {
+test('rulesHash is a stable sha256 over the rule data + shared/constants.js, cached per process', () => {
   resetRulesHash();
   const a = rulesHash();
   assert.match(a, /^[0-9a-f]{64}$/, 'a full sha256 digest');
@@ -93,9 +96,55 @@ test('rulesHash is a stable sha256 over data/*.json + shared/constants.js, cache
   resetRulesHash();
 });
 
+test('rulesHash: the asset and text manifests are NOT rules — a deploy that only re-fetches art keeps every record', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-rules-'));
+  const data = path.join(root, 'data');
+  fs.mkdirSync(path.join(root, 'shared'), { recursive: true });
+  fs.mkdirSync(data, { recursive: true });
+  const write = (rel, text) => fs.writeFileSync(path.join(root, rel), text);
+  write('shared/constants.js', 'export const X = 1;\n');
+  for (const name of ['chess.json', 'stages.json', 'assets.json', 'local-assets.json', 'emotes.json', 'notice.json']) {
+    write(`data/${name}`, '{"v":"1"}\n');
+  }
+  const hash = () => { resetRulesHash(); return rulesHash({ root, dataDir: data }); };
+  const base = hash();
+  // Manifests that describe ART / TEXT, not rules: a deploy rewrites them (and local-assets.json even differs per
+  // machine), so none of them may invalidate a match that is sitting in a resumable phase.
+  for (const name of ['assets.json', 'local-assets.json', 'emotes.json', 'notice.json']) {
+    write(`data/${name}`, '{"v":"2"}\n');
+    assert.equal(hash(), base, `${name} is an asset/text manifest: it must not invalidate a resumable match`);
+    write(`data/${name}`, '{"v":"1"}\n');
+  }
+  // The rules themselves still gate: an old match must never be replayed against changed rules.
+  for (const name of ['chess.json', 'stages.json']) {
+    write(`data/${name}`, '{"v":"2"}\n');
+    assert.notEqual(hash(), base, `${name} carries rules: changing it must invalidate the record`);
+    write(`data/${name}`, '{"v":"1"}\n');
+  }
+  write('shared/constants.js', 'export const X = 2;\n');
+  assert.notEqual(hash(), base, 'shared/constants.js carries rules');
+  write('shared/constants.js', 'export const X = 1;\n');
+  assert.equal(hash(), base, 'and putting the rules back restores the hash (content, not mtime)');
+  fs.rmSync(root, { recursive: true, force: true });
+  resetRulesHash();
+});
+
 // ---------------------------------------------------------------------------------------------------
 // boot scan
 // ---------------------------------------------------------------------------------------------------
+
+test('gate: a ROOM record survives a deploy — it has no engine state to replay against other rules', () => {
+  const opts = { now: NOW, ttlMs: RESUME_TTL_MS, build: 'build-b', rulesHash: 'rules-b' };
+  const room = { ...record({ build: 'build-a', rulesHash: 'rules-a' }), inMatch: false, state: null, phase: 'LOBBY' };
+  assert.deepEqual(checkRecord(room, opts), { ok: true },
+    'a room has no round to re-enter and no seat payload: a build/rules change must not delete it and evict everyone');
+  // the MATCH record next to it is still refused: its engine state WOULD be replayed against inputs it never saw
+  assert.deepEqual(checkRecord(record({ build: 'build-a' }), opts), { ok: false, reason: 'build' });
+  assert.deepEqual(checkRecord(record({ build: 'build-b' }), opts), { ok: false, reason: 'rules' });
+  // and a room record is still refused for the reasons that are about the ROOM itself
+  assert.deepEqual(checkRecord({ ...room, updatedAt: NOW - RESUME_TTL_MS - 1 }, opts), { ok: false, reason: 'expired' });
+  assert.deepEqual(checkRecord({ ...room, seats: [{ seat: 0, playerId: 'ai_1', isBot: true }] }, opts), { ok: false, reason: 'no-human' });
+});
 
 test('loadResumable: reads the index, keeps the eligible records and reports every refusal by reason', async () => {
   const store = new MemoryStore({ log: quiet });

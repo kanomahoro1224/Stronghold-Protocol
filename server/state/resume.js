@@ -4,9 +4,11 @@
 // as "resumable"; no Match is rebuilt and no game CPU is spent until a player actually comes back. This module holds
 // the three pieces that decision needs:
 //
-//   rulesHash()         sha256 over `data/*.json` + `shared/constants.js` = "the rules this process runs".
-//   checkRecord()       version / expiry / human / build / rulesHash gate + (P2a) the RE-ENTRY gate: only a lone-human
-//                       match at a re-enterable point (`resumePlan`: the round start, the open prep the heartbeat writes,
+//   rulesHash()         sha256 over `data/*.json` minus the art/text manifests (`RULES_INPUTS.skip`) plus
+//                       `shared/constants.js` = "the rules this process runs".
+//   checkRecord()       version / expiry / human / build / rulesHash gate + (P2a, widened by P1) the RE-ENTRY gate:
+//                       any match — a lone human's run or a whole co-op room — at a re-enterable point
+//                       (`resumePlan`: the round start, the open prep the heartbeat writes,
 //                       or the settle it can continue from) may be put back into a rebuilt match. A record
 //                       whose build or rules changed is REFUSED (logged once) — an old input log replayed against new
 //                       rules is exactly the corruption this feature must never cause, and preferring a clean
@@ -28,14 +30,15 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { PHASE } from '../../shared/constants.js';
-import { RECORD_VERSION, hasHuman, tokenHash, buildRecord } from './snapshot.js';
+import { RECORD_VERSION, hasHuman, tokenHash, buildRecord, buildRoomRecord } from './snapshot.js';
 import { applyPlayerState } from './playerstate.js';
 
 const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
 
 /**
  * May this record be re-entered, and where? (P2a) A record carries engine state only in v2+ (`record.state`), and only
- * the ROUND-START-based points of a LONE-HUMAN match can be reconstructed faithfully from what a record holds:
+ * the ROUND-START-based points of a match can be reconstructed faithfully from what a record holds — for a lone human
+ * and for a whole co-op room alike (P1: every seat is in the record):
  *
  *   ROUND_START r — written at the end of `Match.startRound(r)`: the payload is the state right after the round start,
  *                   so the resume restores it as-is (`playerStart:false`, the recorded wave) and the payload follows.
@@ -54,7 +57,6 @@ const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
  *                   round start runs normally (income, upgrade price, a fresh shop, a freshly drawn wave).
  *
  * Everything else is REFUSED, by design and not by omission:
- *   * `coop` — a co-op seat depends on teammates, whose seats a lone record cannot vouch for;
  *   * `final` — the Hidden Core chapter is entered from the VISIBLE final assault's live outcome (team LP, the shared
  *     boss pool, the hidden layer sum), none of which a record holds (P2a refuses the final assault);
  *   * `phase` — COMBAT / UNITE / SP_DRAFT / BAND_DRAFT / FINAL_ASSAULT / INFO_CHECK: a battle in flight, a draft in
@@ -79,7 +81,9 @@ export function resumePlan(record) {
   // `props` to re-enter with even when a caller forgot `checkRecord`
   if (record.version !== RECORD_VERSION) return { ok: false, reason: 'version' };
   if (!record.state) return { ok: false, reason: 'no-state' };
-  if (!record.loneHuman) return { ok: false, reason: 'coop' };
+  // P1: the number of human seats is NOT a gate. A co-op record carries every seat (each human with its own tokenHash,
+  // each bot with its whole PlayerState) and the lobby rebuilds the room and the match from those rows, so a teammate
+  // that never comes back costs its own seat, never the match. `loneHuman` stays in the record as a description only.
   // the first round whose entry depends on the visible final assault's outcome (see the header): the Hidden Core when
   // the mode has one, else every round past the last (where the mode has no hidden chapter, the match is simply over)
   const finalRound = Number.isInteger(record.hiddenRound) ? record.hiddenRound
@@ -130,14 +134,27 @@ export function recordTtlMs({ ttlMs, env = process.env } = {}) {
 // rulesHash — "the rules this process runs"
 // ---------------------------------------------------------------------------------------------------
 
-/** Files whose CONTENT decides whether an old match may be resumed (relative to the repo root). */
-export const RULES_INPUTS = Object.freeze({ dirs: ['data'], files: ['shared/constants.js'] });
+/**
+ * Files whose CONTENT decides whether an old match may be resumed (relative to the repo root).
+ *
+ * `data/*.json` is hashed EXCEPT the manifests in `skip`: those describe ART and TEXT, not rules, and a deploy
+ * rewrites them without changing a single rule — `assets.json` (the asset manifest), `local-assets.json` (the
+ * local-client extraction, which even differs from machine to machine), `emotes.json` (the emote art) and
+ * `notice.json` (the announcement text). Hashing them would refuse every resumable match after a pure art or
+ * announcement deploy, which is precisely what this gate must not do. Everything else under `data/` is rules.
+ */
+export const RULES_INPUTS = Object.freeze({
+  dirs: ['data'],
+  files: ['shared/constants.js'],
+  skip: Object.freeze(['assets.json', 'local-assets.json', 'emotes.json', 'notice.json']),
+});
 
 let rulesCache = null;
 
 /**
- * sha256 over the contents of `data/*.json` (top level, sorted) and `shared/constants.js`. Content, not mtime: the
- * hash must survive a checkout/deploy that does not change a single rule, and MUST change on any content change.
+ * sha256 over the contents of `data/*.json` (top level, sorted, minus `RULES_INPUTS.skip`) and
+ * `shared/constants.js`. Content, not mtime: the hash must survive a checkout/deploy that does not change a single
+ * rule, and MUST change on any content change.
  * Computed once per process (the files are read at startup and never re-read), like the build tag in server/index.js.
  * @param {{ root?: string, dataDir?: string, extraFiles?: string[] }} [opts] used by the first call only
  */
@@ -155,7 +172,7 @@ export function rulesHash({ root = ROOT, dataDir = null, extraFiles = null } = {
   const dir = dataDir || path.join(root, RULES_INPUTS.dirs[0]);
   try {
     for (const name of fs.readdirSync(dir).sort()) {
-      if (!name.endsWith('.json') || name.startsWith('.')) continue;
+      if (!name.endsWith('.json') || name.startsWith('.') || RULES_INPUTS.skip.includes(name)) continue;
       files.push([path.join(dir, name), `data/${name}`]);
     }
   } catch { /* a missing data dir hashes as empty — the process itself would be broken long before this matters */ }
@@ -174,10 +191,12 @@ export function resetRulesHash() { rulesCache = null; }
  * `rules`/`build` are the version gate, and they are checked BEFORE anything is rebuilt.
  *
  * The last check is the P2a RE-ENTRY gate: a record that carries engine state (`record.state`, v2) is resumable only
- * for a lone-human match at a re-enterable point (see `resumePlan` — the round start, an OPEN prep, or a settle). It is
- * refused with `coop` / `phase` / `final`, exactly like the version gate: a record this process cannot re-enter must not
- * be handed to the lobby (which would rebuild a room around a half-restored match) — it is refused and purged instead.
- * A record WITHOUT engine state (the platform stub) has no round to re-enter and keeps its old behaviour.
+ * at a re-enterable point (see `resumePlan` — the round start, an OPEN prep, or a settle), for a lone human and for a
+ * whole co-op room alike (P1). It is refused with `phase` / `final`, exactly like the version gate: a record this
+ * process cannot re-enter must not be handed to the lobby (which would rebuild a room around a half-restored match) —
+ * it is refused and purged instead.
+ * A record WITHOUT engine state (a room whose match has not started yet, or the platform stub) has no round to
+ * re-enter and keeps its old behaviour: it rebuilds the ROOM (P2), never a match.
  *
  * @param {any} record
  * @param {{ now?: number, ttlMs?: number, build?: string | null, rulesHash?: string | null }} [opts]
@@ -192,9 +211,14 @@ export function checkRecord(record, { now = Date.now(), ttlMs = RESUME_TTL_MS, b
   if (record.ended) return { ok: false, reason: 'ended' };
   if (!hasHuman(record)) return { ok: false, reason: 'no-human' };
   if (!(record.updatedAt > 0) || now - record.updatedAt > ttlMs) return { ok: false, reason: 'expired' };
-  // The version gate: a record written by another build (or against other rules) is NEVER replayed.
-  if (build != null && record.build != null && record.build !== build) return { ok: false, reason: 'build' };
-  if (hash != null && record.rulesHash != null && record.rulesHash !== hash) return { ok: false, reason: 'rules' };
+  // The version gate: a record written by another build (or against other rules) is NEVER replayed — its engine state
+  // would be reconstructed against inputs it never saw. A ROOM record (P2) carries no engine state at all
+  // (`inMatch: false`, `state: null`): there is nothing to replay, so a deploy must not delete the room and evict
+  // everybody sitting in it. Every other reason below still applies to it.
+  if (record.inMatch !== false) {
+    if (build != null && record.build != null && record.build !== build) return { ok: false, reason: 'build' };
+    if (hash != null && record.rulesHash != null && record.rulesHash !== hash) return { ok: false, reason: 'rules' };
+  }
   if (record.state) {
     const plan = resumePlan(record);
     if (!plan.ok) return { ok: false, reason: plan.reason };
@@ -408,6 +432,38 @@ export class StateBridge {
     }
   }
 
+  /**
+   * Persist one ROOM that has no match running (P2): the lobby state — the host, every seat, its ready flag and the
+   * spectators — so a restart puts the players back into the room they were in instead of a brand-new one.
+   *
+   * It is written under the SAME key as the match record, and that is the point: a room is described by exactly one
+   * document, whichever of the two is current. A live match's record is the richer one, so the lobby must not call
+   * this while a match runs (server/lobby.js noteRoom enforces that); when a match ends, its record is replaced by
+   * this one, and the queue's one-entry-per-key rule turns that pair into a single write (server/state/persist.js).
+   * @param {any} room a server/lobby.js Room
+   * @param {{ tokenHashOf?: (playerId: string) => string | null, now?: number }} [opts]
+   */
+  noteRoom(room, { tokenHashOf = null, now = null } = {}) {
+    if (!this.enabled || !room || !room.code || room.disposed) return false;
+    try {
+      const record = buildRoomRecord(room, {
+        build: this.build,
+        rulesHash: this.rulesHash,
+        now: now ?? this.now(),
+        tokenHashOf,
+      });
+      // a room with no human left in it is not worth a record — the same rule a match follows (design §8)
+      if (!hasHuman(record)) return false;
+      const key = matchKey(record.code);
+      if (this.records.has(record.code)) this.records.set(record.code, record);
+      this.persist.enqueue(key, record);
+      return true;
+    } catch (e) {
+      this.log.warn?.(`[state] room snapshot ${room && room.code} failed: ${e && e.message ? e.message : e}`);
+      return false;
+    }
+  }
+
   /** The match is over / the room is gone: the record must not survive it. */
   forget(code) {
     if (!this.enabled || !code) return false;
@@ -428,6 +484,12 @@ export class StateBridge {
       for (const s of record.seats || []) {
         if (!s || s.isBot || s.left || typeof s.tokenHash !== 'string' || !s.tokenHash) continue;
         this.claims.set(s.tokenHash, { playerId: s.playerId, code: record.code, seat: s.seat });
+      }
+      // a spectator seat is a session too (P2): it has no seat number, so `seat: null` — and a player seat, indexed
+      // above, always wins over a spectator entry for the same token
+      for (const s of record.spectators || []) {
+        if (!s || typeof s.tokenHash !== 'string' || !s.tokenHash || this.claims.has(s.tokenHash)) continue;
+        this.claims.set(s.tokenHash, { playerId: s.playerId, code: record.code, seat: null });
       }
       n++;
     }
@@ -567,6 +629,7 @@ export class DisabledBridge {
   get enabled() { return false; }
   get resumedCount() { return 0; }
   noteMatch() { return false; }
+  noteRoom() { return false; }
   forget() { return false; }
   markResumable() { return 0; }
   record() { return null; }

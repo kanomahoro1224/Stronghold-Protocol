@@ -378,6 +378,72 @@ test('a resumed prep continues where it was: a recorded Ready survives, and the 
   } finally { h.m.dispose(); b.m.dispose(); }
 });
 
+/**
+ * The co-op source run: `humans` human seats plus two bots, driven to the OPEN PREP of round 2 and decorated there —
+ * the state a live co-op room sits on when the process dies. The record is captured the way `decorate` does it (no
+ * `tokenHashOf`), i.e. the pessimistic shape: no seat can be claimed, and the restore still has to reproduce it.
+ */
+function coopRun(humans = 2) {
+  const h = makeMatch({ mode: 'coop', difficulty: 'NORMAL', humans, bots: 2, seed: SEED, fake: true });
+  h.m.stateSink = null;
+  h.start();
+  h.autoHumans();
+  h.toPrep(1);
+  h.run(() => h.m.phase === PHASE.SETTLE && h.m.round === 1);
+  h.run(() => h.m.phase === PHASE.ROUND_START && h.m.round === 2);
+  h.toPrep(2);
+  const rec = decorate(h);
+  h.invariants();
+  return { h, rec };
+}
+
+test('P1: a CO-OP record with two human seats re-enters, and BOTH humans come back seat for seat', () => {
+  // The lone-human run above is the easy case. A co-op room is the one the gate used to refuse: two humans, two bots,
+  // one record that has to carry all four seats. Nothing about the restore is per-human — it is per-SEAT, and the
+  // record already holds every seat — so the same re-entry must reproduce the whole table.
+  const { h, rec } = coopRun(2);
+  const b = rebuild(rec);
+  try {
+    assert.equal(rec.loneHuman, false, 'two human seats: this is exactly the case the gate used to refuse');
+    assert.equal(rec.seats.filter((s) => !s.isBot).length, 2, 'both humans are in the record');
+    assert.deepEqual(resumePlan(rec), { ok: true, round: 2, payloadFirst: false, intoPrep: true });
+    assert.deepEqual(checkRecord(rec, { now: NOW, ttlMs: RESUME_TTL_MS }), { ok: true });
+    assert.equal(applyRecord(b.m, rec), 4, 'all four seats are restored (two humans, two bots)');
+    assert.equal(b.m.round, 2);
+    assert.equal(b.m.phase, PHASE.ROUND_START);
+    for (const p of rec.players) {
+      assert.equal(seatDigest(b.m.players.get(p.playerId)), canon(p.props), `${p.playerId}: the mid-prep seat is the recorded one`);
+    }
+    assert.equal(runDigest(b.m), canon(rec.state), 'the rng streams, the pool and the counters are the recorded ones too');
+    b.invariants();
+  } finally { h.m.dispose(); b.m.dispose(); }
+});
+
+test('P1: the lobby-shaped record carries a tokenHash per human seat, and a seat without one costs only that seat', () => {
+  const { h, rec } = coopRun(2);
+  const b = rebuild(rec);
+  try {
+    // how the lobby builds it (server/lobby.js noteMatch → tokenHashOf): every human seat gets sha256(token), which is
+    // what lets that player be put back into ITS OWN seat after the restart
+    const shaped = buildRecord(h.m, {
+      build: 'test-build', rulesHash: 'test-rules', now: NOW,
+      tokenHashOf: (playerId) => `hash_${playerId}`,
+    });
+    assert.deepEqual(shaped.seats.filter((s) => !s.isBot).map((s) => s.tokenHash), ['hash_p_0', 'hash_p_1'],
+      'one hash per human seat, in seat order');
+    assert.ok(shaped.seats.filter((s) => s.isBot).every((s) => s.tokenHash == null), 'bots carry no token');
+    // a teammate whose session the process no longer knows (no hash) must not cost the match: the other seats still
+    // re-enter and the seat is simply unclaimed until someone reconnects with that token
+    const orphaned = { ...shaped, seats: shaped.seats.map((s) => (s.playerId === 'p_1' ? { ...s, tokenHash: null } : s)) };
+    assert.deepEqual(checkRecord(orphaned, { now: NOW, ttlMs: RESUME_TTL_MS }), { ok: true });
+    assert.equal(applyRecord(b.m, orphaned), 4, 'the seat without a hash is rebuilt too — it just cannot be claimed');
+    for (const p of shaped.players) {
+      assert.equal(seatDigest(b.m.players.get(p.playerId)), canon(p.props), `${p.playerId}: restored from the lobby-shaped record`);
+    }
+    b.invariants();
+  } finally { h.m.dispose(); b.m.dispose(); }
+});
+
 test('a PREP record at a 机变 round does NOT replay the draft: the re-entry comes back to the open prep', () => {
   // round 3 is a draft round for this mode (gd.spRounds() = [3, 6, 9]): the record is written INSIDE the prep, i.e.
   // after the player's pick. Re-entering ROUND_START and letting the round start run would fall back into enterSpDraft
@@ -429,8 +495,12 @@ test('a v1 record is refused (never read as v2) and an unreadable point is refus
     assert.deepEqual(checkRecord({ ...rich, version: 1 }, opts), { ok: false, reason: 'version' },
       'the P0/P1 shape has no props/state: it must never be read as a v2 record');
     assert.deepEqual(checkRecord({ ...rich, version: RECORD_VERSION + 1 }, opts), { ok: false, reason: 'version' });
-    assert.deepEqual(checkRecord({ ...rich, loneHuman: false }, opts), { ok: false, reason: 'coop' },
-      'a co-op seat is refused (P2a has no teammate state to rebuild it from)');
+    // P1: a CO-OP match is re-enterable. The record carries every seat — each human with its own tokenHash, the bots
+    // with their whole PlayerState — and the lobby rebuilds the room and the match from exactly those rows, so the
+    // number of humans no longer decides anything. What still decides is the POINT (below) and the version.
+    assert.deepEqual(checkRecord({ ...rich, loneHuman: false }, opts), { ok: true },
+      'more than one human seat no longer refuses the record: the restore is per-seat');
+    assert.deepEqual(resumePlan({ ...rich, loneHuman: false }), { ok: true, round: 2, payloadFirst: false, intoPrep: false });
     // PREP is the point the heartbeat writes and is ACCEPTED since P2a-b (see the PREP section above); COMBAT and
     // SP_DRAFT are still refused, each with its own case in the tests below
     assert.deepEqual(checkRecord({ ...rich, phase: PHASE.PREP }, opts), { ok: true },

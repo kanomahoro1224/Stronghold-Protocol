@@ -98,7 +98,7 @@ function startRoom(lobby, session) {
   return code;
 }
 
-test('a started match is persisted with its human seat token hash, and ends by deleting the record', async () => {
+test('a started match is persisted with its human seat token hash, and its record becomes the room\'s when it ends', async () => {
   const p1 = newProcess();
   const token = 'a'.repeat(32);
   const s = sessionOf(p1.registry, { name: 'Host', token });
@@ -116,10 +116,16 @@ test('a started match is persisted with its human seat token hash, and ends by d
   assert.equal(rec.build, 'test-build');
   assert.equal(rec.rulesHash, 'test-rules');
 
-  // the stub match ends as soon as its only human is ready: onEnd must delete the record
+  // the stub match ends as soon as its only human is ready. The MATCH is not resumable any more — but the ROOM is
+  // (P2): the record is replaced by the room form, which has no round to re-enter and no seat payload to apply.
   assert.equal(p1.lobby.onMessage(s, { t: 'g.infoReady' }).ok, true);
   await p1.persist.idle();
-  assert.equal(await p1.store.get(matchKey(code)), null, 'a finished match is not resumable');
+  const after = await p1.store.get(matchKey(code));
+  assert.ok(after, 'the room outlives its match');
+  assert.equal(after.inMatch, false, 'and says so');
+  assert.equal(after.state, null, 'with no engine state to re-enter');
+  assert.equal(after.seats[0].tokenHash, tokenHash(token), 'the seat still carries the durable identity');
+  assert.equal(after.matchNo, 1, 'and the room remembers the match it finished');
 });
 
 test('after a restart the presented token rebuilds the match lazily, on the first hello', async () => {
@@ -262,5 +268,144 @@ test('a PREP record survives a restart: claim → rehydrate rebuilds the exact m
   assert.equal(human.round.buys, before.round.buys);
   assert.equal(human.ready, before.ready, 'and the recorded Ready is still the recorded one');
   assert.equal(canon(captureProps(human)), canon(before), 'the whole seat is the recorded one after the prep reopened');
+  p2.lobby.shutdown('test');
+});
+
+// ---------------------------------------------------------------------------------------------------
+// P2: the ROOM is persisted too, not only the match
+// ---------------------------------------------------------------------------------------------------
+
+test('P2: a room whose match never started is persisted, and the returning player gets the room back', async () => {
+  const token = 'f'.repeat(32);
+  const stateDir = new MemoryStore({ log: quiet });
+  const p1 = newProcess({ store: stateDir });
+  const s1 = sessionOf(p1.registry, { name: 'Host', token });
+  assert.equal(p1.lobby.onMessage(s1, { t: 'room.create', mode: 'coop', difficulty: 'NORMAL' }).ok, true);
+  const code = p1.lobby.roomOf(s1).code;
+  await p1.persist.idle();
+
+  const rec = await p1.store.get(matchKey(code));
+  assert.ok(rec, 'the ROOM is persisted even though no match exists yet');
+  assert.equal(rec.inMatch, false, 'the record says there is no match to rebuild');
+  assert.equal(rec.state, null, 'and carries no engine state: there is no round to re-enter');
+  assert.equal(rec.host, s1.playerId, 'the host is part of the room');
+  assert.deepEqual(rec.seats.map((x) => x.playerId), [s1.playerId]);
+  assert.equal(rec.seats[0].tokenHash, tokenHash(token), 'the durable identity of the seat');
+  assert.equal(rec.seats[0].ready, false, 'and the seat state the lobby shows');
+
+  // the process CRASHES: no shutdown, no dispose of the room — only the record on disk survives
+  const p2 = newProcess({ store: stateDir });
+  const scan = await loadResumable(p2.store, { build: 'test-build', rulesHash: 'test-rules', perSecond: 0, log: quiet });
+  assert.deepEqual(scan.refused, [], 'a room record is resumable: it has nothing to re-enter, so nothing can be wrong');
+  assert.deepEqual(scan.records.map((r) => r.code), [code]);
+  p2.bridge.noteRefused(scan.refused);
+  p2.bridge.markResumable(scan.records);
+  assert.equal(p2.lobby.rooms.size, 0, 'NOTHING is rebuilt at boot: the returning player is the trigger');
+
+  const adopted = p2.lobby.adoptIdentity(token);
+  assert.deepEqual(adopted, { playerId: s1.playerId, roomCode: code }, 'the token proves the same seat and room');
+  const s2 = sessionOf(p2.registry, { playerId: adopted.playerId, name: 'Host', token });
+  s2.roomCode = adopted.roomCode;
+  p2.lobby.onHello(s2, { resumed: false, repeat: false });
+
+  const room = p2.lobby.rooms.get(code);
+  assert.ok(room, 'the hello rebuilt the room');
+  assert.equal(room.match, null, 'and NO match was invented for a room that never had one');
+  assert.equal(room.mode, 'coop');
+  assert.equal(room.difficulty, 'NORMAL');
+  assert.equal(room.hostId, s1.playerId, 'the recorded host is the host again');
+  assert.ok(room.seatOf(s1.playerId), 'the player is back on its own seat');
+  assert.equal(room.seatOf(s1.playerId).connected, true, 'and marked connected again');
+  assert.equal(s2.roomCode, code, 'the session stays in the room');
+  // the rebuilt room is a LIVE room, not a museum piece: it still takes messages
+  assert.equal(p2.lobby.onMessage(s2, { t: 'room.ready', ready: true }).ok, true, 'the room still accepts a ready');
+  assert.equal(room.seatOf(s1.playerId).ready, true);
+  p2.lobby.shutdown('test');
+});
+
+test('P2: after a match ends the ROOM is what a restart brings back, and the next match starts in it', async () => {
+  const token = 'g'.repeat(32);
+  const stateDir = new MemoryStore({ log: quiet });
+  const p1 = newProcess({ store: stateDir });
+  const s1 = sessionOf(p1.registry, { name: 'Host', token });
+  const code = startRoom(p1.lobby, s1);
+  await p1.persist.idle();
+  // the stub match ends as soon as its only human is ready: the room drops back to the lobby
+  assert.equal(p1.lobby.onMessage(s1, { t: 'g.infoReady' }).ok, true);
+  await p1.persist.idle();
+  const ended = await p1.store.get(matchKey(code));
+  assert.equal(ended.inMatch, false, 'the record is the ROOM again');
+  assert.equal(ended.matchNo, 1, 'and remembers the match that just ended');
+
+  // the process CRASHES between two matches: the room, not the finished match, is what survives
+  const p2 = newProcess({ store: stateDir });
+  const scan = await loadResumable(p2.store, { build: 'test-build', rulesHash: 'test-rules', perSecond: 0, log: quiet });
+  assert.deepEqual(scan.refused, []);
+  p2.bridge.markResumable(scan.records);
+  const adopted = p2.lobby.adoptIdentity(token);
+  assert.deepEqual(adopted, { playerId: s1.playerId, roomCode: code });
+  const s2 = sessionOf(p2.registry, { playerId: adopted.playerId, name: 'Host', token });
+  s2.roomCode = adopted.roomCode;
+  p2.lobby.onHello(s2, { resumed: false, repeat: false });
+
+  const room = p2.lobby.rooms.get(code);
+  assert.ok(room, 'the room came back');
+  assert.equal(room.match, null, 'the finished match did not');
+  assert.equal(room.hostId, s1.playerId);
+  assert.equal(room.matchCount, 1, 'the room continues after the match it finished');
+  // the restored room is a working room: the next match starts in it, numbered after the one that ended
+  assert.equal(p2.lobby.onMessage(s2, { t: 'room.start' }).ok, true, 'a new match starts in the restored room');
+  assert.ok(room.match, 'and it runs');
+  assert.equal(room.matchCount, 2, 'as the room\'s second match');
+  p2.lobby.shutdown('test');
+});
+
+test('P2: the room comes back with its host, its ready flags, its bots and its spectators', async () => {
+  const hostTok = 'h'.repeat(32);
+  const guestTok = 'i'.repeat(32);
+  const watchTok = 'j'.repeat(32);
+  const stateDir = new MemoryStore({ log: quiet });
+  const p1 = newProcess({ store: stateDir });
+  const host = sessionOf(p1.registry, { name: 'Host', token: hostTok });
+  assert.equal(p1.lobby.onMessage(host, { t: 'room.create', mode: 'coop', difficulty: 'NORMAL' }).ok, true);
+  const code = p1.lobby.roomOf(host).code;
+  const guest = sessionOf(p1.registry, { name: 'Guest', token: guestTok });
+  assert.equal(p1.lobby.onMessage(guest, { t: 'room.join', code }).ok, true);
+  assert.equal(p1.lobby.onMessage(host, { t: 'room.addBot' }).ok, true);
+  assert.equal(p1.lobby.onMessage(guest, { t: 'room.ready', ready: true }).ok, true);
+  const watcher = sessionOf(p1.registry, { name: 'Watcher', token: watchTok });
+  assert.equal(p1.lobby.onMessage(watcher, { t: 'room.spectate', code }).ok, true);
+  await p1.persist.idle();
+
+  const rec = await p1.store.get(matchKey(code));
+  const byId = new Map(rec.seats.map((s) => [s.playerId, s]));
+  assert.equal(rec.host, host.playerId, 'the host is part of the room');
+  assert.equal(byId.get(host.playerId).ready, false);
+  assert.equal(byId.get(guest.playerId).ready, true, 'and so is the ready flag of every seat');
+  assert.equal(byId.get(host.playerId).tokenHash, tokenHash(hostTok));
+  assert.equal(byId.get(guest.playerId).tokenHash, tokenHash(guestTok));
+  assert.deepEqual(rec.spectators.map((s) => s.playerId), [watcher.playerId], 'and the spectators');
+  assert.equal(rec.spectators[0].tokenHash, tokenHash(watchTok), 'with the identity that proves the seat on return');
+
+  // the process CRASHES; BOTH players and the spectator come back, each on its own token
+  const p2 = newProcess({ store: stateDir });
+  const scan = await loadResumable(p2.store, { build: 'test-build', rulesHash: 'test-rules', perSecond: 0, log: quiet });
+  assert.deepEqual(scan.refused, []);
+  p2.bridge.markResumable(scan.records);
+  for (const [tok, name, playerId] of [[hostTok, 'Host', host.playerId], [guestTok, 'Guest', guest.playerId], [watchTok, 'Watcher', watcher.playerId]]) {
+    const adopted = p2.lobby.adoptIdentity(tok);
+    assert.deepEqual(adopted, { playerId, roomCode: code }, `${name} claims its own place`);
+    const s = sessionOf(p2.registry, { playerId: adopted.playerId, name, token: tok });
+    s.roomCode = adopted.roomCode;
+    p2.lobby.onHello(s, { resumed: false, repeat: false });
+  }
+  const room = p2.lobby.rooms.get(code);
+  assert.ok(room, 'the room came back');
+  assert.equal(room.hostId, host.playerId, 'the recorded host is the host again');
+  assert.equal(room.activeHumans().length, 2, 'both humans are back on their seats');
+  assert.equal(room.seatOf(guest.playerId).ready, true, 'with the ready flag they left');
+  assert.equal(room.seats.filter((s) => s && s.isBot).length, 1, 'the AI teammate is back');
+  assert.equal(room.spectators.length, 1, 'and the spectator seat');
+  assert.equal(room.spectatorOf(watcher.playerId).connected, true, 'attached to the returning spectator');
   p2.lobby.shutdown('test');
 });

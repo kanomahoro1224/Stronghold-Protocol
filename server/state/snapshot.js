@@ -151,8 +151,9 @@ export function buildRecord(match, { build = null, rulesHash = null, now = Date.
     ended: !!match.ended,
     startedAt: Number.isFinite(match.startedAt) ? match.startedAt : null,
     /**
-     * v2: one human seat at the start of the match (Match.loneHuman). P2a only re-enters a lone-human match — a co-op
-     * seat depends on teammates that are not rebuilt — so the flag rides with the record for the gate to read.
+     * v2: whether the match started with exactly one human seat (Match.loneHuman). Since P1 this is a DESCRIPTION, not
+     * a gate: a co-op room re-enters from the same record, because every seat (each human's token hash, each bot's
+     * whole PlayerState) rides along here. It is kept for the record's readers and for the tests that pin the shape.
      */
     loneHuman: match.loneHuman != null ? !!match.loneHuman : rows.filter((p) => p && !p.isBot).length === 1,
     /**
@@ -168,6 +169,76 @@ export function buildRecord(match, { build = null, rulesHash = null, now = Date.
     state: captureRunState(match),
     build: build ?? null,
     rulesHash: rulesHash ?? null,
+    updatedAt: now,
+  };
+}
+
+/** The `phase` of a record whose room has no match running (P2). `resumePlan` never sees it: `state` is null. */
+export const ROOM_PHASE = 'LOBBY';
+
+/**
+ * The record of a room whose match is NOT running (P2) — the lobby state a restart has to bring back: the code, the
+ * mode and difficulty, the host, every seat (each human with its token hash, so the seat can be claimed again) and the
+ * spectators.
+ *
+ * It is the SAME shape as a match record on purpose: one key per room, one boot scan, one gate. Two fields carry the
+ * difference — `inMatch: false` and `state: null` — and they mean "rebuild the ROOM, never a match": there is no round
+ * to re-enter and no seat payload to apply, only seats to put back.
+ *
+ * @param {any} room a server/lobby.js Room
+ * @param {{ build?: string | null, rulesHash?: string | null, now?: number, tokenHashOf?: (playerId: string) => string | null }} [opts]
+ */
+export function buildRoomRecord(room, { build = null, rulesHash = null, now = Date.now(), tokenHashOf = null } = {}) {
+  const seats = [];
+  const players = [];
+  for (const s of Array.isArray(room?.seats) ? room.seats : []) {
+    if (!s) continue;
+    let hash = null;
+    if (!s.isBot && typeof tokenHashOf === 'function') {
+      try { hash = tokenHashOf(s.playerId) || null; } catch { hash = null; }
+    }
+    // `captureSeat` carries who sat where; the lobby's own `ready` flag is added on top of it (a match record gets
+    // that flag from the seat payload instead, so it is deliberately not part of the shared row shape).
+    seats.push({ ...captureSeat(s, hash), ready: !!s.ready });
+    // No match ran, so there is no per-seat payload (`props: null`) — but the seat's LOADOUT is room state, and it
+    // rides where `recordSeats` reads it from (the players rows), exactly as it does in a match record.
+    players.push({
+      playerId: s.playerId, seat: s.seat, name: s.name ?? '', isBot: !!s.isBot, left: !!s.left,
+      loadout: plainLoadout(s.loadout), props: null,
+    });
+  }
+  return {
+    version: RECORD_VERSION,
+    code: room?.code,
+    matchNo: Number.isInteger(room?.matchCount) ? room.matchCount : 0,
+    mode: room?.mode ?? null,
+    difficulty: room?.difficulty ?? null,
+    modeId: null,
+    seed: null,
+    round: 0,
+    phase: ROOM_PHASE,
+    inMatch: false,
+    /** no match ran, so there is no run state to restore and nothing is ended: the room is alive, its match is not */
+    state: null,
+    ended: false,
+    /** the host seat is part of the room: whoever created it (or inherited it) is the host again after a restart */
+    host: room?.hostId ?? null,
+    /**
+     * The spectator seats (P2): a spectator is a session too, so it carries the same token hash a player seat does and
+     * comes back to its own place. A MATCH record does not carry them — its subject is the match, and a spectator has
+     * no field in it (they re-join after a mid-match restart).
+     */
+    spectators: (Array.isArray(room?.spectators) ? room.spectators : []).map((s) => {
+      let hash = null;
+      if (typeof tokenHashOf === 'function') {
+        try { hash = tokenHashOf(s.playerId) || null; } catch { hash = null; }
+      }
+      return { playerId: s.playerId, name: s.name ?? '', tokenHash: hash };
+    }),
+    seats,
+    players,
+    build,
+    rulesHash,
     updatedAt: now,
   };
 }

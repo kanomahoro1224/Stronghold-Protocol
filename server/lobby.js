@@ -274,6 +274,27 @@ export class Lobby {
   }
 
   /**
+   * Hand a room whose match is NOT running to the state bridge (P2). Called from `broadcastState` — every room
+   * lifecycle edge ends there (create, join, leave, ready, difficulty, bots, kick, spectate, match end, disconnect)
+   * and the game loop never does, so this is the room's one write point.
+   *
+   * A room with a LIVE match is described by its MATCH record instead, which already carries the room's whole shape
+   * (seats, names, loadouts, token hashes), so this refuses while one runs: both write the same key and the match's
+   * document is the richer one. When the match ends its record is replaced by this one, in a single write.
+   * @param {Room} room @param {string} reason
+   */
+  noteRoom(room, reason) {
+    if (!this.state) return false;
+    if (!room || room.disposed) return false;
+    if (room.match && !room.match.ended && !room.match.disposed) return false;
+    void reason;
+    return this.state.noteRoom(room, {
+      tokenHashOf: (playerId) => tokenHash(this.registry.byId(playerId)?.token),
+      now: this.now(),
+    });
+  }
+
+  /**
    * Rebuild the persisted room + match of `session.roomCode` because a human just came back (P0/P1, lazy). Called
    * only from onHello: a returning player is the trigger, so a rehydrated match never exists while nobody is there to
    * play it (and `idlePauseMs` still freezes it if that player drops again).
@@ -290,18 +311,35 @@ export class Lobby {
       return false;
     }
     const room = new Room(rec.code, rec.mode, rec.difficulty, this.now());
+    // The room's own `ready` flag lives on the RECORD's seat rows (a match record keeps it in the seat payload instead,
+    // which applyRecord applies). `recordSeats` is the Match-constructor view and deliberately does not carry it.
+    const recordedSeat = new Map((Array.isArray(rec.seats) ? rec.seats : []).filter(Boolean).map((s) => [s.playerId, s]));
     for (const s of recordSeats(rec)) {
       room.seats[s.seat] = {
-        seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot, ready: true, connected: false, left: false,
+        seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot,
+        // P2: a ROOM record is the lobby's own state, so its `ready` flag and a departed seat are part of what comes
+        // back. A MATCH record overwrites both from its payloads (applyRecord), so the match path is unaffected.
+        ready: !!(recordedSeat.get(s.playerId) || {}).ready, connected: false, left: !!s.left,
         loadout: s.loadout || null,
       };
     }
+    // spectators are part of the room too (P2): they come back, and are re-attached by their own hello
+    if (Array.isArray(rec.spectators)) {
+      room.spectators = rec.spectators.map((s) => ({ playerId: s.playerId, name: s.name || '', connected: false }));
+    }
+    // the recorded host, when that seat is still in the room; otherwise the first human that is (host migration)
+    const recordedHost = rec.host ? room.seatOf(rec.host) : null;
     const first = room.activeHumans()[0] || null;
-    room.hostId = first ? first.playerId : null;
-    room.matchCount = Math.max(0, (rec.matchNo || 1) - 1);
+    room.hostId = recordedHost && !recordedHost.left ? recordedHost.playerId : (first ? first.playerId : null);
+    // a ROOM record counts FINISHED matches (`matchCount`), a MATCH record counts the one it is inside (`matchNo`)
+    room.matchCount = rec.inMatch === false ? (Number.isInteger(rec.matchNo) ? rec.matchNo : 0)
+      : Math.max(0, (rec.matchNo || 1) - 1);
     this.rooms.set(room.code, room);
     this.log.info(`[lobby] ${room.code} resuming match #${rec.matchNo ?? '?'} `
       + `(R${rec.round} ${rec.phase}, ${rec.mode}/${rec.difficulty}, seed ${rec.seed})`);
+    // P2: a room whose match was not running is rebuilt as a ROOM. There is no round to re-enter and no payload to
+    // apply — the returning players are back in their own lobby, on their own seats, with the flags they left.
+    if (rec.inMatch === false) return true;
     if (this.resumeMatch(room, rec)) return true;
     // the record could not be rebuilt: drop it so a returning player is not trapped in a room that cannot exist
     room.disposed = true;
@@ -1428,6 +1466,9 @@ export class Lobby {
 
   broadcastState(room) {
     if (room.disposed) return;
+    // P2: this is the room's single lifecycle edge — every room change ends here and the game loop never calls it —
+    // so it is also where the room's OWN record is kept in step (noteRoom skips a room whose match is running).
+    this.noteRoom(room, 'broadcast');
     const data = encode(room.toState());
     for (const session of this.memberSessions(room)) sendRaw(session.ws, data);
   }
