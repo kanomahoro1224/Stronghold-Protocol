@@ -635,7 +635,7 @@ export function LobbyScreen() {
                 ${online
                   ? html`<span>${roomMode === 'solo'
                       ? '创建后即可开始模拟'
-                      : searching ? '凑齐 4 名博士即刻开始，不足时 AI 队友补位' : '创建后可邀请好友或添加 AI 队友'}</span>`
+                      : searching ? '凑齐 4 名博士即刻开始，不足时 AI 队友补位' : '创建后可邀请好友加入'}</span>`
                   : html`<${Spinner} size="sm" label="CONNECTING" />`}
               </div>`}
         </div>

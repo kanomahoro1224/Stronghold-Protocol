@@ -1022,7 +1022,7 @@ describe('browser E2E against the real server', { skip: !ENABLED && 'needs Chrom
       await host.click('.diff-card', '险境模拟');
       await host.click('.create-box button', '创建同盟');
       const room = (await host.waitFor((s) => !!s.room?.code, 'room created')).room;
-      await host.click('button', '添加 AI 队友');
+      await .send('room.addBot');
       await guest.open(`?room=${room.code}`);
       await guest.shot('title');
       await guest.enter('阿米娅');

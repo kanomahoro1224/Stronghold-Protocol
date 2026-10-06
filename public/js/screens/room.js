@@ -1,14 +1,17 @@
 // Room screen (同盟等待室): 4 seat cards (avatar frame, name, ready state, AI badge, host crown),
-// host controls (difficulty picker, add/remove AI in co-op, start), invite code with copy code /
+// host controls (difficulty picker, remove AI in co-op, start), invite code with copy code /
 // copy link, ready toggle and leave.
 //
 // Start rule: only a 同盟匹配 alliance (the card that created the room, `pool: true`) starts through the pool — the
 // host's 开始匹配 puts it in its difficulty's pool (room.matchmake), whole groups from other searching alliances are
-// moved in while the seats fit, and a full alliance starts by itself; the host can also fill what is left with AI
-// (room.addBot), which starts it just the same. Nothing there needs 准备. A 同盟模拟 alliance keeps the old flow: its
-// host's 开始模拟 sends room.start at once, with the friends it invited and AI, never a stranger (owner report
-// 2026-10-06: 「现在的同盟模拟强制匹配队友了」). Solo rooms keep room.start, which needs every *other* human connected
-// and ready (the host's start counts as the host's ready).
+// moved in while the seats fit, and a full alliance starts by itself. Nothing there needs 准备. A 同盟模拟 alliance
+// keeps the old flow: its host's 开始模拟 sends room.start at once, with the friends it invited and AI, never a
+// stranger (owner report 2026-10-06: 「现在的同盟模拟强制匹配队友了」). Solo rooms keep room.start, which needs every
+// *other* human connected and ready (the host's start counts as the host's ready).
+// **An empty seat has no 添加 AI 队友 button any more (owner request 2026-10-06: 「把bot禁用掉，添加ai队友的按钮也禁掉」
+// → 「直接隐藏添加ai队友按钮就行」)**: the host can no longer fill the alliance with AI by hand, so the seat shows 空位
+// and the room waits for real doctors. `room.addBot` still exists on the server (the pool's own fill-up and every
+// protocol test use it) — only this button is gone, so a co-op room can never be AI-completed from the UI.
 // 开始匹配 keeps the old queue's 3 s 冷静期 (QUEUE_GRACE_MS, lobby.js armQueueJoin): the click only ARMS the search and
 // room.matchmake leaves after the grace, so 取消匹配 inside it takes the click back without ever touching the server —
 // otherwise a room that the pool can fill at once (or the host's own AI fill) started the match under the player's hand
@@ -91,10 +94,9 @@ export function inviteLink(code) {
  */
 export { copyText };
 
-function SeatCard({ seat, index, room, facts, myId, busy, onAddBot, onRemoveBot, onKick }) {
-  const coop = room.mode !== 'solo';
+function SeatCard({ seat, index, room, facts, myId, busy, onRemoveBot, onKick }) {
   if (!seat) {
-    const canAdd = coop && facts.isHost;
+    // An empty seat is nobody's to fill by hand any more: the 添加 AI 队友 button is gone (owner request 2026-10-06).
     return html`<article class="seat seat--empty" style=${`--seat-i:${index}`}>
       <header class="seat__head"><span class="seat__no num">P${index + 1}</span><${MicroLabel}>SEAT ${String(index + 1).padStart(2, '0')}<//></header>
       <div class="seat__art seat__art--empty">
@@ -103,9 +105,7 @@ function SeatCard({ seat, index, room, facts, myId, busy, onAddBot, onRemoveBot,
         <${MicroLabel}>AWAITING DOCTOR<//>
       </div>
       <footer class="seat__foot">
-        ${canAdd
-          ? html`<${Button} variant="secondary" size="sm" icon="robot" block=${true} loading=${busy === `add`} onClick=${onAddBot}>添加 AI 队友<//>`
-          : html`<span class="seat__state t-dim">空位</span>`}
+        <span class="seat__state t-dim">空位</span>
       </footer>
     </article>`;
   }
@@ -235,7 +235,7 @@ export function RoomScreen() {
   const toggleReady = () => run('ready', () => net.request('room.ready', { ready: !myReady }));
   // 同盟模拟: room.start, immediately (the friends in the room, nothing to take back). 同盟匹配: 开始匹配 behind the 3 s
   // 冷静期 — the click arms armQueueJoin and room.matchmake only leaves when the grace is out; 取消匹配 inside it
-  // cancels the armed entry and sends nothing at all. The host's AI fill (addBot) is untouched in both.
+  // cancels the armed entry and sends nothing at all.
   const start = () => {
     if (!pool) { run('start', () => net.request('room.start', {})); return; }
     if (armRef.current || room.searching) return;
@@ -255,7 +255,6 @@ export function RoomScreen() {
     if (armed) { armed.cancel(); armRef.current = null; setArming(false); return; } // inside the grace: nothing was sent
     run('cancel', () => net.request('room.matchmake', { on: false }));
   };
-  const addBot = () => run('add', () => net.request('room.addBot', {}));
   const removeBot = (seat) => run(`rm${seat}`, () => net.request('room.removeBot', { seat }));
   // the host removes a human before the match (community report #17): asked first; the player may join again. The
   // confirmed player's id goes along: if they left and someone else took the seat meanwhile, the server refuses it.
@@ -330,7 +329,7 @@ export function RoomScreen() {
 
     <main class=${`seats${coop ? '' : ' seats--solo'}`}>
       ${facts.seats.map((s, i) => html`<${SeatCard} key=${s ? `p${s.playerId}` : `e${i}`} seat=${s} index=${i} room=${room} facts=${facts}
-        myId=${me.playerId} busy=${busy} onAddBot=${addBot} onRemoveBot=${removeBot} onKick=${kick} />`)}
+        myId=${me.playerId} busy=${busy} onRemoveBot=${removeBot} onKick=${kick} />`)}
       ${coop ? null : html`<aside class="solo-brief brackets">
         <${MicroLabel} tone="mint">BRIEFING<//>
         <h2>${DIFFICULTY_NAMES[room.difficulty] || ''}<span class="num t-dim"> ${info.code}</span></h2>

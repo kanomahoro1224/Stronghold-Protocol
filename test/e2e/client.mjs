@@ -351,6 +351,14 @@ export class Client {
     return this.page.evaluate((t) => (globalThis.__e2eReq || []).filter((r) => !t || r[0] === t), t);
   }
 
+  /**
+   * Send a protocol frame from the page, without going through a button. The room's 添加 AI 队友 button is gone (owner
+   * request 2026-10-06), so the e2e suites that need AI teammates ask for them the way any other client would.
+   */
+  send(t, msg = {}) {
+    return this.page.evaluate((tt, mm) => globalThis.__SP__.net.request(tt, mm), t, msg);
+  }
+
   /** Geometry of the open direction wheel (client px): centre + half-diagonal, or null. */
   wheel() {
     return this.page.evaluate(() => {

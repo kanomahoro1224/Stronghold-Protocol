@@ -44,7 +44,7 @@ describe('spectator seats (community report #26, real server)', { skip: !ENABLED
       await host.click('.diff-card', '标准模拟');
       await host.click('.create-box button', '创建同盟');
       const room = (await host.waitFor((s) => !!s.room?.code, 'room created')).room;
-      await host.click('.seat--empty button', '添加 AI 队友');
+      await .send('room.addBot');
 
       // the lobby's 观战 entry
       await spec.open();
@@ -77,7 +77,7 @@ describe('spectator seats (community report #26, real server)', { skip: !ENABLED
       await host.page.waitForFunction(() => document.querySelectorAll('.specbar__who').length === 1, { timeout: 8000 });
 
       // the match: a spectator is no player to wait for
-      for (let i = 0; i < 4; i++) await host.click('button', '添加 AI 队友', { optional: true, timeout: 1500 });
+      for (let i = 0; i < 4; i++) await .send('room.addBot');
       await host.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
       for (const c of [host, spec]) await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);
       assert.match(await spec.page.evaluate(() => document.querySelector('.brief__foot .btn--primary')?.textContent || ''), /观战中/);
