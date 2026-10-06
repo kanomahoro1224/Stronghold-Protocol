@@ -898,7 +898,12 @@ export async function startServer(opts = {}) {
       // carry the real tag, `state.build` — only the comparison is skipped). The rulesHash half STAYS: a record is
       // never replayed against rules (data/*.json, shared/constants.js) it never saw.
       build: envFlag(process.env.SP_STATE_IGNORE_BUILD) ? null : state.build,
-      rulesHash: state.rulesHash, ttlMs: state.ttlMs, maxRecords: cap, budgetMs: 15_000, log,
+      rulesHash: state.rulesHash, ttlMs: state.ttlMs, maxRecords: cap,
+      // 60 s instead of 15 s: this scan runs AFTER `listen`, so it delays only the marks, never the serving — and with
+      // ~20 records/s a 15 s budget marked 293 of 815 records on the live box ("capped at 293 record(s), more remain on
+      // disk"): every record past the cap keeps its match unresumable, i.e. a restart still interrupts it. 100/s over
+      // 60 s covers 6000 records — past `maxRooms`, and reading these small JSON files is nothing next to a match.
+      perSecond: 100, budgetMs: 60_000, log,
     }).then(({ records, refused }) => {
       state.noteRefused(refused);
       state.markResumable(records, { maxRooms: cap });
