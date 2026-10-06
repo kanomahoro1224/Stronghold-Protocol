@@ -1,9 +1,9 @@
-// Real-time co-op over websockets with the REAL simulation: the production server + lobby + Match (RealScheduler,
-// real Battle, client-side combat — DESIGN §14), two scripted human clients (test/helpers/wsClient.js) that simulate
+﻿// Real-time co-op over websockets with the REAL simulation: the production server + lobby + Match (RealScheduler,
+// real Battle, client-side combat 鈥?DESIGN 搂14), two scripted human clients (test/helpers/wsClient.js) that simulate
 // their own battles from the b.start specs (test/match/simClient.js, the same sim the browser runs) and report
 // b.progress / b.result, and two AI teammates whose fields the server simulates, from the room to the prep of round 4.
-// Phase timers are scaled down and combat runs at 40× instead of 2× so the test takes seconds; everything else
-// (throttled views, drafts, 联防, settlement, observing a teammate after the own battle) is the real path.
+// Phase timers are scaled down and combat runs at 40脳 instead of 2脳 so the test takes seconds; everything else
+// (throttled views, drafts, 鑱旈槻, settlement, observing a teammate after the own battle) is the real path.
 // Clients act only on what the server tells them (m.public / m.private / b.start), like the browser UI.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,12 +24,22 @@ class RealtimeMatch extends Match {
 const errors = [];
 const log = { info() {}, warn() {}, debug() {}, error: (...a) => errors.push(a.map(String).join(' ')) };
 let srv = null;
+const servers = []; // every server this file started: `after` must close them ALL, or node never exits
 const clients = [];
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Start a server for one test (each test has its own seed) and remember it for the teardown. */
+async function serve(seed) {
+  srv = await startServer({ port: 0, host: '127.0.0.1', log, MatchClass: RealtimeMatch, seedFn: () => seed });
+  servers.push(srv);
+  return srv;
+}
+
 after(async () => {
   for (const c of clients) await c.terminate().catch(() => {});
-  if (srv) await srv.close();
+  // A single `srv` was not enough once a second test started one: the first server stayed open and `node --test`
+  // never exited (the whole suite hung with no failing test to show for it).
+  for (const s of servers) await s.close().catch(() => {});
 });
 
 async function player(name) {
@@ -49,7 +59,7 @@ for (let r = 12; r >= 9; r--) for (let c = 2; c <= 10; c++) TILES.push([r, c]);
 
 /**
  * A scripted human: confirms the briefing, drafts a band on its turn (passing it once when not last), picks the first free
- * 机变 card, and in every prep buys what it can afford, places chess on legal tiles, clears the temp slots and readies.
+ * 鏈哄彉 card, and in every prep buys what it can afford, places chess on legal tiles, clears the temp slots and readies.
  * During combat it watches a teammate's field. Stops when `until()` holds.
  */
 let abort = false;
@@ -99,7 +109,7 @@ async function driveLoop(c, { skipOnce = false, until, stats }) {
       done.add(`prep:${pub.round}`);
       await prep(c, stats);
     } else if (pub.phase === 'COMBAT' && !done.has(`watch:${pub.round}`)) {
-      // research 09 §3.1: a teammate's battle can be observed only after the own battle is over
+      // research 09 搂3.1: a teammate's battle can be observed only after the own battle is over
       const own = pub.fields.find((f) => f.players.includes(c.id));
       const other = pub.fields.find((f) => f.kind === 'normal' && !f.players.includes(c.id) && f.live);
       if (!other) continue;
@@ -160,7 +170,7 @@ async function prep(c, stats) {
 }
 
 test('real-time co-op over websockets with the real simulation: 2 humans + 2 AI from the room to the prep of round 4', { timeout: 120_000 }, async () => {
-  srv = await startServer({ port: 0, host: '127.0.0.1', log, MatchClass: RealtimeMatch, seedFn: () => 20260928 });
+  srv = await serve(20260928);
   const a = await player('Alpha');
   const b = await player('Bravo');
   assert.equal((await a.request({ t: 'room.create', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
@@ -173,7 +183,7 @@ test('real-time co-op over websockets with the real simulation: 2 humans + 2 AI 
 
   const reached = (c) => { const p = latest(c, 'm.public'); return !!p && ((p.phase === 'PREP' && p.round >= 4) || p.phase === 'RESULT' || p.round > 4); };
   const stats = { a: { skips: 0, skipTries: 0, bands: 0, bandTimeouts: 0, cards: 0, buys: 0, placed: 0, readies: 0, watches: [], refused: 0 }, b: { skips: 0, skipTries: 0, bands: 0, bandTimeouts: 0, cards: 0, buys: 0, placed: 0, readies: 0, watches: [], refused: 0 } };
-  // snapshot of the prep → combat transitions the clients saw
+  // snapshot of the prep 鈫?combat transitions the clients saw
   await Promise.all([
     drive(a, { skipOnce: true, until: () => reached(a), stats: stats.a }),
     drive(b, { skipOnce: true, until: () => reached(b), stats: stats.b }),
@@ -191,15 +201,15 @@ test('real-time co-op over websockets with the real simulation: 2 humans + 2 AI 
 
   assert.ok(stats.a.skipTries + stats.b.skipTries >= 1, 'a human tried to pass its band-draft turn (g.bandSkip)');
   for (const [c, s] of [[a, stats.a], [b, stats.b]]) {
-    assert.equal(s.bands + s.bandTimeouts, 1, `${c.id} drafted a band (or its turn timed out → 华法琳)`);
+    assert.equal(s.bands + s.bandTimeouts, 1, `${c.id} drafted a band (or its turn timed out 鈫?鍗庢硶鐞?`);
     assert.ok(s.buys >= 3 && s.placed >= 3 && s.readies >= 3, `${c.id} played its preps: ${JSON.stringify(s)}`);
     // the SP round (NORMAL R3) gave every alive player a card
-    assert.equal(s.cards, 1, `${c.id} picked one 机变 card`);
+    assert.equal(s.cards, 1, `${c.id} picked one 鏈哄彉 card`);
     const pubs = c.log.filter((x) => x.t === 'm.public');
     const phases = new Set(pubs.map((x) => x.phase));
     // (sub-100 ms presentation phases at this timer scale may fall between two throttled m.public frames)
     for (const ph of ['INFO_CHECK', 'BAND_DRAFT', 'SP_DRAFT', 'PREP', 'COMBAT']) assert.ok(phases.has(ph), `${c.id} saw ${ph}`);
-    // m.public: throttled to ≤ 10/s (a 100 ms gap, small timer jitter tolerated)
+    // m.public: throttled to 鈮?10/s (a 100 ms gap, small timer jitter tolerated)
     for (let i = 1; i < pubs.length; i++) assert.ok(pubs[i].serverNow - pubs[i - 1].serverNow >= 95, `m.public ${pubs[i].serverNow - pubs[i - 1].serverNow} ms apart`);
     const priv = latest(c, 'm.private');
     assert.equal(priv.hand.length, 10);
@@ -238,7 +248,7 @@ test('real-time co-op over websockets with the real simulation: 2 humans + 2 AI 
 });
 
 test('real-time co-op: permanent g.leave during client combat hands the field to the server and advances the round', { timeout: 30_000 }, async () => {
-  srv = await startServer({ port: 0, host: '127.0.0.1', log, MatchClass: RealtimeMatch, seedFn: () => 20261006 });
+  srv = await serve(20261006);
   const a = await player('Alpha');
   const b = await player('Bravo');
   assert.equal((await a.request({ t: 'room.create', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');

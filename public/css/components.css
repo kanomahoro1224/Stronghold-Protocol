@@ -997,6 +997,17 @@
   --status-glow: rgba(255, 185, 46, .16);
   --status-fg: #ffc14d;
 }
+/* 维护公告全白字（运营要求 2026-10-06）：badge 原本是琥珀底 + 深色字，detail 行是 --text-lo 灰字，运营要求
+   「全部为白字，不要有灰色字体」，所以维护公告的文字、badge 与图标都改成白色（badge 用半透明白底承载白字）。
+   其它 tone 不动：紧急/公告的配色是它们自己的语义。 */
+.status-banner--maintenance .status-banner__badge {
+  color: #fff;
+  background: rgba(255, 255, 255, .16);
+  border: 1px solid rgba(255, 255, 255, .4);
+}
+.status-banner--maintenance .status-banner__text,
+.status-banner--maintenance .status-banner__sub { color: #fff; }
+.status-banner--maintenance .icon { color: #fff; }
 .status-banner--info {
   --status-bg: rgba(10, 30, 24, .95);
   --status-bd: var(--mint-a35);

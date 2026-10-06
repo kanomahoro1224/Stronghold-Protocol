@@ -2913,7 +2913,23 @@ export class Match {
       f.poolJob = null;
       f.job = null;
       f.noPool = true;
-      this._runOnServer(f, 'worker-lost');
+      // A callback that throws here would propagate into the pool's message handler, so the fallback is guarded — and
+      // it must not be able to strand the field either: whatever happens, this field ends up with a result and
+      // `_fieldDone`, because the phase above is waiting on exactly that and has no timer of its own any more.
+      // `running` (a job was created) is the difference between "the fallback will report" — on a real host its slices
+      // are still pending, so `f.result` is legitimately null here — and "the fallback never started".
+      let running = false;
+      try {
+        this._runOnServer(f, 'worker-lost');
+        running = !!f.job;
+      } catch (err) {
+        this.reportError(`field ${f.fieldId} worker fallback`, err);
+      }
+      if (!running && !f.done && f.result == null) {
+        f.result = syntheticResult(f.players);
+        f.resultSource = 'server';
+        this._fieldDone(f);
+      }
     };
     f.poolJob = handle;
     job = pool.run(f.spec, {

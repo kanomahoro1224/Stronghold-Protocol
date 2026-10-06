@@ -73,3 +73,16 @@ test('a worker job that is lost must be re-run on this thread, not strand the ph
   assert.ok(throughRound(h), stallReport(h, m, f, 'lost job'));
   m.dispose();
 });
+
+test('even a fallback that itself fails must settle the field and end the phase', () => {
+  const { h, m, f } = takeover();
+  const opts = handToPool(m, f);
+  // the in-thread fallback blows up (a spec it cannot build, a bug in the takeover path): the field still has to end,
+  // because the phase has no timer left to rescue it
+  m._runOnServer = () => { throw new Error('fallback exploded'); };
+  opts.onError(new Error('worker died'));
+  assert.ok(f.result, 'the field got a result anyway');
+  assert.equal(f.done, true, 'and it is done, so the phase can move on');
+  assert.ok(throughRound(h), stallReport(h, m, f, 'failed fallback'));
+  m.dispose();
+});
