@@ -236,3 +236,45 @@ test('real-time co-op over websockets with the real simulation: 2 humans + 2 AI 
   assert.equal(m.outcome.reason, 'abandoned');
   assert.deepEqual(errors, []);
 });
+
+test('real-time co-op: permanent g.leave during client combat hands the field to the server and advances the round', { timeout: 30_000 }, async () => {
+  srv = await startServer({ port: 0, host: '127.0.0.1', log, MatchClass: RealtimeMatch, seedFn: () => 20261006 });
+  const a = await player('Alpha');
+  const b = await player('Bravo');
+  assert.equal((await a.request({ t: 'room.create', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
+  const st = await a.waitFor('room.state');
+  assert.equal((await b.request({ t: 'room.join', code: st.code })).t, 'ok');
+  assert.equal((await a.request({ t: 'room.addBot' })).t, 'ok');
+  assert.equal((await b.request({ t: 'room.ready', ready: true })).t, 'ok');
+  assert.equal((await a.request({ t: 'room.start' })).t, 'ok');
+  for (const c of [a, b]) await c.waitFor('m.public', (p) => p.phase === 'INFO_CHECK');
+  assert.equal((await a.request({ t: 'g.infoReady' })).t, 'ok');
+  assert.equal((await b.request({ t: 'g.infoReady' })).t, 'ok');
+  const pendingBands = new Map([a, b].map((c) => [c.id, c]));
+  while (pendingBands.size) {
+    const draft = await a.waitFor('m.public', (p) => p.phase === 'BAND_DRAFT' && pendingBands.has(p.draft?.turn), 10000);
+    const band = Object.values(getData().bands).find((x) => (!Array.isArray(x.modeTypeList) || x.modeTypeList.includes('MULTI')) && !Object.values(draft.draft.picks || {}).includes(x.bandId));
+    assert.ok(band);
+    assert.equal((await pendingBands.get(draft.draft.turn).request({ t: 'g.band', bandId: band.bandId })).t, 'ok');
+    pendingBands.delete(draft.draft.turn);
+  }
+  await a.waitFor('m.public', (p) => p.phase === 'PREP' && p.round === 1, 10000);
+  // Keep the leaving authority's field live long enough to exercise the real g.leave takeover path.
+  a.sim.o.mute = true;
+  assert.equal((await a.request({ t: 'g.ready', ready: true })).t, 'ok');
+  assert.equal((await b.request({ t: 'g.ready', ready: true })).t, 'ok');
+  const start = await a.waitFor('b.start', (x) => x.authoritative, 10000);
+  const m = RealtimeMatch.last;
+  const f = m.fields.find((x) => x.battleId === start.battleId);
+  assert.ok(f && f.authority === a.id, 'the leaving websocket owns the live field');
+  assert.equal((await a.request({ t: 'g.leave' })).t, 'ok');
+  assert.equal(f.mode, 'server');
+  assert.equal(m.players.get(a.id).left, true);
+  assert.equal(m.players.get(a.id).alive, false);
+  await b.waitFor('m.public', (p) => p.phase === 'PREP' && p.round === 2, 15000);
+  assert.equal(m.phase, 'PREP');
+  assert.equal(m.round, 2);
+  assert.equal(m.errorCount, 0, JSON.stringify(m.errors.slice(0, 3)));
+  assert.deepEqual(errors, []);
+  assert.equal((await b.request({ t: 'g.leave' })).t, 'ok');
+});

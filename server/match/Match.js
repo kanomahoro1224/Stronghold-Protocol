@@ -2796,8 +2796,9 @@ export class Match {
     // an injected BattleClass always stay in-thread — and boss/hidden fields returned above because they share the
     // boss pool object with the main thread, which cannot cross a worker boundary. A FROZEN match never takes a worker:
     // the in-thread chain parks itself (`if (this.paused) f.rearmSlice = true` below) and `_unfreeze` owes it the
-    // first slice, so handing the pool a job it would immediately pause only wastes a worker's data load.
-    if (f.cc && !this.paused && !this.sched.virtual && Number.isFinite(this.headlessSliceMs) && this.BattleClass === Battle) {
+    // first slice, so handing the pool a job it would immediately pause only wastes a worker's data load. A field the
+    // pool already lost once (`f.noPool`, see `_runFieldInPool`) never goes back: the retry stays on this thread.
+    if (f.cc && !f.noPool && !this.paused && !this.sched.virtual && Number.isFinite(this.headlessSliceMs) && this.BattleClass === Battle) {
       const pool = sharedSimPool();
       if (pool.enabled && this._runFieldInPool(f, pool)) { this._armProgressTicker(); return; }
     }
@@ -2874,8 +2875,23 @@ export class Match {
     const timeline = [];
     f.timeline = timeline;
     let job = null;
+    // The ownership token is this stable wrapper, created BEFORE `pool.run()` and compared by identity in the guards
+    // below. It used to be built *after* the call, from the handle `run()` returned, while the guards compared
+    // `f.poolJob` (the wrapper) against that handle — two different objects, so `f.poolJob !== job` was always true,
+    // `onDone` always returned early and a pooled field never took its result: the worker finished the battle, the
+    // phase went on waiting for that field and every countdown sat at 0 (owner report 2026-10-06
+    // 「只要有人退了，整个游戏就无法推进（时间到0无法继续下一回合）」). A departure is what puts a field here:
+    // `_authorityLost` hands the leaver's field to `_runOnServer`, which prefers the pool in production.
+    const handle = {
+      pause: () => job?.pause(),
+      // A pause hands the worker back (simPool `pause()`), so a resume re-`start`s the job from its spec and its
+      // progress frames begin at t = 0 again: drop the samples already reported, or the field's timeline rewinds for
+      // the UI. The result is unaffected — the sim is a pure function of the spec, so it is the same run as before.
+      resume: () => { timeline.length = 0; job?.resume(); },
+      cancel: () => job?.cancel(),
+    };
     const onDone = (run) => {
-      if (f.poolJob !== job || f.done) return;
+      if (f.poolJob !== handle || f.done) return;
       f.poolJob = null;
       f.job = null;
       f.battle = null; // the battle lived in the worker; nothing on this thread has to be released
@@ -2886,17 +2902,27 @@ export class Match {
       f.endGt = Number(run.time) || Number(f.timeline[f.timeline.length - 1]?.gt) || 0;
       this._armRelease(f);
     };
+    // simPool's contract: `onError` is delivered once and is NEVER followed by `onDone` (a job error, a dead worker, a
+    // degraded pool). Reporting it and stopping there left the field with no result and nothing armed — the takeover
+    // above already cancelled the field's own deadline — so the phase waited on it forever. Run it on this thread
+    // instead, exactly like a pool that refused the job at hand-over; `noPool` keeps `_runOnServer` from handing the
+    // same spec straight back to the pool that just lost it.
+    const onError = (e) => {
+      this.reportError(`field ${f.fieldId} worker`, e);
+      if (f.poolJob !== handle || f.done) return;
+      f.poolJob = null;
+      f.job = null;
+      f.noPool = true;
+      this._runOnServer(f, 'worker-lost');
+    };
+    f.poolJob = handle;
     job = pool.run(f.spec, {
       players: f.players,
       onProgress: (s) => { if (Array.isArray(s?.timeline) && s.timeline.length) timeline.push(...s.timeline); },
       onDone,
-      onError: (e) => this.reportError(`field ${f.fieldId} worker`, e),
+      onError,
     });
     if (!job) { f.poolJob = null; return false; }
-    // A pause hands the worker back (simPool `pause()`), so a resume re-`start`s the job from its spec and its progress
-    // frames begin at t = 0 again: drop the samples already reported, or the field's timeline rewinds for the UI. The
-    // result is unaffected — the sim is a pure function of the spec, so it is the same run it was before the freeze.
-    f.poolJob = { pause: () => job.pause(), resume: () => { timeline.length = 0; job.resume(); }, cancel: () => job.cancel() };
     f.job = job; // the guards elsewhere compare f.job identity; a pool job settles once, like a HeadlessJob
     f.battle = null;
     if (f.sliceTimer) { this.cancel(f.sliceTimer); f.sliceTimer = null; }
