@@ -7,7 +7,7 @@
 //
 // The switch is `SP_SIM_WORKERS`: unset / `0` / unparseable means the pool is never created, nothing is spawned and
 // every field runs exactly as it does today — that is the default and the rollback. The value is read once by the
-// caller (as Match reads SP_IDLE_PAUSE_MS / SP_BOT_REHEARSAL) and parsed by parseSimWorkers below; no other module
+// caller (as Match reads SP_BOT_REHEARSAL) and parsed by parseSimWorkers below; no other module
 // reads it. Enable with `SP_SIM_WORKERS=N`, N clamped to one less than the cores available so the main thread keeps a
 // core of its own.
 //

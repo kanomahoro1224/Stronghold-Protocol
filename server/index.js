@@ -777,7 +777,7 @@ export async function startServer(opts = {}) {
   const registry = new SessionRegistry({ reconnectWindowMs: netOptions.reconnectWindowMs ?? NET_DEFAULTS.reconnectWindowMs });
   const lobbyOptions = {};
   for (const k of ['lobbyGraceMs', 'maxRooms', 'maxRoomsPerAddr', 'maxMatchesPerAddr', 'resyncMinGapMs', 'soloReconnectWindowMs',
-    'matchQueueMax', 'matchQueueMaxPerAddr', 'idlePauseMs', 'idleCheckMs']) {
+    'matchQueueMax', 'matchQueueMaxPerAddr']) {
     if (opts[k] != null) lobbyOptions[k] = opts[k];
   }
   // The tag is per process (see buildTag): read the browser runtime once, here, not on every /healthz. It is also the

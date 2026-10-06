@@ -51,12 +51,11 @@ function newProcess({
 /**
  * The REAL engine on a virtual clock (what test/match/harness.js builds for the engine suites): the lobby constructs
  * it like production does, so what is exercised below is the platform's own resume path and not a stub of it.
- * `idlePauseMs: 0` keeps a match whose human is briefly absent from freezing mid-test.
  * @param {VirtualScheduler} sched
  */
 const engineClass = (sched) => class extends Match {
   constructor(o) {
-    super({ ...o, scheduler: sched, BattleClass: FakeBattle, botRehearsal: 0, clientCombat: false, idlePauseMs: 0 });
+    super({ ...o, scheduler: sched, BattleClass: FakeBattle, botRehearsal: 0, clientCombat: false });
   }
 };
 
@@ -207,7 +206,7 @@ test('a PREP record survives a restart: claim → rehydrate rebuilds the exact m
   const token = 'e'.repeat(32);
   const stateDir = new MemoryStore({ log: quiet }); // the state directory both processes share
   const sched1 = new VirtualScheduler();
-  const p1 = newProcess({ store: stateDir, MatchClass: engineClass(sched1), options: { idlePauseMs: 0 } });
+  const p1 = newProcess({ store: stateDir, MatchClass: engineClass(sched1), options: {} });
   const s1 = sessionOf(p1.registry, { name: 'Host', token });
   const code = startRoom(p1.lobby, s1);
   const m1 = p1.lobby.rooms.get(code).match;
@@ -233,7 +232,7 @@ test('a PREP record survives a restart: claim → rehydrate rebuilds the exact m
 
   // the NEW process: boot scan (the PREP record is taken, not refused), claim(token), first hello rehydrates
   const sched2 = new VirtualScheduler();
-  const p2 = newProcess({ store: stateDir, MatchClass: engineClass(sched2), options: { idlePauseMs: 0 } });
+  const p2 = newProcess({ store: stateDir, MatchClass: engineClass(sched2), options: {} });
   const scan = await loadResumable(p2.store, { build: 'test-build', rulesHash: 'test-rules', perSecond: 0, log: quiet });
   assert.deepEqual(scan.refused, [], 'nothing is refused: the PREP record is resumable');
   assert.deepEqual(scan.records.map((r) => r.code), [code]);

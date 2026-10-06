@@ -100,10 +100,6 @@ export const LOBBY_DEFAULTS = Object.freeze({
   // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §23)
   matchQueueMaxPerAddr: 8,      // queue entries from one client network at once (0 = unlimited)
   matchQueueMax: 128,           // entries per difficulty pool
-  // Idle suspension (DESIGN §23, P1b): freeze a match whose humans are all disconnected — its takeover fields burn
-  // a core for nobody. 0 disables it (Match.IDLE_PAUSE_MS / IDLE_CHECK_MS are the shared defaults).
-  idlePauseMs: null,
-  idleCheckMs: null,
 });
 
 /** Official `singleReconnectTime` (s) when the data lacks it (constData, research 01 §1). */
@@ -319,7 +315,7 @@ export class Lobby {
   /**
    * Rebuild the persisted room + match of `session.roomCode` because a human just came back (P0/P1, lazy). Called
    * only from onHello: a returning player is the trigger, so a rehydrated match never exists while nobody is there to
-   * play it (and `idlePauseMs` still freezes it if that player drops again).
+   * play it.
    * @param {import('./net.js').Session} session
    * @returns {boolean} true when the caller may continue down the normal resume path
    */
@@ -392,8 +388,6 @@ export class Lobby {
         spectators: room.spectators.map((s) => s.playerId),
         seed: rec.seed,
         matchNo: rec.matchNo || room.matchCount + 1,
-        idlePauseMs: this.opts.idlePauseMs,
-        idleCheckMs: this.opts.idleCheckMs,
         data: this.safeData(),
         log: this.log,
         now: this.now,
@@ -435,8 +429,9 @@ export class Lobby {
       if (r.match) {
         matches++;
         // The server's own simulation load: battles it steps on its single core (DESIGN §23). `fieldsIdle` is the
-        // subset nobody is watching — a match whose humans are all disconnected still steps their takeover fields
-        // until the idle suspension (P1b) freezes it, which `paused` counts. `fieldsInThread` is the part of `fields`
+        // subset nobody is watching — a match whose humans are all disconnected still steps their takeover fields for
+        // the reconnect window (nothing suspends it any more; the box pays for that, deliberately). `paused` counts
+        // the matches frozen by the owner's solo pause. `fieldsInThread` is the part of `fields`
         // the event loop itself advances (client-side combat: every bot seat / takeover field is a HeadlessJob),
         // `fieldsPooled` the part that runs in a worker (P2).
         if (typeof r.match.hostedFields === 'function') {
@@ -1201,9 +1196,6 @@ export class Lobby {
         seed,
         // the room's match number: with the seed it keeps battleIds unique across the room's matches (DESIGN §14)
         matchNo: room.matchCount + 1,
-        // idle suspension (DESIGN §23, P1b); null lets Match fall back to SP_IDLE_PAUSE_MS / its defaults
-        idlePauseMs: this.opts.idlePauseMs,
-        idleCheckMs: this.opts.idleCheckMs,
         data: this.safeData(),
         log: this.log,
         now: this.now,
