@@ -285,6 +285,14 @@
   border-radius: 6px;
 }
 .lobby-tip__text { white-space: nowrap; }
+/* 粥友群 sits beside the 分线 link in the same row; the separator keeps them readable when it wraps */
+.lobby-tip__sep { color: var(--line-2, #3e4b45); }
+.lobby-tip__num {
+  color: var(--mint-400, #59f4ca);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .lobby-tip__link {
   color: var(--mint-400, #59f4ca);
   font-weight: 600;

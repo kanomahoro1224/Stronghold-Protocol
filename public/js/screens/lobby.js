@@ -581,6 +581,9 @@ export function LobbyScreen() {
             rel="noopener noreferrer"
             title="联机用分线：game.kafuno.cn"
           >game.kafuno.cn</a>
+          <span class="lobby-tip__sep" aria-hidden="true">·</span>
+          <span class="lobby-tip__text">粥友群：</span>
+          <b class="lobby-tip__num" title="粥友群：933064601">933064601</b>
         </div>
         ${showPanel
           ? html`<${MatchPanel} q=${panelQ} start=${panelStart} busy=${busy} onCancel=${cancelSearch} />`
