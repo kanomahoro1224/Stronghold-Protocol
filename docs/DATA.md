@@ -1,3 +1,7 @@
+# 2026-10-06 Boss 血量规则更新
+
+当前规则：独立模拟使用 `bloodPoint[difficulty]`；同盟模拟使用该值乘以每个 Boss 回合开战时存活且未撤离的参战人数。AI 和掉线托管仍计入。第 14、15 回合共用此规则，小怪不乘人数。以下旧规则记载中固定联机血量及单人四分之一倍率均已被本规则取代。
+
 # DATA.md — generated game data (`data/*.json`)
 
 All files in `data/` except `data/assets.json` are produced by **`node tools/build-data.mjs`** (task F1) from the
