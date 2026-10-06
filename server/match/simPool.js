@@ -17,8 +17,11 @@
 //   * `run()` returns null when the pool cannot take the job (disabled, degraded, no live worker) — the caller keeps
 //     its in-thread HeadlessJob path for exactly that case.
 //
-// The worker advances only when it is granted a slice, so `pause()` is simply "stop granting": a paused match costs
-// no worker CPU, and `resume()` picks the same job up where it stood. The main thread owns the clock throughout.
+// The worker advances only when it is granted a slice, so `pause()` is "stop granting" — but it ALSO hands the worker
+// back to the queue: a paused job that kept its slot blocked every field behind it (with the production `SP_SIM_WORKERS=1`
+// that is the whole pool), which is how a live match's 联防 field hung at a 0 countdown on 2026-10-05. `resume()`
+// re-queues the job in front, which re-`start`s it from its spec — a pure function of the spec, so the result and the
+// digest are the ones the unpaused run would have produced. The main thread owns the clock throughout.
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -120,12 +123,33 @@ export function createSimPool({ size = 0, log = console, workerFile = null, slic
     return slot;
   };
 
+  /**
+   * Give a job's worker back without settling it (pause / cancel). The worker is told to forget the job — messages are
+   * ordered per worker, so the `start` of whatever takes the slot next is built after that cancel — and the slot is
+   * freed for the queue at once. `resume()` re-queues the job, which re-`start`s it from its spec; the sim is a pure
+   * function of the spec (simHost header: no wall clock, no RNG), so the result and the digest come back exactly as if
+   * the job had never been parked.
+   */
+  const detach = (job) => {
+    const slot = job.slot;
+    if (!slot) return false;
+    try { slot.worker.postMessage({ t: 'cancel', jobId: job.id }); } catch { /* the worker is gone */ }
+    if (slot.job === job) { slot.job = null; unrefIdle(slot.worker); }
+    job.slot = null;
+    return true;
+  };
+
   const assign = () => {
-    while (queue.length) {
+    // One bounded pass over the jobs queued right now. A paused job is NEVER handed a worker: with `SP_SIM_WORKERS=1`
+    // (the 2-vCPU production box) a frozen match's job used to keep the only slot, so every field queued behind it —
+    // the 联防 field a live match handed over, 2026-10-05 — waited for a match nobody was connected to. It stays
+    // queued (or is re-queued by `resume()`), and `release()` calls this again when a slot frees.
+    for (let n = queue.length; n > 0; n--) {
       const slot = slots.find((s) => s.alive && !s.job);
       if (!slot) return;
       const job = queue.shift();
       if (job.settled || job.cancelled) continue;
+      if (job.paused) { queue.push(job); continue; }
       slot.job = job;
       job.slot = slot;
       refBusy(slot.worker);
@@ -284,12 +308,23 @@ export function createSimPool({ size = 0, log = console, workerFile = null, slic
       jobs++;
       assign();
       return {
-        /** Stop granting slices (and stop reporting): the worker ends up idle, holding its slot until resume(). */
-        pause() { if (!job.settled && !job.cancelled) job.paused = true; },
+        /**
+         * Stop granting slices AND give the worker back: a paused job must never hold a slot, or a frozen match (idle
+         * suspension, ~125 of them in a 3-hour production window) blocks every field queued behind it — including the
+         * 联防 field of a live match, whose phase then never ends and whose countdown sits at 0.
+         */
+        pause() {
+          if (job.settled || job.cancelled || job.paused) return;
+          job.paused = true;
+          if (detach(job)) assign();
+        },
         resume() {
           if (job.settled || job.cancelled || !job.paused) return;
           job.paused = false;
-          pump(job);
+          if (job.slot) { pump(job); return; }
+          // no slot: the pause handed it back. In front of the queue — it was already running before the freeze.
+          if (!queue.includes(job)) queue.unshift(job);
+          assign();
         },
         /** Abandon the job: no further callbacks, and the worker is freed for the next queued one. */
         cancel() {
@@ -300,14 +335,7 @@ export function createSimPool({ size = 0, log = console, workerFile = null, slic
           clearTimer(job);
           const qi = queue.indexOf(job);
           if (qi >= 0) queue.splice(qi, 1);
-          const slot = job.slot;
-          if (slot) {
-            // the worker may be mid-slice: `cancel` waits its turn on the worker's own queue, then drops the job
-            try { slot.worker.postMessage({ t: 'cancel', jobId: job.id }); } catch { /* the worker is gone */ }
-            if (slot.job === job) { slot.job = null; unrefIdle(slot.worker); }
-            job.slot = null;
-            assign();
-          }
+          if (detach(job)) assign();
         },
       };
     },

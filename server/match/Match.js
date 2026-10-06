@@ -2733,8 +2733,10 @@ export class Match {
     // P2 (SP_SIM_WORKERS > 0, off by default): a field nobody is watching may be simulated in a worker instead of on
     // the event loop. Only a real-scheduler match with the stock Battle is eligible — virtual time (tests, tools) and
     // an injected BattleClass always stay in-thread — and boss/hidden fields returned above because they share the
-    // boss pool object with the main thread, which cannot cross a worker boundary.
-    if (f.cc && !this.sched.virtual && Number.isFinite(this.headlessSliceMs) && this.BattleClass === Battle) {
+    // boss pool object with the main thread, which cannot cross a worker boundary. A FROZEN match never takes a worker:
+    // the in-thread chain parks itself (`if (this.paused) f.rearmSlice = true` below) and `_unfreeze` owes it the
+    // first slice, so handing the pool a job it would immediately pause only wastes a worker's data load.
+    if (f.cc && !this.paused && !this.sched.virtual && Number.isFinite(this.headlessSliceMs) && this.BattleClass === Battle) {
       const pool = sharedSimPool();
       if (pool.enabled && this._runFieldInPool(f, pool)) { this._armProgressTicker(); return; }
     }
@@ -2830,7 +2832,10 @@ export class Match {
       onError: (e) => this.reportError(`field ${f.fieldId} worker`, e),
     });
     if (!job) { f.poolJob = null; return false; }
-    f.poolJob = job;
+    // A pause hands the worker back (simPool `pause()`), so a resume re-`start`s the job from its spec and its progress
+    // frames begin at t = 0 again: drop the samples already reported, or the field's timeline rewinds for the UI. The
+    // result is unaffected — the sim is a pure function of the spec, so it is the same run it was before the freeze.
+    f.poolJob = { pause: () => job.pause(), resume: () => { timeline.length = 0; job.resume(); }, cancel: () => job.cancel() };
     f.job = job; // the guards elsewhere compare f.job identity; a pool job settles once, like a HeadlessJob
     f.battle = null;
     if (f.sliceTimer) { this.cancel(f.sliceTimer); f.sliceTimer = null; }

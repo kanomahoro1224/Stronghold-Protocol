@@ -197,9 +197,89 @@ test('pause() stops the worker (no progress, no CPU) and resume() lets the same 
     // concatenating them is a prefix of the finished timeline — never a re-send of the samples already reported.
     const deltas = seen.progress.flatMap((p) => (Array.isArray(p.timeline) ? p.timeline : []));
     const whole = seen.done[0].timeline;
-    assert.ok(deltas.length > 0 && deltas.length <= whole.length, `progress samples (${deltas.length}) fit the whole timeline (${whole.length})`);
-    assert.deepEqual(deltas, whole.slice(0, deltas.length), 'progress samples concatenate to the finished timeline');
+    assert.ok(deltas.length > 0, `progress samples were reported (${deltas.length})`);
+    // pause() hands the worker back (simPool), so the resumed job re-`start`s from its spec and its frames begin at
+    // t = 0 again: `deltas` is not one prefix any more, it is the abandoned run's samples followed by the new run's.
+    // The caller drops its accumulated timeline on resume for exactly this reason (Match._runFieldInPool). Both runs
+    // are the same pure function of the same spec, so the samples agree — that is what makes the restart safe.
+    const restart = deltas.findIndex((s, i) => i > 0 && Number(s[0]) === 0);
+    assert.ok(restart > 0, `the resumed run reports from t = 0 again (${JSON.stringify(deltas.slice(0, 3))})`);
+    const first = deltas.slice(0, restart);
+    const second = deltas.slice(restart);
+    assert.deepEqual(second, whole.slice(0, second.length), 'the resumed run reports the whole run from t = 0');
+    assert.deepEqual(first, second.slice(0, first.length), 'the abandoned run had reported the same prefix (deterministic)');
     assert.ok(Number(seen.done[0].time) > 0, 'the battle end clock came back');
+  } finally {
+    await pool.close();
+  }
+});
+
+// Community report (2026-10-05): in a co-op match the 联防 phase ran its countdown to 0 and the match never advanced.
+// Production evidence: `/healthz` showed fieldsPooled 11 with SP_SIM_WORKERS=1 and 8 paused (idle-suspended) matches —
+// a frozen match's paused pool job KEEPS its worker (`pause()` only stops granting slices) and `assign()` only ever
+// looks for a slot whose `job` is null, so every field queued behind a frozen match waits for it to wake up. The 联防
+// field of a live match is exactly such a job (a takeover / a field with no connected authority) — it never finishes,
+// so the phase never ends and the countdown sits at 0.
+test('REPRO: a paused job must not hold the only worker — a field queued behind a frozen match still finishes', async () => {
+  const { specs } = fieldSpecs(2);
+  assert.ok(specs.length >= 2, `two field specs captured (${specs.length})`);
+  const pool = createSimPool({ size: 1, log: silent });
+  try {
+    // A owns the single worker and belongs to a match that gets frozen before the field ends (idle suspension)
+    const a = sink();
+    let handleA = null;
+    let pauseReached;
+    const reached = new Promise((r) => { pauseReached = () => r('paused'); });
+    handleA = pool.run(specs[0], {
+      players: ids(specs[0]),
+      sliceMs: 1, // many slices: the pause has to land in the middle of the field
+      ...a.opts,
+      onProgress: (p) => {
+        a.seen.progress.push(p);
+        if (a.seen.progress.length === 1) { handleA.pause(); pauseReached(); }
+      },
+    });
+    assert.ok(handleA, 'the pool took the first job');
+    assert.equal(await Promise.race([reached, a.settled]), 'paused', 'the first field is paused mid-flight');
+    assert.deepEqual(a.seen.done, [], 'and it is not finished');
+    const frames = a.seen.progress.length;
+
+    // B is a live match's 联防 field handed to the pool while A's match is frozen
+    const b = sink();
+    const handleB = pool.run(specs[1], { players: ids(specs[1]), sliceMs: 2, ...b.opts });
+    assert.ok(handleB, 'the pool took the second job');
+    assert.equal(await Promise.race([b.settled, delay(5000).then(() => 'timeout')]), 'done',
+      'a field queued behind a frozen match must not wait for that match to wake up');
+    assert.equal(resultDigest(b.seen.done[0].result).hash, b.seen.done[0].digest);
+
+    // and the frozen match still resumes where it stood
+    assert.equal(a.seen.progress.length, frames, 'A reported nothing while paused');
+    handleA.resume();
+    assert.equal(await Promise.race([a.settled, delay(5000).then(() => 'timeout')]), 'done', 'A finishes after resume()');
+    assert.equal(resultDigest(a.seen.done[0].result).hash, a.seen.done[0].digest);
+    assert.deepEqual(a.seen.error, []);
+  } finally {
+    await pool.close();
+  }
+});
+
+test('a job paused while it is still queued is not lost: it starts as soon as a worker frees', async () => {
+  const { specs } = fieldSpecs(2);
+  assert.ok(specs.length >= 2);
+  const pool = createSimPool({ size: 1, log: silent });
+  try {
+    const a = sink();
+    const handleA = pool.run(specs[0], { players: ids(specs[0]), sliceMs: 2, ...a.opts });
+    assert.ok(handleA);
+    const b = sink();
+    const handleB = pool.run(specs[1], { players: ids(specs[1]), sliceMs: 2, ...b.opts });
+    assert.ok(handleB, 'queued: the only worker is busy');
+    handleB.pause(); // queued, never started
+    handleB.resume();
+    assert.equal(await Promise.race([a.settled, delay(5000).then(() => 'timeout')]), 'done', 'the first field finishes');
+    assert.equal(await Promise.race([b.settled, delay(5000).then(() => 'timeout')]), 'done',
+      'the queued-then-resumed field runs once the worker frees');
+    assert.deepEqual(b.seen.error, []);
   } finally {
     await pool.close();
   }
