@@ -197,6 +197,24 @@ describe('ResourceStore', () => {
     assert.equal(res.complete, true, 'the skipped file does not keep the preload incomplete');
   });
 
+  test('a file the manifest has no size for is skipped, never fetched (the origin would answer 404)', async () => {
+    // The deployed manifest listed 55 of these (36 /assets/ui/emoticon/**, 19 /assets/ui/guide/**), every one tier 1.
+    // A size is recorded only for a file the generator actually found, so an entry without one is a 404 the preload
+    // used to report as a failure on every run.
+    const m = manifest([
+      { url: '/assets/ui/a.png', tier: 1, size: 8 },
+      { url: '/assets/ui/emoticon/basic/pic_happy_battle.png', tier: 1 },
+      { url: '/assets/ui/guide/autochess_handbook_2.png', tier: 2 },
+    ]);
+    const { fetch, calls } = fetcherFor();
+    const s = store(m, { fetch });
+    const res = await s.download();
+    assert.deepEqual(calls, [`${ORIGIN}/assets/ui/a.png`], 'the sizeless entries are never requested');
+    assert.equal(res.skipped, 2);
+    assert.equal(res.failed, 0, 'and they are not failures');
+    assert.equal(res.complete, true, 'the skipped files do not keep the preload incomplete');
+  });
+
   test('progress is throttled but always ends with the final state', async () => {
     const files = Array.from({ length: 30 }, (_, i) => ({ url: `/assets/f${i}.png`, tier: 1, size: 8 }));
     let t = 0;

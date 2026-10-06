@@ -86,9 +86,16 @@ export class ResourceStore {
     await cache.put(indexUrl(this.origin), new Response(body, { headers: { 'Content-Type': 'application/json' } }));
   }
 
-  /** A file this store will fetch: small enough to be worth caching (a huge one is skipped, never fails the run). */
+  /**
+   * A file this store will fetch: small enough to be worth caching (a huge one is skipped, never fails the run), and
+   * one the manifest actually has bytes for. The generator records a size only for a file it found, so an entry
+   * without one is a file the origin does not serve — fetching it is a guaranteed 404. The deployed manifest carried
+   * 55 of them (36 /assets/ui/emoticon/**, 19 /assets/ui/guide/**), every one in tier 1, and the panel reported each
+   * as a failure. Not eligible = counted as skipped, never requested.
+   */
   eligible(file) {
-    return !(Number.isSafeInteger(file.size) && file.size > MAX_FILE_BYTES);
+    if (!Number.isSafeInteger(file.size)) return false;
+    return file.size <= MAX_FILE_BYTES;
   }
 
   /** The response we store: original type, `Accept-Ranges` (the worker answers ranges) and our marker. */
