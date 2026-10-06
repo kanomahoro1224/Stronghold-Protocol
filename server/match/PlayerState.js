@@ -170,8 +170,15 @@ export class PlayerState {
   // basics
 
   get isHumanActive() { return !this.isBot && !this.left; }
-  /** The engine acts for this seat (AI teammate or "AI 托管"; a departed human is eliminated, so nothing is left to do). */
-  get botControlled() { return this.isBot || this.left || this.autoplay; }
+  /**
+   * The engine acts for this seat (AI teammate or "AI 托管"; a departed human is eliminated, so nothing is left to do).
+   * A DROPPED human (connected false — the seat is kept for the 10-minute reconnect window) is engine-played too:
+   * every interactive gate is keyed on this (Match.enterInfoCheck's auto-infoReady, the two drafts, PREP's bot prep
+   * that readies the seat), so without it a dropped seat never acts and each phase waits out its OWN timer instead —
+   * a match with one drop ran ~11x longer in virtual time (measured: 155 s -> 1.8 M ms). Match.onDisconnect applies
+   * this policy on the spot; a reconnect flips it back, and the scheduled bot jobs then abort on their valid() guard.
+   */
+  get botControlled() { return this.isBot || this.left || this.autoplay || !this.connected; }
 
   get deployCap() { return Math.max(1, this.gd.deployCap + this.deployCapBonus, this.deployCapMin); }
   get deployCount() { let n = 0; for (const p of this.board.values()) if (p.kind === 'chess') n++; return n; }

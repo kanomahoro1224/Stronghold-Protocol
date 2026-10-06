@@ -84,17 +84,19 @@ test('m.public is throttled to ≤ 10/s; m.private is only resent when it change
   h.m.dispose();
 });
 
-test('disconnect: the seat keeps playing; draft turns / prep auto-resolve at deadlines; reconnect resends everything', () => {
+test('disconnect: the seat is taken over at once; reconnect resends everything', () => {
   const h = makeMatch({ mode: 'coop', humans: 2, seed: 63, fake: true, script: () => ({ duration: 4 }) }).start();
   const m = h.m;
   h.m.onDisconnect('p_1');
   assert.equal(m.publicView().players.find((p) => p.playerId === 'p_1').connected, false);
+  // the auto-play policy runs on the spot: p_1 confirms its own briefing (no deadline, no bot scheduled first)
+  assert.equal(h.ps('p_1').infoReady, true, 'the dropped seat confirms the briefing itself');
   m.handle('p_0', { t: 'g.infoReady' });
-  // p_1 never confirms: the 25 s deadline moves on; p_1 never picks: 12 s turn → 华法琳
+  // p_1 never picks its band: the engine plays that turn too, and both picks are its own
   h.drive(() => m.phase === PHASE.PREP && m.round === 1);
   assert.equal(h.ps('p_1').bandId, 'band_bldsk');
   const sentBefore = h.sent.length;
-  // p_0 readies; p_1 is auto-readied at the prep deadline
+  // p_0 readies; p_1 is readied by its own bot prep, not by the prep deadline
   m.handle('p_0', { t: 'g.ready', ready: true });
   h.run(() => m.phase === PHASE.COMBAT);
   assert.ok(h.ps('p_1').ready);
@@ -381,4 +383,62 @@ test('m.public follows player-state changes (shop level, board count, bonds) wit
   h.sched.advance(150);
   assert.equal(h.lastBc('m.public').players[0].shopLevel, 2);
   m.dispose();
+});
+
+// ---------------------------------------------------------------------------------------------------
+// A dropped human (community report: "掉线之后无法推进"): the seat is kept for the reconnect window, so it is
+// neither left nor autoplay — and every interactive gate keys on PlayerState.botControlled, which used to know
+// bots / left / 托管 only. The seat then never acted and each phase waited out its OWN timer instead: measured
+// on this seed, one drop stretched the match to 1.65–1.84 M ms of virtual time (~11x the 155 k baseline) and the
+// players sat through a full info/band/sp/prep timer every round. Match.onDisconnect promises the auto-play
+// policy (class header), so it must take the seat over AT ONCE while keeping the reconnect path intact.
+
+/** Drive the connected humans only: a dropped seat has to be carried by the engine alone. */
+function driveConnected(h, { dropAt = null, dropIn = null } = {}) {
+  const m = h.m;
+  let dropped = false;
+  for (let steps = 0; steps < 3e6; steps++) {
+    if (m.ended) return { dropped, ended: true };
+    if (dropAt && !dropped && m.phase === dropAt) { m.onDisconnect(dropIn); dropped = true; }
+    for (const ps of m.players.values()) {
+      if (ps.isBot || ps.left || !ps.connected) continue;
+      if (m.phase === PHASE.INFO_CHECK && !ps.infoReady) m.handle(ps.playerId, { t: 'g.infoReady' });
+      if (m.phase === PHASE.BAND_DRAFT && m.draftTurn() === ps.playerId) m.handle(ps.playerId, { t: 'g.band', bandId: 'band_bldsk' });
+      if (m.phase === PHASE.SP_DRAFT && m.spTurn() === ps.playerId) {
+        const idx = m.sp.cards.map((c) => c.idx).find((k) => m.sp.taken[k] == null);
+        if (idx != null) m.handle(ps.playerId, { t: 'g.choice', idx });
+      }
+      if (m.phase === PHASE.PREP && ps.alive && !ps.ready) {
+        if (!ps.tempEmpty) ps.resolveTemp();
+        m.handle(ps.playerId, { t: 'g.ready', ready: true });
+      }
+    }
+    if (!m.ended && !h.sched.runNext() && m.phase !== PHASE.RESULT) return { dropped, ended: !!m.ended };
+  }
+  return { dropped, ended: !!m.ended };
+}
+
+test('a dropped human is engine-played at once, so a match with a drop runs like one without', () => {
+  const base = makeMatch({ mode: 'coop', humans: 2, bots: 0, seed: 11, fake: true }).start();
+  driveConnected(base);
+  assert.ok(base.ended, 'the baseline match finishes');
+  const baseline = base.ended.durationMs;
+  base.m.dispose();
+
+  for (const at of [PHASE.INFO_CHECK, PHASE.BAND_DRAFT, PHASE.SP_DRAFT, PHASE.PREP, PHASE.COMBAT]) {
+    const h = makeMatch({ mode: 'coop', humans: 2, bots: 0, seed: 11, fake: true }).start();
+    const m = h.m;
+    driveConnected(h, { dropAt: at, dropIn: 'p_1' });
+    const ps = h.ps('p_1');
+    assert.ok(h.ended, `a drop at ${at} must not stop the match (stuck in ${m.phase} R${m.round})`);
+    assert.equal(ps.botControlled, true, `the dropped seat is engine-played (a drop at ${at})`);
+    assert.equal(ps.left, false, 'a drop never counts as a leave: the seat stays for the reconnect window');
+    assert.ok(
+      h.ended.durationMs <= baseline * 1.5,
+      `a drop at ${at} stretched the match to ${h.ended.durationMs} ms vs the ${baseline} ms baseline — the seat was not taken over at once`,
+    );
+    m.onReconnect('p_1');
+    assert.equal(ps.botControlled, false, 'a reconnect hands the seat back to its player');
+    m.dispose();
+  }
 });

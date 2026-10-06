@@ -569,6 +569,10 @@ export class Match {
       // a paused solo battle resumes (the server takes the field over; nobody is left to resume it)
       this._resume();
       if (this.clientCombat) this._authorityLost(ps, 'disconnect');
+      // The auto-play policy this hook promises (class header, line ~45): the seat is engine-controlled from here
+      // (PlayerState.botControlled covers !connected), so take its current turn AT ONCE — the info check, a draft
+      // turn and the prep all read `botControlled`, and without this they simply wait out their own timer each.
+      this.kickBot(ps);
       this.markPublic();
     });
   }
