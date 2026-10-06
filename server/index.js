@@ -893,7 +893,12 @@ export async function startServer(opts = {}) {
     loadResumable(state.store, {
       // paced at ≈20 records/s (the disk is not worth a boot spike) inside a hard time budget: a huge state directory
       // delays the marks, never the serving — `listen` already happened
-      build: state.build, rulesHash: state.rulesHash, ttlMs: state.ttlMs, maxRecords: cap, budgetMs: 15_000, log,
+      // SP_STATE_IGNORE_BUILD=1 drops the BUILD half of the version gate for this scan only: an operator restarting the
+      // service mid-match must not interrupt a room, even when the deploy changed the build tag (the records still
+      // carry the real tag, `state.build` — only the comparison is skipped). The rulesHash half STAYS: a record is
+      // never replayed against rules (data/*.json, shared/constants.js) it never saw.
+      build: envFlag(process.env.SP_STATE_IGNORE_BUILD) ? null : state.build,
+      rulesHash: state.rulesHash, ttlMs: state.ttlMs, maxRecords: cap, budgetMs: 15_000, log,
     }).then(({ records, refused }) => {
       state.noteRefused(refused);
       state.markResumable(records, { maxRooms: cap });
