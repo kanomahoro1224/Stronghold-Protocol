@@ -67,6 +67,8 @@ export const actions = {
   choice: (idx) => act('g.choice', { idx }),
   ready: (ready) => act('g.ready', { ready }, { sfx: ready ? 'ready' : 'back' }),
   emote: (id) => act('g.emote', { id }, { quiet: true }),
+  // 游戏内文字聊天: quiet like an emote — the match owns the shared 1 s chatCD and the box keeps a refused line
+  chat: (text) => act('g.chat', { text }, { quiet: true }),
   watch: (fieldId) => act('g.watch', { fieldId }, { sfx: 'tab' }),
   autoplay: (on) => act('g.autoplay', { on }),
   // solo battles only (ui/matchStatus.js pauseAvailable): m.public.paused follows

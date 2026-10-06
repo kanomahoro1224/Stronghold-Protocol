@@ -131,7 +131,7 @@ function backToLobby() {
   clearTimeout(restoreTimer);
   const s = store.get();
   if (s.room || s.match.public) closeAllDialogs();
-  store.set({ room: null, match: emptyMatch(), ticker: [], emotes: [], queue: null });
+  store.set({ room: null, match: emptyMatch(), ticker: [], emotes: [], chats: [], queue: null });
   store.patch('ui', { restoring: false });
 }
 
@@ -245,6 +245,11 @@ function wireNet() {
   });
   net.on('m.emote', (msg) => {
     store.set((s) => ({ emotes: [...s.emotes.slice(-(EMOTE_KEEP - 1)), { seq: ++seq, playerId: msg.playerId, id: msg.id, at: Date.now() }] }));
+  });
+  // 游戏内文字聊天: same keep window and the same shared `seq` as emotes, so the team panel can pick the newer of the
+  // two for the one bubble slot beside a player's avatar.
+  net.on('m.chat', (msg) => {
+    store.set((s) => ({ chats: [...s.chats.slice(-(EMOTE_KEEP - 1)), { seq: ++seq, playerId: msg.playerId, text: msg.text, at: Date.now() }] }));
   });
 
   // Entering (title → lobby) while already online also needs the deep-link join.

@@ -1,7 +1,7 @@
 // Normative message catalogue (DESIGN §8). Used by server (validation) and client (building requests).
 // Every client→server message is `{ t, rid?, ...fields }`. Unknown `t` or invalid fields ⇒ ERR.BAD_MSG.
 
-import { DIFFICULTIES, NAME_MAX_LEN, ROOM_CODE_LEN, MAX_SEATS, EMOTES, GEO } from './constants.js';
+import { DIFFICULTIES, NAME_MAX_LEN, ROOM_CODE_LEN, MAX_SEATS, EMOTES, GEO, CHAT_MAX_LEN } from './constants.js';
 
 // ---- tiny validators -------------------------------------------------------
 const isInt = (v, lo = -Infinity, hi = Infinity) => Number.isInteger(v) && v >= lo && v <= hi;
@@ -251,6 +251,9 @@ export const C2S = {
   // host confirmed — a seat that changed hands meanwhile is refused
   'room.kick': { seat: (v) => isInt(v, 0, MAX_SEATS - 1), playerId: isId },
   'room.start': {},
+  // 同盟匹配 (user request): the HOST puts the alliance in its difficulty's pool — `on: false` calls the search off.
+  // A full alliance starts by itself; the host can still fill what is left with AI (room.addBot), which starts it too.
+  'room.matchmake': { on: isBool, $optional: ['on'] },
   // operator loadout (DESIGN §16): stored per session/seat; accepted until the match leaves INFO_CHECK
   'room.loadout': { entries: isLoadoutEntries },
   // spectator seats (remake feature, community report #26; MAX_SPECTATORS): take one of a co-op room's spectator seats —
@@ -290,6 +293,9 @@ export const C2S = {
   'g.choice': { idx: (v) => isInt(v, 0, 5) },
   'g.ready': { ready: isBool },
   'g.emote': { id: (v) => EMOTES.includes(v) },
+  // 游戏内文字聊天: bounded here (the cap the input enforces), trimmed and re-checked by the match, which also owns
+  // the shared 1 s chatCD. The line travels verbatim and is rendered as a text node — never as markup.
+  'g.chat': { text: (v) => typeof v === 'string' && v.length <= CHAT_MAX_LEN },
   'g.watch': { fieldId: (v) => isStr(v, 32) },
   'g.autoplay': { on: isBool },
   // solo pause (official PauseUp / ResumeUp, DESIGN §14): freezes the running battle (field clock, deadlines, the
@@ -326,6 +332,8 @@ export const S2C = [
   // a normal room.state, so the client switches to the room screen by itself.
   'queue.state',
   'm.public', 'm.private', 'm.field', 'm.toast', 'm.ticker', 'm.emote', 'm.result',
+  // m.chat { playerId, text } — 游戏内文字聊天, relayed exactly like m.emote (the sender's line included)
+  'm.chat',
   // m.unitStats { seq, round, units: [unitStatsEntry] } — the answer to g.unitStats (the requester only)
   'm.unitStats',
   // client-side combat (DESIGN §14): b.start { battleId, fieldId, kind, spec, authoritative, startAt, serverNow, elapsed,

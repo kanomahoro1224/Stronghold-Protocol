@@ -98,11 +98,11 @@ const MODE_CARDS = [
     points: [`1–${MAX_SEATS} 名博士 · 可由 AI 队友补位`, '联防阶段 · 最终攻势合并生命值'],
   },
   {
-    // 搜寻队友 (official mode group 同盟模拟 → 搜寻队友, research 06 §3.3; DESIGN §23). The official 精确搜寻
-    // (match by trophy level) needs progression data this build does not keep, so there is one fast search only.
+    // 同盟匹配 (user request): this card creates the same alliance as 同盟模拟 — the difference is what the room does
+    // with 开始匹配, which puts the alliance in the public pool (server/lobby.js roomMatchmake) instead of starting.
     id: 'match', name: '同盟匹配', en: 'ALLIANCE MATCH', icon: 'search',
-    desc: `搜寻其他博士组成同盟，凑齐 ${MAX_SEATS} 人即刻开始；暂时无人时由 AI 队友补位。`,
-    points: [`1–${MAX_SEATS} 名博士 · 匹配其他真人`, '匹配成功直接开始 · 无需准备'],
+    desc: `创建同盟邀请好友，或发起匹配与其他博士组队，凑齐 ${MAX_SEATS} 人即刻开始。`,
+    points: [`1–${MAX_SEATS} 名博士 · 可匹配真人`, '发起匹配后满员自动开始 · 无需准备'],
   },
 ];
 
@@ -391,7 +391,11 @@ export function LobbyScreen() {
   const online = conn.status === 'online';
   const codeOk = CODE_RE.test(code);
   const q = useStore((s) => s.queue, shallowEqual); // 搜寻队友 search state, or null (DESIGN §23)
-  const searching = roomMode === 'match';
+  // 同盟匹配 creates an alliance and the search itself happens inside the room (room.matchmake), so this screen never
+  // arms a queue entry any more: the button below always creates a room. The queue path (`armQueueJoin` → queue.join,
+  // the search panel, 取消搜寻) is left intact — it has its own tests and remains the transport for a future
+  // quick-match entry — but nothing here reaches it.
+  const searching = false;
   // This player is searching: the local grace window (no server entry yet) or the server's pool. 取消搜寻 takes the
   // panel away at once (`exiting`) — the player is out of the search the moment they ask.
   const waiting = !!q || pending;
@@ -439,7 +443,12 @@ export function LobbyScreen() {
     // fresh pool entry (the player would look queued while the server had already dropped them).
     cancelRef.current.wanted = false;
     setExiting(false);
-    if (!searching) return run('create', () => net.request('room.create', { mode: roomMode, difficulty }));
+    if (!searching) {
+      // 同盟匹配 makes the same alliance as 同盟模拟 (the server has no 'match' mode): the card differs in its copy and
+      // in what the room's 开始匹配 does — the search lives in the room, not in the lobby.
+      const mode = roomMode === 'match' ? 'coop' : roomMode;
+      return run('create', () => net.request('room.create', { mode, difficulty }));
+    }
     // 搜寻队友: one click, at most one `queue.join`. A repeated click — or a click after a reconnect re-attached to an
     // entry this page did not create — must not add a second entry, so an armed (or sent) search is left alone.
     if (joinRef.current) return;

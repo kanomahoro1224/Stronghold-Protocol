@@ -83,6 +83,17 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
       imgs: [...document.querySelectorAll(`${root} .ewheel__item img`.trim())].filter((i) => i.complete && i.naturalWidth > 0).length,
       glyphs: document.querySelectorAll(`${root} .ewheel__item .eart--glyph`.trim()).length,
       panelText: panel ? panel.textContent.trim() : '',
+      // 游戏内文字聊天 lives in the same panel, under the grid. The picture-only rule is about the grid, so read the
+      // chat strip first and measure the grid without it — panelText now legitimately contains 发送 / ×.
+      chat: (() => {
+        const box = q('.ewheel__chat');
+        const input = q('.ewheel__chat-input');
+        return box && input
+          ? { value: input.value, sendDisabled: q('.ewheel__chat-send').disabled, clearDisabled: q('.ewheel__chat-clear').disabled }
+          : null;
+      })(),
+      // the grid's own text — the chat strip is a sibling of .ewheel__page, so this never sees 发送 / ×
+      gridText: (() => { const grid = q('.ewheel__page'); return grid ? grid.textContent.trim() : ''; })(),
       btnDisabled: q('.ewheel__btn')?.disabled ?? null,
       dotOn: [...document.querySelectorAll(`${root} .ewheel__dot`.trim())].findIndex((d) => d.classList.contains('is-on')),
     };
@@ -100,7 +111,36 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     assert.equal(s.theme, EMOTE_THEMES[0].themeId, 'first page by default');
     assert.equal(s.items, 6, '3×2 cells');
     assert.equal(s.imgs, 6, 'official pictures loaded');
-    assert.equal(s.panelText, '', 'no text in the panel');
+    assert.equal(s.gridText, '', 'no text in the emote grid itself');
+    // 游戏内文字聊天: the box sits under the grid; Enter and 发送 both send, X clears, and closing the panel keeps the draft
+    assert.ok(s.chat, 'the chat box is under the grid');
+    assert.equal(s.chat.value, '');
+    assert.equal(s.chat.sendDisabled, true, 'an empty box cannot send');
+    assert.equal(s.chat.clearDisabled, true, 'nothing to clear yet');
+    await page.type('#emo-stage .ewheel__chat-input', '走中路');
+    s = await wheelState(page, '#emo-stage');
+    assert.equal(s.chat.value, '走中路');
+    assert.equal(s.chat.sendDisabled, false);
+    assert.equal(s.chat.clearDisabled, false);
+    // closing the panel (the accidental outside press) and reopening must not lose the draft
+    await page.click('#emo-stage .ewheel__btn');
+    await page.click('#emo-stage .ewheel__btn');
+    s = await wheelState(page, '#emo-stage');
+    assert.equal(s.chat.value, '走中路', 'closing the panel never loses what was typed');
+    // X clears the box in one click
+    await page.click('#emo-stage .ewheel__chat-clear');
+    s = await wheelState(page, '#emo-stage');
+    assert.equal(s.chat.value, '', 'the X button empties the box');
+    assert.equal(s.chat.sendDisabled, true);
+    // Enter sends: the box empties and the line bubbles beside the sender
+    await page.type('#emo-stage .ewheel__chat-input', '谢谢');
+    await page.keyboard.press('Enter');
+    await sleep(60);
+    s = await wheelState(page, '#emo-stage');
+    assert.equal(s.chat.value, '', 'Enter sends and clears the box');
+    assert.equal(await page.$eval('#emo-stage .ebubble--text', (b) => b.textContent.trim()), '谢谢', 'the line bubbles');
+    await page.click('#emo-stage .ewheel__chat-clear');
+    await sleep(50);
     assert.equal(s.dotOn, 0);
     assert.equal(await page.$$eval('.emo-cat img', (els) => els.filter((i) => i.complete && i.naturalWidth > 0).length), 36, 'all 36 pictures load');
     await section.screenshot({ path: path.join(OUT, 'emotes-uikit.png') });
@@ -311,7 +351,7 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     assert.equal(s.items, 6);
     assert.equal(s.imgs, 0);
     assert.equal(s.glyphs, 6, 'unlisted and broken pictures both fall back to the glyph');
-    assert.equal(s.panelText, '');
+    assert.equal(s.gridText, '', 'no text in the emote grid itself (the chat strip below it is not part of the grid)');
     const bubbles = await page.$$eval('.ebubble', (els) => els.map((b) => ({ text: b.textContent.trim(), glyph: !!b.querySelector('.eart--glyph') })));
     assert.ok(bubbles.length >= 7);
     for (const b of bubbles) assert.deepEqual(b, { text: '', glyph: true });
@@ -329,7 +369,7 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     const s = await wheelState(page);
     assert.equal(s.items, 6);
     assert.equal(s.imgs, 6);
-    assert.equal(s.panelText, '');
+    assert.equal(s.gridText, '', 'no text in the emote grid itself (the chat strip below it is not part of the grid)');
     const geo = await page.$$eval('.team__row', (rows) => rows.filter((r) => r.querySelector('.team__bubble')).map((r) => {
       const row = r.getBoundingClientRect();
       const a = r.querySelector('.pavatar, .team__btn').getBoundingClientRect();

@@ -10,11 +10,12 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  EMOTES, EMOTE_THEMES, EMOTE_CATALOG, EMOTE_THEME, EMOTE_LABEL, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS,
+  EMOTES, EMOTE_THEMES, EMOTE_CATALOG, EMOTE_THEME, EMOTE_LABEL, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS, CHAT_MAX_LEN,
   emoteInfo, emoteArtPath, emoteArtGroup,
 } from '../../shared/constants.js';
 import { validateC2S } from '../../shared/protocol.js';
 import { buildEmotes, formatEmotes, THEME_DIRS } from '../../tools/build-emotes.mjs';
+import { chatDraftValue, setChatDraft, clearChatDraft, chatSendable, chatDraftAfterSend } from '../../public/js/ui/emotes.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const readJson = (rel) => JSON.parse(readFileSync(path.join(ROOT, rel), 'utf8'));
@@ -72,6 +73,17 @@ describe('emote catalog (shared/constants.js)', () => {
     for (const id of ['happy', 'thanks', 'autochess_room_hello', 'multiv3_battle_thanks', 'duel_battle_happy', '__proto__', '', 7, null]) {
       assert.notEqual(validateC2S({ t: 'g.emote', id }), null, String(id));
     }
+  });
+
+  test('protocol bounds g.chat { text } to CHAT_MAX_LEN and rejects anything that is not a string', () => {
+    assert.equal(validateC2S({ t: 'g.chat', text: '走中路' }), null);
+    assert.equal(validateC2S({ t: 'g.chat', text: '' }), null, 'empty is the match\'s call (it trims), not the wire\'s');
+    assert.equal(validateC2S({ t: 'g.chat', text: 'x'.repeat(CHAT_MAX_LEN) }), null);
+    assert.notEqual(validateC2S({ t: 'g.chat', text: 'x'.repeat(CHAT_MAX_LEN + 1) }), null, 'over the cap');
+    for (const text of [7, null, undefined, {}, ['走中路'], { toString: () => 'x' }]) {
+      assert.notEqual(validateC2S({ t: 'g.chat', text }), null, `not a string: ${String(text)}`);
+    }
+    assert.notEqual(validateC2S({ t: 'g.chat' }), null, 'text is required');
   });
 
   test('cooldown and bubble time are the official chatCD / chatTime', () => {
@@ -232,6 +244,39 @@ print(json.dumps({
       const png = readFileSync(file);
       assert.equal(png.subarray(1, 4).toString(), 'PNG', file);
     }
+  });
+});
+
+describe('游戏内文字聊天：表情面板下方的输入框', () => {
+  test('the draft survives closing the panel; only the X button or a send clears it', () => {
+    clearChatDraft();
+    setChatDraft('你好');
+    // the panel was closed and reopened (or the screen remounted) in between: nothing was lost
+    assert.equal(chatDraftValue(), '你好');
+    setChatDraft('你好，我走中路');
+    assert.equal(chatDraftValue(), '你好，我走中路');
+    clearChatDraft(); // the X button
+    assert.equal(chatDraftValue(), '');
+  });
+
+  test('a line is sendable only when it has content after trimming, and never over the cap', () => {
+    assert.equal(chatSendable('走中路'), true);
+    assert.equal(chatSendable('  走中路  '), true, 'leading / trailing spaces are trimmed, not rejected');
+    assert.equal(chatSendable(''), false);
+    assert.equal(chatSendable('   '), false, 'a blank line never sends');
+    assert.equal(chatSendable(null), false);
+    assert.equal(chatSendable(undefined), false);
+    assert.equal(chatSendable(7), false);
+    assert.equal(chatSendable('x'.repeat(CHAT_MAX_LEN)), true, 'exactly the cap is fine');
+    assert.equal(chatSendable('x'.repeat(CHAT_MAX_LEN + 1)), false);
+  });
+
+  test('the input is capped at CHAT_MAX_LEN and a refused send never eats the text', () => {
+    clearChatDraft();
+    setChatDraft('x'.repeat(CHAT_MAX_LEN + 10));
+    assert.equal(chatDraftValue().length, CHAT_MAX_LEN, 'the input itself stops at the cap');
+    assert.equal(chatDraftAfterSend('没发出去', false), '没发出去', 'the 1 s cooldown keeps the draft for another try');
+    assert.equal(chatDraftAfterSend('发出去了', true), '', 'a sent line clears the input');
   });
 });
 

@@ -74,7 +74,7 @@
     import { ToastHost, toast } from '/js/ui/toasts.js';
     import { data, useData, getBond } from '/js/data.js';
     import { DIFFICULTIES, EMOTE_THEMES, EMOTES } from '/shared/constants.js';
-    import { EmoteWheel, EmoteBubble, EmoteArt } from '/js/ui/emotes.js';
+    import { EmoteWheel, EmoteBubble, ChatBubble, EmoteArt } from '/js/ui/emotes.js';
 
     const SWATCHES = [
       ['bg-0', '#0c0f0e'], ['bg-1', '#141816'], ['bg-2', '#1e2421'], ['line', '#2f3a35'],
@@ -97,17 +97,20 @@
       const [open, setOpen] = useState(true);
       const [offline, setOffline] = useState(false);
       const [bubbles, setBubbles] = useState(() => ({ me: null, p2: { id: 'slug_autochess_battle_nice_work', seq: 1 } }));
+      const [chats, setChats] = useState(() => ({ me: null, p2: null }));
       const [replay, setReplay] = useState(0);
-      const say = (who, id) => setBubbles((b) => ({ ...b, [who]: { id, seq: Date.now() + Math.random(), at: Date.now() } }));
+      const say = (who, id) => { setBubbles((b) => ({ ...b, [who]: { id, seq: Date.now() + Math.random(), at: Date.now() } })); setChats((c) => ({ ...c, [who]: null })); };
+      const sayChat = (who, text) => { setChats((c) => ({ ...c, [who]: { text, seq: Date.now() + Math.random(), at: Date.now() } })); setBubbles((b) => ({ ...b, [who]: null })); };
       const rows = [['me', '我'], ['p2', '2P']];
       return html`
         <div class="grid2">
           <div class="emo-stage" id="emo-stage">
             <div class="emo-team">
               ${rows.map(([who, t]) => html`<div class="emo-row" key=${who}><span class="pav">${t}</span>
-                ${bubbles[who] ? html`<${EmoteBubble} key=${bubbles[who].seq} id=${bubbles[who].id} at=${bubbles[who].at} class="team__bubble" />` : null}</div>`)}
+                ${bubbles[who] ? html`<${EmoteBubble} key=${bubbles[who].seq} id=${bubbles[who].id} at=${bubbles[who].at} class="team__bubble" />` : null}
+                ${chats[who] ? html`<${ChatBubble} key=${chats[who].seq} text=${chats[who].text} at=${chats[who].at} class="team__bubble team__bubble--text" />` : null}</div>`)}
             </div>
-            <${EmoteWheel} open=${open} onToggle=${setOpen} disabled=${offline} onSend=${(id) => say('me', id)} />
+            <${EmoteWheel} open=${open} onToggle=${setOpen} disabled=${offline} onSend=${(id) => say('me', id)} onChat=${(text) => sayChat('me', text)} />
           </div>
           <div class="stack">
             <div class="row">

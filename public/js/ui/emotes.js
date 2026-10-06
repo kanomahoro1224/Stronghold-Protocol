@@ -20,7 +20,7 @@
 // Styles: public/css/emotes.css (injected on first use when the page does not link it).
 
 import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
-import { EMOTE_THEMES, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS, emoteInfo, emoteArtGroup } from '../../../shared/constants.js';
+import { EMOTE_THEMES, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS, CHAT_MAX_LEN, emoteInfo, emoteArtGroup } from '../../../shared/constants.js';
 import { html } from './components.js';
 import { GIcon } from './gameComponents.js';
 import { data, useData, localAsset, artUrls, nextArtUrl } from '../data.js';
@@ -186,6 +186,42 @@ export function bubbleAge(at, now, ttl = EMOTE_BUBBLE_MS) {
   return age > 0 ? Math.min(age, Math.max(0, ttl)) : 0;
 }
 
+/**
+ * 游戏内文字聊天 draft. Module scope on purpose: closing the panel (or leaving and re-entering the game screen) must
+ * not lose what the player was typing — the panel is a view over this value, not its owner. It is never persisted to
+ * localStorage, so a line never survives a reload into another match.
+ */
+let chatDraft = '';
+
+/** The draft as the input shows it. */
+export const chatDraftValue = () => chatDraft;
+
+/** Replace the draft (the input's onInput). Anything that is not a string is an empty draft; over-long input is cut. */
+export function setChatDraft(v) {
+  chatDraft = typeof v === 'string' ? v.slice(0, CHAT_MAX_LEN) : '';
+  return chatDraft;
+}
+
+/** The X button: one click empties the input. */
+export function clearChatDraft() {
+  chatDraft = '';
+  return chatDraft;
+}
+
+/** A line may be sent when it still has content after trimming and fits the cap (the match re-checks both). */
+export function chatSendable(text) {
+  const t = typeof text === 'string' ? text.trim() : '';
+  return t.length > 0 && t.length <= CHAT_MAX_LEN;
+}
+
+/**
+ * The input's value after a send attempt. Only an accepted line clears it: a line the 1 s chatCD refused (or a send
+ * that never left because the socket was down) stays in the box for another try instead of vanishing.
+ */
+export function chatDraftAfterSend(text, accepted) {
+  return accepted ? '' : (typeof text === 'string' ? text : '');
+}
+
 /** Neutral stand-in for a missing emote picture (a glyph, never text). */
 function EmoteGlyph({ class: cls }) {
   return html`<span class=${cx('eart', 'eart--glyph', cls)} aria-hidden="true"><${GIcon} name="emote" /></span>`;
@@ -231,17 +267,37 @@ export function EmoteBubble({ id, class: cls, ttl = EMOTE_BUBBLE_MS, at }) {
 }
 
 /**
- * 交流 button + emote panel.
- * @param {{ onSend: (id:string)=>void, open: boolean, onToggle: (open:boolean)=>void, disabled?: boolean,
- *   cooldownMs?: number }} props
+ * 游戏内文字聊天 bubble: the EmoteBubble's twin — same 3 s life, same pop, same slot beside the sender's avatar — with
+ * a line of text instead of a picture. It sizes to the line (up to CHAT_MAX_LEN) and therefore does NOT use the official
+ * emoji_bubble_bkg sprite: that plate is a fixed 108×97 and `background-size: 100% 100%` would stretch its tail on every
+ * longer line. The CSS plate it falls back to is the same dark rounded box + tail the sprite-less emote bubble draws.
+ * The line goes into a text node, so nothing a player types can ever become markup.
+ * @param {{ text: string, class?: string, ttl?: number, at?: number }} props
  */
-export function EmoteWheel({ onSend, open, onToggle, disabled = false, cooldownMs = EMOTE_COOLDOWN_MS }) {
+export function ChatBubble({ text, class: cls, ttl = EMOTE_BUBBLE_MS, at }) {
+  useEffect(() => { ensureEmoteCss(); }, []);
+  const life = Math.max(300, Number(ttl) || EMOTE_BUBBLE_MS);
+  const [age] = useState(() => bubbleAge(at, Date.now(), life));
+  const style = [`--ebubble-ttl:${life}ms`, age && `--ebubble-age:${Math.round(age)}ms`].filter(Boolean).join(';');
+  return html`<div class=${cx('ebubble', 'ebubble--text', cls)} style=${style} role="status">
+    <span class="ebubble__text">${typeof text === 'string' ? text : ''}</span>
+  </div>`;
+}
+
+/**
+ * 交流 button + emote panel, with the 游戏内文字聊天 box under the grid.
+ * @param {{ onSend: (id:string)=>void, onChat?: (text:string)=>void, open: boolean, onToggle: (open:boolean)=>void,
+ *   disabled?: boolean, cooldownMs?: number }} props
+ */
+export function EmoteWheel({ onSend, onChat, open, onToggle, disabled = false, cooldownMs = EMOTE_COOLDOWN_MS }) {
   useData('local');
   useEffect(() => { ensureEmoteCss(); }, []);
   const [page, setPage] = useState(lastThemeIndex);
   const [dir, setDir] = useState(0);          // direction of the last page change (slide-in animation)
   const [dx, setDx] = useState(0);            // live drag offset (px)
   const [cooling, setCooling] = useState(() => cooldownLeft(lastSentAt, Date.now(), cooldownMs) > 0);
+  // the chat box: the draft lives in the module (chatDraft), this state only mirrors it into the render
+  const [draft, setDraft] = useState(chatDraftValue);
   const drag = useRef(null);                  // { id, x0, moved }
   const swallowClick = useRef(false);
   const wheelAcc = useRef({ x: 0, t: -Infinity, spent: false });
@@ -296,6 +352,20 @@ export function EmoteWheel({ onSend, open, onToggle, disabled = false, cooldownM
     onToggle(false);
   };
 
+  // 游戏内文字聊天: Enter and the 发送 button run the same path, and the line goes through the emote cooldown — a send
+  // the 1 s chatCD would refuse leaves the text in the box (never a silently lost line). Unlike an emote, sending keeps
+  // the panel open: the player usually wants to keep talking.
+  const sendChat = () => {
+    if (!chatSendable(draft) || disabled) return;
+    const now = Date.now();
+    if (cooldownLeft(lastSentAt, now, cooldownMs) > 0) return;
+    const line = draft.trim();
+    lastSentAt = now;
+    setCooling(true);
+    setDraft(setChatDraft(chatDraftAfterSend(draft, true)));
+    if (onChat) onChat(line);
+  };
+
   // swipe / drag (touch, pen and mouse)
   const onPointerDown = (e) => {
     if (e.button != null && e.button !== 0) return;
@@ -345,7 +415,7 @@ export function EmoteWheel({ onSend, open, onToggle, disabled = false, cooldownM
       aria-expanded=${open ? 'true' : 'false'} aria-haspopup="dialog" disabled=${disabled || cooling}>
       ${btnSprite ? null : html`<${GIcon} name="emote" />`}<span class="ewheel__label">交流</span>
     </button>
-    ${open ? html`<div class=${cx('ewheel__panel', panelBg && 'has-sprite', cellBg && 'has-cell')} style=${panelStyle} role="dialog" aria-label="交流">
+    ${open ? html`<div class=${cx('ewheel__panel', 'has-chat', panelBg && 'has-sprite', cellBg && 'has-cell')} style=${panelStyle} role="dialog" aria-label="交流">
       <div class="ewheel__viewport" onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
         onPointerUp=${(e) => endDrag(e, false)} onPointerCancel=${(e) => endDrag(e, true)} onWheel=${onWheel}>
         <div key=${theme.themeId} class=${cx('ewheel__page', dir > 0 && 'is-from-right', dir < 0 && 'is-from-left', dx !== 0 && 'is-dragging')}
@@ -361,6 +431,16 @@ export function EmoteWheel({ onSend, open, onToggle, disabled = false, cooldownM
       <div class="ewheel__dots" role="tablist" aria-label="表情主题">
         ${EMOTE_THEMES.map((t, i) => html`<button key=${t.themeId} type="button" role="tab" class=${cx('ewheel__dot', i === page && 'is-on')}
           aria-selected=${i === page ? 'true' : 'false'} aria-label=${`${t.name} ${i + 1}/${EMOTE_THEMES.length}`} onClick=${() => go(i)}></button>`)}
+      </div>
+      <div class="ewheel__chat">
+        <input class="ewheel__chat-input" type="text" value=${draft} maxlength=${CHAT_MAX_LEN} autocomplete="off"
+          enterkeyhint="send" placeholder="输入聊天内容…" aria-label="聊天输入"
+          onInput=${(e) => setDraft(setChatDraft(e.currentTarget.value))}
+          onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } }} />
+        <button type="button" class="ewheel__chat-clear" aria-label="清空输入" title="清空输入" disabled=${!draft}
+          onClick=${() => setDraft(clearChatDraft())}>×</button>
+        <button type="button" class="ewheel__chat-send" aria-label="发送" disabled=${!chatSendable(draft) || cooling || disabled}
+          onClick=${sendChat}>发送</button>
       </div>
     </div>` : null}
   </div>`;

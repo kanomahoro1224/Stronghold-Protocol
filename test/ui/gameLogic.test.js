@@ -12,7 +12,7 @@ import {
   bondMembers, memberHeadCount, bannedPerBond, priceTone, mergeProgress, shopBlockReason, deploySets, indexPieces, placementContext, canPlace,
   boardTargets, dropIntent, normalizeDraft, normalizeSp, groupEnemies, factionTypes, snapHud, bossFrac, attackInterval, fmtNum,
   rangeGridBox, shortcutFor, sanitizeSettings, DEFAULT_SETTINGS, normalizeResult, cycleField, fieldLabel, homeFieldId,
-  activeBubbles, sortedPlayers, tileKey, prepCapsuleLabel, prepCamera, dropFailureReason,
+  activeBubbles, activeChatBubbles, sortedPlayers, tileKey, prepCapsuleLabel, prepCamera, dropFailureReason,
 } from '../../public/js/ui/gameLogic.js';
 import { pairPlayers } from '../../server/match/finalAssault.js';
 import { PHASE, GEO } from '../../shared/constants.js';
@@ -448,6 +448,16 @@ describe('fields, players, emotes', () => {
       { seq: 3, playerId: 'b', id: 'wow', at: 5_000 }, null], now, 3000);
     assert.equal(m.get('a').id, 'thanks'); assert.equal(m.has('b'), false);
     assert.equal(activeBubbles(undefined, now).size, 0);
+  });
+  test('activeChatBubbles keeps the newest line per player within ttl and never bubbles a blank one', () => {
+    const now = 10_000;
+    const m = activeChatBubbles([{ seq: 1, playerId: 'a', text: '你好', at: 8_000 }, { seq: 2, playerId: 'a', text: '走中路', at: 9_000 },
+      { seq: 3, playerId: 'b', text: '过时了', at: 5_000 }, { seq: 4, playerId: 'c', text: '   ', at: 9_500 },
+      { seq: 5, playerId: 'd', text: '未来', at: now + 5_000 }, null], now, 3000);
+    assert.equal(m.get('a').text, '走中路'); assert.equal(m.has('b'), false);
+    assert.equal(m.has('c'), false, 'a whitespace-only line never bubbles');
+    assert.equal(m.has('d'), false, 'a line from the future is ignored');
+    assert.equal(activeChatBubbles(undefined, now).size, 0);
   });
 });
 

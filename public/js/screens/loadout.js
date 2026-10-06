@@ -472,7 +472,8 @@ function LoadoutScreen({ st }) {
   }, [selId]);
 
   const [syncText, syncCls] = SYNC_TEXT[st.sync] || SYNC_TEXT.idle;
-  const fromText = st.from === 'briefing' ? '确认本局信息阶段结束前可调整本局配置' : '开始模拟前可调整干员携带的技能与模组，干员等级不可调整';
+  // 开始 covers both: a solo room's 开始模拟 and an alliance's 开始匹配 (user request — the room button was renamed).
+  const fromText = st.from === 'briefing' ? '确认本局信息阶段结束前可调整本局配置' : '开始前可调整干员携带的技能与模组，干员等级不可调整';
 
   return html`<${Fragment}>
   <div class="lo" role="dialog" aria-modal="true" aria-label="干员调配">

@@ -18,7 +18,7 @@ import { useEffect, useState } from '../../vendor/hooks.module.js';
 import { PHASE } from '../../../shared/constants.js';
 import { html, Icon, Tooltip } from './components.js';
 import { PlayerAvatar, LpTower, GIcon, LocalSprite } from './gameComponents.js';
-import { EmoteBubble } from './emotes.js';
+import { EmoteBubble, ChatBubble } from './emotes.js';
 import { STATUS_META, sortedPlayers } from './gameLogic.js';
 import { MissTag, uniteRemaining } from './hud.js';
 import { localAsset } from '../data.js';
@@ -123,7 +123,10 @@ export function TeamPanel({ pub, myId, watching, bubbles, onWatch, compact = fal
           ${back ? html`<button type="button" class="btn btn--secondary btn--sm team__back"
             onClick=${() => observe.onBack()}><span class="btn__label">返回战场</span></button>` : null}
         </div>
-        ${bubble ? html`<${EmoteBubble} key=${bubble.seq} id=${bubble.id} class="team__bubble" />` : null}
+        ${bubble ? (bubble.chat
+          // 游戏内文字聊天 and an emote share the one slot beside the avatar: game.js hands over whichever is newer
+          ? html`<${ChatBubble} key=${bubble.seq} text=${bubble.text} at=${bubble.at} class="team__bubble team__bubble--text" />`
+          : html`<${EmoteBubble} key=${bubble.seq} id=${bubble.id} class="team__bubble" />`) : null}
       </div>`;
     })}
   </aside>`;

@@ -76,7 +76,8 @@ describe('DESIGN §16 — a teammate\'s unit shows its owner\'s loadout (real se
         await sleep(500);
       }
       assert.ok(await guestReady(), 'guest ready');
-      await host.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
+      for (let i = 0; i < 4; i++) await host.click('button', '添加 AI 队友', { optional: true, timeout: 1500 });
+      await host.click('.room-bar__right button', '开始匹配', { timeout: 20000 });
       for (const c of [host, guest]) await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);
       const loOf = (c) => c.page.evaluate(() => globalThis.__SP__.store.get().match.private?.loadout ?? null);
       assert.deepEqual(await loOf(guest), { [BASE]: { skill: 0, module: 'none' } }, 'the guest\'s match loadout');

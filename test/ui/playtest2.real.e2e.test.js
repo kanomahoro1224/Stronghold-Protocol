@@ -226,7 +226,8 @@ describe('user playtest #2 item 6 — 前往查看 → 返回战场 in combat (r
       await c.waitFor((s) => !!s.room?.code, 'room created');
       await c.click('button', '添加 AI 队友');
       await sleep(500);
-      await c.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
+      for (let i = 0; i < 4; i++) await c.click('button', '添加 AI 队友', { optional: true, timeout: 1500 });
+      await c.click('.room-bar__right button', '开始匹配', { timeout: 20000 });
       await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);
       await c.click('.brief__foot .btn--primary', '准备就绪');
       await c.waitFor((s) => s.phase === 'BAND_DRAFT' && s.draft?.turn === s.me || s.phase === 'PREP', 'my band pick', 60000);
@@ -361,7 +362,8 @@ describe('user playtest #2 item 10 — boss-round prep on the boss field (real s
       await guest.waitFor((s) => s.room?.code === room.code, 'guest joined');
       await guest.click('.room-bar__right button', '准备就绪');
       await sleep(400);
-      await host.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
+      for (let i = 0; i < 4; i++) await host.click('button', '添加 AI 队友', { optional: true, timeout: 1500 });
+      await host.click('.room-bar__right button', '开始匹配', { timeout: 20000 });
       for (const c of [host, guest]) await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);
       for (const c of [host, guest]) await c.click('.brief__foot .btn--primary', '准备就绪');
       // the draft first (a client still in the briefing would count as done without picking: its turn then runs out —

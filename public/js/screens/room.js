@@ -2,9 +2,11 @@
 // host controls (difficulty picker, add/remove AI in co-op, start), invite code with copy code /
 // copy link, ready toggle and leave.
 //
-// Start rule (server/lobby.js): room.start needs every *other* human connected and ready; the
-// host's start counts as the host's ready. So 开始模拟 is enabled exactly then and sends room.start
-// alone (no separate room.ready round trip that could leave the host "ready" after a failed start).
+// Start rule: an alliance (co-op) starts through 同盟匹配 — the host's 开始匹配 puts the room in its difficulty's pool
+// (room.matchmake), whole groups from other searching alliances are moved in while the seats fit, and a full alliance
+// starts by itself; the host can also fill what is left with AI (room.addBot), which starts it just the same. Nothing
+// here needs 准备. Solo rooms keep room.start, which needs every *other* human connected and ready (the host's start
+// counts as the host's ready).
 // Solo rooms show a single seat.
 // Spectator seats (community report #26, a remake feature): a co-op room with spectators shows the 观战席 strip under
 // the seats — names, offline marks, the host's ✕ (room.removeSpectator) — and a spectator's own view swaps the ready
@@ -198,6 +200,8 @@ export function RoomScreen() {
   if (!room) return null;
   const online = conn.status === 'online';
   const coop = room.mode !== 'solo';
+  // 同盟匹配: true while this alliance waits in the pool (server/lobby.js roomMatchmake) — every seat sees it
+  const searching = !!room.searching;
   const facts = roomFacts(room, me.playerId);
   const myReady = !!facts.mine?.ready;
   const info = difficultyInfo(room.mode, room.difficulty);
@@ -214,7 +218,9 @@ export function RoomScreen() {
   };
 
   const toggleReady = () => run('ready', () => net.request('room.ready', { ready: !myReady }));
-  const start = () => run('start', () => net.request('room.start', {}));
+  // Solo: room.start. Alliance: 同盟匹配 — the host puts the room in the pool, and calls it off with `on: false`.
+  const start = () => run('start', () => net.request(coop ? 'room.matchmake' : 'room.start', {}));
+  const cancelSearch = () => run('cancel', () => net.request('room.matchmake', { on: false }));
   const addBot = () => run('add', () => net.request('room.addBot', {}));
   const removeBot = (seat) => run(`rm${seat}`, () => net.request('room.removeBot', { seat }));
   // the host removes a human before the match (community report #17): asked first; the player may join again. The
@@ -255,13 +261,17 @@ export function RoomScreen() {
       ? html`<span class="t-lo"><${Icon} name="eye" />观战中 · 不占博士席位，模拟开始后可切换观看各位博士</span>`
     : !coop
       ? html`<span class="t-mint">*模拟协议已就绪，准许进入模拟</span>`
+    : searching
+      ? facts.isHost
+        ? html`<span class="t-lo"><${Icon} name="search" />正在匹配其他博士…人数不足时可用 AI 队友补位</span>`
+        : html`<span class="t-lo"><${Icon} name="search" />创建者正在匹配其他博士…</span>`
     : facts.isHost
       ? facts.canStart
         ? html`<span class="t-mint">*同盟人数达标，准许进入模拟</span>`
         : html`<span class="t-lo">等待所有博士准备就绪</span>`
       : myReady
-        ? html`<span class="t-mint">已就绪 · 等待创建者开始模拟</span>`
-        : html`<span class="t-lo">准备就绪后，创建者即可开始模拟</span>`;
+        ? html`<span class="t-mint">已就绪 · 等待创建者开始匹配</span>`
+        : html`<span class="t-lo">准备就绪后，创建者即可开始匹配</span>`;
 
   return html`<div class="screen room-screen">
     <header class="topbar">
@@ -318,11 +328,19 @@ export function RoomScreen() {
       <div class="room-bar__right">
         <${LoadoutButton} from="room" size="lg" class="room-loadout" />
         ${facts.isHost
-          ? html`<${Tooltip} text=${facts.canStart ? null : '仍有博士未准备就绪'}>
-              <${Button} variant="primary" size="xl" icon="play" loading=${busy === 'start'} disabled=${!facts.canStart || !online} onClick=${start}>开始模拟<//>
-            <//>`
+          ? coop
+            ? searching
+              ? html`<${Button} variant="secondary" size="xl" icon="close" loading=${busy === 'cancel'} disabled=${!online} onClick=${cancelSearch}>取消匹配<//>`
+              : html`<${Tooltip} text="发起匹配：进入公共池等待其他博士，人数不足时可用 AI 队友补位；同盟满员即自动开始">
+                  <${Button} variant="primary" size="xl" icon="search" loading=${busy === 'start'} disabled=${!online} onClick=${start}>开始匹配<//>
+                <//>`
+            : html`<${Tooltip} text=${facts.canStart ? null : '仍有博士未准备就绪'}>
+                <${Button} variant="primary" size="xl" icon="play" loading=${busy === 'start'} disabled=${!facts.canStart || !online} onClick=${start}>开始模拟<//>
+              <//>`
           : facts.spectating
             ? html`<${Button} variant="secondary" size="xl" icon="eye" disabled=${true}>观战中<//>`
+          : searching
+            ? html`<${Button} variant="secondary" size="xl" icon="hourglass" disabled=${true}>匹配中<//>`
           : html`<${Button} variant=${myReady ? 'primary' : 'secondary'} size="xl" icon=${myReady ? 'check' : 'hourglass'} active=${myReady}
               loading=${busy === 'ready'} disabled=${!online || !facts.mine} onClick=${toggleReady}>${myReady ? '已就绪' : '准备就绪'}<//>`}
       </div>

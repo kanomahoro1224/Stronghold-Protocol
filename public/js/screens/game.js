@@ -93,7 +93,7 @@ import { pauseAvailable, isPaused, frozenNow } from '../ui/matchStatus.js';
 import { pieceTile } from '../render/drag.js';
 import {
   phaseMode, phaseBanner, isCombatPhase, showDeadPill, isBossPhase, placementContext, canPlace, boardTargets, dropIntent,
-  snapHud, activeBubbles, shortcutFor, shortcutBlocked, closesOnFieldPress, phaseTotalSeconds, homeFieldId, ownFieldId, normalizeSp, sortedPlayers,
+  snapHud, activeBubbles, activeChatBubbles, shortcutFor, shortcutBlocked, closesOnFieldPress, phaseTotalSeconds, homeFieldId, ownFieldId, normalizeSp, sortedPlayers,
   countdownState, shopBlockReason, stageOverrides, effectiveStage, watchTarget, dropFailureReason,
   previewEnemyKey, prepCamera, prepCameraFor, foldCamera, deployFieldOf, panelSide, panelSlots, bondPopupPlace, chessLoadout, unitLoadout,
   mergeTarget, modeOffBonds, readyFundsPrompt, ownerBandId,
@@ -214,6 +214,7 @@ function MatchScreen() {
   const myId = useStore((s) => s.me.playerId);
   const conn = useStore((s) => s.connection, shallowEqual);
   const emotes = useStore((s) => s.emotes);
+  const chats = useStore((s) => s.chats);
   const roomSolo = useStore((s) => s.room?.mode === 'solo');
   const spectator = useStore((s) => isSpectating(s.room, s.me.playerId));
   const gd = useGameData();
@@ -679,9 +680,14 @@ function MatchScreen() {
     prevActive.current = activeBonds;
   }, [activeBonds]);
 
-  // emote bubbles (and a sound for teammates' emotes)
+  // emote + 游戏内文字聊天 bubbles (and a sound for teammates' emotes). One bubble slot per player: the newer of the
+  // two wins it (`seq` is one counter for both), so a line and an emote can never overlap beside the same avatar.
   const bubbleMs = (gd.config?.timers?.chatBubble ?? 3) * 1000;
   const bubbles = activeBubbles(emotes, Date.now(), bubbleMs);
+  for (const [pid, c] of activeChatBubbles(chats, Date.now(), bubbleMs)) {
+    const e = bubbles.get(pid);
+    if (!e || e.seq < c.seq) bubbles.set(pid, { seq: c.seq, at: c.at, chat: true, text: c.text });
+  }
   useTicker(bubbles.size ? 500 : 0); // re-render only while a bubble is showing (to expire it)
   const lastEmote = useRef(emotes.length ? emotes[emotes.length - 1].seq : 0);
   useEffect(() => {
@@ -1344,7 +1350,7 @@ function MatchScreen() {
       <${Ticker} />
 
       <div class="gm__corner">
-        ${spectator ? null : html`<${EmoteWheel} open=${emoteOpen} onToggle=${setEmoteOpen} onSend=${(id) => actions.emote(id)} disabled=${conn.status !== 'online'} />`}
+        ${spectator ? null : html`<${EmoteWheel} open=${emoteOpen} onToggle=${setEmoteOpen} onSend=${(id) => actions.emote(id)} onChat=${(text) => actions.chat(text)} disabled=${conn.status !== 'online'} />`}
         <button type="button" class="gm__gear" aria-label="设置" title="设置" onClick=${() => setSettingsOpen(true)}><${GIcon} name="gear" /></button>
         <button type="button" class="gm__gear gm__guide" aria-label="玩法说明" title="玩法说明" onClick=${() => openGuide(0)}><${Icon} name="book" /></button>
         <${FullscreenButton} class="gm__gear gm__fs" />

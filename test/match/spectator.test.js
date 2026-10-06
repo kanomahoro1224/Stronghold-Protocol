@@ -27,7 +27,7 @@ const frames = (h, id) => h.sent.filter(([pid]) => pid === id).map(([, x]) => x)
 /** The intents a player has, refused for a spectator (the platform never routes them; the match refuses them too). */
 const REFUSED = [
   { t: 'g.infoReady' }, { t: 'g.buy', slot: 0 }, { t: 'g.refresh' }, { t: 'g.levelUp' }, { t: 'g.ready', ready: true },
-  { t: 'g.emote', id: EMOTES[0] }, { t: 'g.autoplay', on: true }, { t: 'g.unitStats', seq: 1 }, { t: 'g.choice', idx: 0 },
+  { t: 'g.emote', id: EMOTES[0] }, { t: 'g.chat', text: '观战者不能说话' }, { t: 'g.autoplay', on: true }, { t: 'g.unitStats', seq: 1 }, { t: 'g.choice', idx: 0 },
   { t: 'g.band', bandId: 'band_bldsk' }, { t: 'b.progress', battleId: 'x', gt: 1, killed: 0, total: 1 },
 ];
 

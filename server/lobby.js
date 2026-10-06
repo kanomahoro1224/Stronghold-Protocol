@@ -157,6 +157,11 @@ export class Room {
     this.ownerKey = null;
     /** @type {string | null} per-network limit key of whoever started the running match */
     this.matchKey = null;
+    /**
+     * 同盟匹配: true while this alliance waits in its difficulty's pool for real doctors (room.matchmake). The alliance
+     * itself is the pool entry — its seats are never given up, so friends who joined by invite code stay together.
+     */
+    this.searching = false;
     this.createdAt = now;
     this.disposed = false;
   }
@@ -185,6 +190,7 @@ export class Room {
       mode: this.mode,
       difficulty: this.difficulty,
       inMatch: !!this.match,
+      searching: this.searching,
       seats: this.seats.map((s) => (s
         ? { seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot, ready: s.ready, connected: s.connected && !s.left }
         : null)),
@@ -233,6 +239,12 @@ export class Lobby {
      * @type {Map<string, { difficulty: string, entries: { session: any, at: number }[] }>}
      */
     this.queues = new Map();
+    /**
+     * 同盟匹配 pools by difficulty (room.matchmake): the searching ALLIANCES themselves, oldest first. Like a 搜寻队友
+     * pool there is no timer — an alliance searches until its host calls it off, its seats fill, or it is disposed.
+     * @type {Map<string, Room[]>}
+     */
+    this.matchPools = new Map();
     /** per-network limit warnings: at most one log line per 10 s (the rest are counted) */
     this.limitLog = { at: -Infinity, suppressed: 0 };
   }
@@ -513,6 +525,7 @@ export class Lobby {
       case 'room.removeBot': return this.removeBot(session, msg);
       case 'room.kick': return this.kick(session, msg);
       case 'room.start': return this.start(session);
+      case 'room.matchmake': return this.roomMatchmake(session, msg);
       case 'room.loadout': return this.loadout(session, msg);
       case 'queue.join': return this.queueJoin(session, msg);
       case 'queue.leave': return this.queueLeave(session);
@@ -721,6 +734,8 @@ export class Lobby {
     if (room.mode === 'solo') return fail(ERR.ROOM_FULL, 'solo rooms cannot have AI teammates');
     if (this.seatBot(room) < 0) return fail(ERR.ROOM_FULL);
     this.broadcastState(room);
+    // 同盟匹配: the AI teammate took the last free seat, so the alliance is full and starts (user request: 补满即开局)
+    if (room.searching && room.freeSeat() < 0) this.startMatch(room, session.limitKey || null);
     return OK;
   }
 
@@ -1047,11 +1062,109 @@ export class Lobby {
   }
 
   // ---------------------------------------------------------------------------------------------------
+  // 同盟匹配 (room.matchmake): the ALLIANCE searches, not the lone session
+  // ---------------------------------------------------------------------------------------------------
+
+  /**
+   * `room.matchmake { on }`: 同盟匹配 (user request). The host puts the alliance in its difficulty's pool and waits for
+   * real doctors — no deadline, and the alliance keeps its seats, so friends who joined by invite code stay where they
+   * are. Whole groups from other searching alliances are moved in while the seats fit, oldest searcher first, and a
+   * full alliance starts by itself (no 准备 round — the same rule the old queue had). The host can still fill what is
+   * left with AI (`room.addBot`), which starts it just the same. `on: false` calls the search off; a repeated
+   * `on: true` is a no-op (a double click, or a client that reconnected into an alliance already searching).
+   */
+  roomMatchmake(session, { on = true } = {}) {
+    const room = this.roomOf(session);
+    if (!room) return fail(ERR.NOT_IN_ROOM);
+    if (room.hostId !== session.playerId) return fail(ERR.NOT_HOST);
+    if (room.match) return fail(ERR.ROOM_STARTED);
+    if (room.mode === 'solo') return fail(ERR.BAD_MSG, 'a solo room has nobody to match with');
+    if (!on) {
+      if (room.searching) {
+        room.searching = false;
+        this.dropSearching(room);
+        this.log.info(`[lobby] ${room.code} 同盟匹配 cancelled (${room.activeHumans().length} 真人)`);
+        this.broadcastState(room);
+      }
+      return OK;
+    }
+    // Already full: doctors who invited each other do not wait for a pool that has nothing left to add.
+    if (room.freeSeat() < 0) return this.startMatch(room, session.limitKey || null);
+    if (room.searching) { this.formMatchPool(room.difficulty); return OK; }
+    room.searching = true;
+    this.poolOfSearch(room.difficulty).push(room);
+    this.log.info(`[lobby] ${room.code} 同盟匹配 searching (${room.difficulty}: ${room.activeHumans().length} 真人)`);
+    this.broadcastState(room);
+    this.formMatchPool(room.difficulty);
+    return OK;
+  }
+
+  /** The searching-alliance pool of a difficulty, created on demand (oldest first, so `[0]` is the anchor). */
+  poolOfSearch(difficulty) {
+    let pool = this.matchPools.get(difficulty);
+    if (!pool) {
+      pool = [];
+      this.matchPools.set(difficulty, pool);
+    }
+    return pool;
+  }
+
+  /** Take a room out of its searching pool (cancel, start, dispose). */
+  dropSearching(room) {
+    const pool = this.matchPools.get(room.difficulty);
+    if (!pool) return false;
+    const next = pool.filter((r) => r !== room);
+    if (!next.length) this.matchPools.delete(room.difficulty);
+    else this.matchPools.set(room.difficulty, next);
+    return next.length !== pool.length;
+  }
+
+  /**
+   * Move whole groups from the other searching alliances of `difficulty` into the OLDEST one while the seats fit, and
+   * start it the moment it is full. Groups move as a group: an alliance that joined by invite code is never split, so
+   * the seats a host promised their friends are never taken by a stranger. An alliance that does not fit right now
+   * simply keeps waiting — it is still in the pool for the next arrival.
+   */
+  formMatchPool(difficulty) {
+    const pool = this.matchPools.get(difficulty);
+    if (!pool) return;
+    // a room that started, was disposed or lost its last human is no longer searching
+    const live = pool.filter((r) => !r.disposed && !r.match && r.activeHumans().length > 0);
+    for (const gone of pool) if (!live.includes(gone)) gone.searching = false;
+    if (!live.length) this.matchPools.delete(difficulty);
+    else this.matchPools.set(difficulty, live);
+    if (live.length < 2) return;
+    const anchor = live[0];
+    for (const other of live.slice(1)) {
+      if (anchor.freeSeat() < 0) break;
+      if (other.disposed || other.match) continue;
+      const group = other.activeHumans();
+      if (!group.length) continue;
+      if (anchor.activeHumans().length + group.length > MAX_SEATS) continue; // does not fit: keep waiting
+      for (const seat of group) {
+        const session = this.registry.byId(seat.playerId);
+        const idx = session ? anchor.freeSeat() : -1;
+        if (idx < 0) continue;
+        other.seats[seat.seat] = null;
+        const moved = this.humanSeat(idx, session);
+        moved.ready = true; // matchmade doctors never 准备 (the old queue's rule)
+        anchor.seats[idx] = moved;
+        session.roomCode = anchor.code;
+        this.log.info(`[lobby] ${anchor.code} 同盟匹配: ${seat.name} moved in from ${other.code}`);
+      }
+      if (!other.activeHumans().length) this.disposeRoom(other, 'empty');
+    }
+    this.broadcastState(anchor);
+    if (anchor.freeSeat() < 0) this.startMatch(anchor, this.matchKeyFor(anchor.activeHumans().map((s) => this.registry.byId(s.playerId)).filter(Boolean)));
+  }
+
+  // ---------------------------------------------------------------------------------------------------
   // Match wiring
   // ---------------------------------------------------------------------------------------------------
 
   /** @param {Room} room @param {string | null} [key] per-network limit key of the starter */
   startMatch(room, key = null) {
+    if (room.searching) { room.searching = false; this.dropSearching(room); }
     const host = room.seatOf(room.hostId);
     if (host) host.ready = true;
     const seats = room.seats.filter(Boolean).map((s) => ({
@@ -1411,6 +1524,7 @@ export class Lobby {
   disposeRoom(room, reason) {
     if (room.disposed) return;
     room.disposed = true;
+    if (room.searching) { room.searching = false; this.dropSearching(room); }
     if (this.rooms.get(room.code) === room) this.rooms.delete(room.code);
     // a disposed room has nothing to come back to (P0/P1): delete its record now, not on the next TTL sweep
     if (this.state) this.state.forget(room.code);

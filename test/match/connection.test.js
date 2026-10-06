@@ -1,7 +1,7 @@
 // Platform interface: start/handle/onDisconnect/onReconnect/onLeave/dispose, autoplay, bot takeover, views.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PHASE, ERR } from '../../shared/constants.js';
+import { PHASE, ERR, CHAT_MAX_LEN } from '../../shared/constants.js';
 import { Match, parseIdlePause, parseBotRehearsal } from '../../server/match/Match.js';
 import { StubMatch } from '../../server/match/StubMatch.js';
 import { DATA, makeMatch, checkInvariants, give, chessOfTier } from './harness.js';
@@ -381,6 +381,27 @@ test('emotes: relayed as m.emote with a 1 s cooldown; g.watch during prep scouts
   assert.equal(f.prep, true);
   assert.ok(Array.isArray(f.units));
   assert.equal(m.handle('p_0', { t: 'g.watch', fieldId: 'n:nobody' }).error, ERR.BAD_TARGET);
+  m.dispose();
+});
+
+test('chat: a text line is relayed as m.chat, shares the 1 s cooldown with emotes and is capped at CHAT_MAX_LEN', () => {
+  const h = makeMatch({ mode: 'coop', humans: 2, seed: 68, fake: true }).start();
+  const m = h.m;
+  assert.deepEqual(m.handle('p_0', { t: 'g.chat', text: '  你好  ' }), { ok: true });
+  assert.deepEqual(h.lastBc('m.chat'), { t: 'm.chat', playerId: 'p_0', text: '你好' }, 'the line is trimmed');
+  // ONE cooldown for both: a line right after a line, or an emote right after a line, is refused (chatCD = 1 s)
+  assert.equal(m.handle('p_0', { t: 'g.chat', text: '刷屏' }).error, ERR.RATE);
+  assert.equal(m.handle('p_0', { t: 'g.emote', id: 'autochess_battle_happy' }).error, ERR.RATE);
+  h.sched.advance(1000);
+  assert.deepEqual(m.handle('p_0', { t: 'g.emote', id: 'autochess_battle_happy' }), { ok: true });
+  assert.equal(m.handle('p_0', { t: 'g.chat', text: '再来一条' }).error, ERR.RATE, 'the emote started the same cooldown');
+  h.sched.advance(1000);
+  // empty, whitespace-only, over-long and non-string lines are refused without throwing
+  for (const text of ['', '   ', 'x'.repeat(CHAT_MAX_LEN + 1), 7, null, undefined]) {
+    assert.equal(m.handle('p_0', { t: 'g.chat', text }).error, ERR.BAD_MSG, `refused: ${JSON.stringify(text)}`);
+  }
+  assert.deepEqual(m.handle('p_0', { t: 'g.chat', text: 'x'.repeat(CHAT_MAX_LEN) }), { ok: true }, 'exactly the cap is fine');
+  assert.equal(h.lastBc('m.chat').text.length, CHAT_MAX_LEN);
   m.dispose();
 });
 

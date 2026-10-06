@@ -372,6 +372,25 @@ export function activeBubbles(emotes, now, ttl = 3000) {
   return out;
 }
 
+/**
+ * Active chat bubbles: playerId → { text, seq, at } for lines younger than ttl — the emote bubble's rule, applied to
+ * 游戏内文字聊天. A line that is blank after trimming never bubbles (the match refuses one, so this only guards a
+ * hand-built store) and the text is returned verbatim: the renderer puts it in a text node, never in markup.
+ * @param {Array<{seq:number, playerId:string, text:string, at:number}>} chats
+ * @param {number} now
+ * @param {number} [ttl]
+ */
+export function activeChatBubbles(chats, now, ttl = 3000) {
+  const out = new Map();
+  for (const c of Array.isArray(chats) ? chats : []) {
+    if (!isObj(c) || typeof c.text !== 'string' || !c.text.trim()) continue;
+    if (!(now - c.at < ttl) || c.at > now + 1000) continue;
+    const cur = out.get(c.playerId);
+    if (!cur || cur.seq < c.seq) out.set(c.playerId, { text: c.text, seq: c.seq, at: c.at });
+  }
+  return out;
+}
+
 // ---- bonds -------------------------------------------------------------------------------------------
 
 /**

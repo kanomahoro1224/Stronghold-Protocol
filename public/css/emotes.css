@@ -157,6 +157,46 @@
 .ebubble__icon { position: absolute; left: .26rem; top: .12rem; width: .68rem; height: .70rem; display: grid; place-items: center; }
 .ebubble .eart { width: 100%; height: 100%; }
 
+/* ---- 游戏内文字聊天: the box under the grid, in a strip the panel grows by --------------------------------- */
+/* The plate sprite (emoji_bkg) is a fixed 313×231 and must not stretch, so a panel that carries the chat box grows
+   taller (its bottom stays pinned just above the 交流 button) and anchors the sprite to the top; the strip draws its own
+   plate, which is also what the sprite-less fallback shows. */
+.ewheel__panel.has-chat { height: 2.59rem; }
+.ewheel__panel.has-chat.has-sprite { background-position: top; background-size: 100% auto; }
+.ewheel__chat {
+  position: absolute; left: .15rem; top: 2.14rem; width: 2.82rem; height: .34rem; box-sizing: border-box;
+  display: flex; align-items: stretch; gap: .05rem; padding: .03rem;
+  background: rgba(19, 19, 19, .92); border-radius: .06rem; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .07);
+}
+.ewheel__chat-input {
+  flex: 1 1 auto; min-width: 0; height: 100%; padding: 0 .06rem; box-sizing: border-box;
+  background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .12); border-radius: .04rem;
+  color: #f2f2f2; font-family: inherit; font-size: .14rem; line-height: 1;
+  user-select: text; -webkit-user-select: text;
+}
+.ewheel__chat-input::placeholder { color: rgba(242, 242, 242, .38); }
+.ewheel__chat-input:focus { outline: none; border-color: var(--mint-500); background: rgba(255, 255, 255, .14); }
+.ewheel__chat-send, .ewheel__chat-clear {
+  flex: 0 0 auto; display: grid; place-items: center; height: 100%; margin: 0; border: 0; border-radius: .04rem;
+  color: #f2f2f2; font-family: inherit; font-size: .14rem; line-height: 1; cursor: pointer;
+}
+.ewheel__chat-send { width: .62rem; background: var(--mint-500); color: #06231e; font-weight: 600; }
+.ewheel__chat-send:hover:not(:disabled) { filter: brightness(1.12); }
+.ewheel__chat-clear { width: .26rem; background: rgba(255, 255, 255, .12); font-size: .18rem; }
+.ewheel__chat-clear:hover:not(:disabled) { background: rgba(255, 255, 255, .22); }
+.ewheel__chat-send:disabled, .ewheel__chat-clear:disabled { opacity: .4; cursor: default; }
+.ewheel__chat-input:disabled { opacity: .5; }
+
+/* ---- chat bubble beside the sender's avatar (words instead of a picture) ----------------------------------- */
+/* Sizes to the line (min the emote bubble's plate, max a little wider), so it skips the official bubble sprite: that
+   plate is a fixed 108×97 and would stretch on every longer line. The plate below is the fallback emote bubble's. */
+.ebubble--text { width: auto; height: auto; min-width: .97rem; max-width: 1.9rem; font-size: 0; }
+.ebubble--text::before { width: auto; height: auto; right: .06rem; bottom: .06rem; }
+.ebubble__text {
+  display: block; margin: .08rem .1rem .08rem .22rem; color: #f2f2f2; font-size: .15rem; line-height: 1.25;
+  text-align: left; word-break: break-word; overflow-wrap: anywhere;
+}
+
 @keyframes emo-panel-in { from { opacity: 0; transform: translateY(.06rem) scale(.96); } }
 @keyframes emo-page-in { from { opacity: 0; } }
 @keyframes emo-page-from-right { from { opacity: .2; transform: translateX(45%); } }

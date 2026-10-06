@@ -234,3 +234,5 @@ export const emoteArtGroup = (id) => { const e = emoteInfo(id); return e ? `emot
 export const emoteArtPath = (id) => { const e = emoteInfo(id); return e ? `/assets/local/emoticon/${e.dir}/${e.picId}.png` : null; };
 export const EMOTE_COOLDOWN_MS = 1000; // activity_table autoChessData.constData.chatCD (s)
 export const EMOTE_BUBBLE_MS = 3000;   // constData.chatTime (s): how long a bubble stays up
+/** 游戏内文字聊天（表情面板下方的输入框）单条上限，按字符计；服务端与客户端共用同一个值。 */
+export const CHAT_MAX_LEN = 40;
