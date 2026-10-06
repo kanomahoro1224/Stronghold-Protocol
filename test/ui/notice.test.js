@@ -521,8 +521,8 @@ describe('公告: the real singleton the UI uses', () => {
     const n = normalizeNotice(raw);
     assert.equal(n.fallback, false, 'the shipped file has a usable body');
     assert.equal(n.title, '服务器公告');
-    assert.equal(n.updatedAt, '2026-10-05');
-    assert.deepEqual(n.sections.map((s) => s.label), ['服务说明', '联系', '反馈', '赞助', '制作中']);
+    assert.equal(n.updatedAt, '2026-10-06');
+    assert.deepEqual(n.sections.map((s) => s.label), ['维护提醒', '服务说明', '联系', '反馈', '赞助', '制作中']);
     const text = n.body.map(noticeLineText);
     assert.ok(text.length >= 1);
     assert.ok(text.every((l) => l.length > 0), 'the sectioned file has no blank filler line');
@@ -531,24 +531,30 @@ describe('公告: the real singleton the UI uses', () => {
     assert.match(raw._doc, /sections/, 'and the sectioned shape');
     assert.match(raw._doc, /联系邮箱/, 'and the sections that were deliberately left out');
     assert.match(raw._doc, /github\.com/i, 'and how to add the repository section later');
-    // the operator's text, verbatim
-    assert.deepEqual(n.sections[0].lines, [
+    // the operator's text, verbatim (looked up by label: the 维护提醒 section the operator added on 2026-10-06 leads the file)
+    const section = (label) => n.sections.find((s) => s.label === label);
+    assert.deepEqual(section('维护提醒').lines, [
+      '即将进行一次闪断更新（约 1 分钟）',
+      '更新期间正在进行的对局会被中断，非常抱歉，敬请谅解',
+      '更新后：同盟对局与房间在闪断后可恢复；正在战斗、抽卡、决战中的对局仍需重开',
+    ]);
+    assert.deepEqual(section('服务说明').lines, [
       '本站为纯公益的非官方同人站点，与游戏官方及其关联方无关',
       '可能会不定期重启更新版本等　对此造成的游戏中断致歉',
-      '不过目前正在制作闪断不丢掉游戏进度功能　相信在不久之后即可上线',
+      '闪断不丢掉游戏进度的功能将随本次更新上线：同盟对局与房间都能在闪断后回来',
     ]);
-    assert.equal(text[3], 'QQ：永远喜欢着鹿乃 🍓𐂂　3497593286', 'the QQ row shows the user\'s own text plus the number he asked to add');
+    assert.ok(text.some((l) => l === 'QQ：永远喜欢着鹿乃 🍓𐂂　3497593286'), 'the QQ row shows the user\'s own text plus the number he asked to add');
     assert.ok(text.includes('B 站：鹿可可Official'));
     assert.ok(text.includes('如遇服务器方面的问题，可以通过B站私信或发送邮件联系。'));
     assert.ok(text.some((l) => l.includes('花鹿云心AI中转站')), 'the sponsor is named in the text');
     assert.ok(!text.some((l) => l.includes('ai.xiaolubao.com')), 'the sponsor domain is NOT displayed — the name is the link');
     // the sponsor row reads as one sentence, with 花鹿云心AI中转站 (and only it) carrying the link
     assert.ok(text.includes('本服务器不要求赞助　可以前往 花鹿云心AI中转站消费　盈利部分大部分会用来为爱发电　升级服务器　制作额外功能'));
-    assert.ok(text.some((l) => l.includes('目前正在制作功能：闪断不丢掉游戏进度功能　键位设置　皮肤功能（正在考量）')));
+    assert.ok(text.some((l) => l.includes('目前正在制作功能：键位设置　皮肤功能（正在考量）')));
     // the QQ NUMBER is only in the href — it is never part of the visible text
     assert.ok(text.some((l) => l.includes('3497593286')), 'the QQ number is not displayed anywhere');
     assert.ok(JSON.stringify(raw).match(/"t":"[^"]*"/g).some((s) => s.includes('3497593286')), 'nor in any visible segment');
-    const qq = n.sections[1].lines[0];
+    const qq = section('联系').lines[0];
     assert.equal(qq.segments[0].t, 'QQ：');
     assert.equal(qq.segments[1].t, '永远喜欢着鹿乃 🍓𐂂');
     assert.equal(qq.segments[1].href, 'https://wpa.qq.com/msgrd?v=3&uin=3497593286&site=qq&menu=yes');
