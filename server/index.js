@@ -890,30 +890,59 @@ export async function startServer(opts = {}) {
       Number.isFinite(opts.maxRooms) ? opts.maxRooms : LOBBY_DEFAULTS.maxRooms,
       Number(process.env.SP_MAX_ROOMS) > 0 ? Number(process.env.SP_MAX_ROOMS) : Infinity,
     ));
+    const ignoreBuild = envFlag(process.env.SP_STATE_IGNORE_BUILD);
+    const scanPerSecond = 100;
+    const scanBudgetMs = 60_000;
+    const scanT0 = Date.now();
     loadResumable(state.store, {
-      // paced at ≈20 records/s (the disk is not worth a boot spike) inside a hard time budget: a huge state directory
-      // delays the marks, never the serving — `listen` already happened
+      // paced (see `perSecond`) inside a hard time budget: a huge state directory delays the marks, never the serving —
+      // `listen` already happened
       // SP_STATE_IGNORE_BUILD=1 drops the BUILD half of the version gate for this scan only: an operator restarting the
       // service mid-match must not interrupt a room, even when the deploy changed the build tag (the records still
       // carry the real tag, `state.build` — only the comparison is skipped). The rulesHash half STAYS: a record is
       // never replayed against rules (data/*.json, shared/constants.js) it never saw.
-      build: envFlag(process.env.SP_STATE_IGNORE_BUILD) ? null : state.build,
+      build: ignoreBuild ? null : state.build,
       rulesHash: state.rulesHash, ttlMs: state.ttlMs, maxRecords: cap,
       // 60 s instead of 15 s: this scan runs AFTER `listen`, so it delays only the marks, never the serving — and with
       // ~20 records/s a 15 s budget marked 293 of 815 records on the live box ("capped at 293 record(s), more remain on
       // disk"): every record past the cap keeps its match unresumable, i.e. a restart still interrupts it. 100/s over
       // 60 s covers 6000 records — past `maxRooms`, and reading these small JSON files is nothing next to a match.
-      perSecond: 100, budgetMs: 60_000, log,
-    }).then(({ records, refused }) => {
+      perSecond: scanPerSecond, budgetMs: scanBudgetMs, log,
+    }).then(async ({ records, refused, scanned, capped }) => {
       state.noteRefused(refused);
-      state.markResumable(records, { maxRooms: cap });
+      const marked = state.markResumable(records, { maxRooms: cap });
       state.logRefusals();
-      state.purgeRefused(); // a refused record can never become resumable: delete it instead of re-reading it forever
+      const purged = state.purgeRefused(); // a refused record can never become resumable: delete it instead of re-reading it forever
+      // What the scan SAW, not just what survived it: `resumedCount: 0` on the live box twice (at 14:25 and 14:31) could
+      // mean an empty directory, a scan that ran out of budget, or records the gate turned away — and the app's own
+      // log does not reach the journal, so this report is the only window onto the boot path. /healthz carries it.
+      let listed = null;
+      try { listed = (await state.store.list('match:')).length; } catch { /* a diagnostic count is never fatal */ }
+      state.noteScan({
+        at: new Date(scanT0).toISOString(),
+        durationMs: Date.now() - scanT0,
+        dir: state.store && state.store.dir ? state.store.dir : null,
+        listed,
+        scanned,
+        capped,
+        marked,
+        refused: refused.length,
+        reasons: refused.reduce((m, r) => { const k = (r && r.reason) || 'unknown'; m[k] = (m[k] || 0) + 1; return m; }, {}),
+        samples: refused.slice(0, 3),
+        purged,
+        gate: {
+          build: ignoreBuild ? 'ignored (SP_STATE_IGNORE_BUILD)' : String(state.build),
+          maxRecords: cap, perSecond: scanPerSecond, budgetMs: scanBudgetMs, ttlMs: state.ttlMs,
+        },
+      });
       if (state.resumedCount) {
         log.info(`[state] ${state.resumedCount} persisted match(es) resumable `
           + `(${state.resume ? 'resume enabled' : 'resume disabled'}${refused.length ? `, ${refused.length} refused` : ''})`);
       }
-    }).catch((e) => log.error('[state] resume scan failed', e));
+    }).catch((e) => {
+      state.noteScan({ at: new Date(scanT0).toISOString(), durationMs: Date.now() - scanT0, error: String((e && e.message) || e) });
+      log.error('[state] resume scan failed', e);
+    });
   }
 
   let closing = null;

@@ -35,6 +35,7 @@ test('a fresh, healthy queue and a disabled bridge report the zero-safe /healthz
   }
   assert.equal(disabled.stats().resumed, false);
   assert.equal(disabled.stats().lastError, null);
+  assert.equal(disabled.stats().scan, null, 'a bridge that never scans reports no scan');
 });
 
 test('startServer wires a state bridge into the lobby and /healthz reports it', async () => {
@@ -52,6 +53,28 @@ test('startServer wires a state bridge into the lobby and /healthz reports it', 
     assert.equal(h.state.resumed, false, 'resume is opt-in (SP_STATE_RESUME)');
     assert.equal(h.state.lastError, null);
     assert.equal(h.state.store, 'memory');
+    // The boot scan reports what it SAW, not only what survived it: `resumedCount: 0` alone cannot tell an empty state
+    // directory from a scan that ran out of budget or records the gate turned away. The live box reported 0 twice while
+    // the same call marked 151 of 293 records offline, so the boot path has to be measurable from /healthz alone (the
+    // app's own log.info/warn does not reach the journal).
+    let scan = h.state.scan;
+    for (let i = 0; i < 100 && !scan; i++) {
+      await new Promise((r) => setTimeout(r, 10)); // the scan runs after `listen`, so it may still be in flight
+      scan = (await httpReq(srv.port, '/healthz')).body.state.scan;
+    }
+    assert.ok(scan && typeof scan === 'object', `the boot scan is reported: ${JSON.stringify(scan)}`);
+    assert.equal(scan.listed, 0, 'nothing on disk to list');
+    assert.equal(scan.scanned, 0);
+    assert.equal(scan.marked, 0);
+    assert.equal(scan.refused, 0);
+    assert.deepEqual(scan.reasons, {});
+    assert.equal(scan.capped, false);
+    assert.equal(typeof scan.durationMs, 'number');
+    assert.equal(typeof scan.at, 'string');
+    assert.deepEqual(Object.keys(scan.gate).sort(), ['budgetMs', 'build', 'maxRecords', 'perSecond', 'ttlMs'], 'the gate parameters are reported');
+    assert.equal(typeof scan.gate.budgetMs, 'number');
+    assert.equal(typeof scan.gate.perSecond, 'number');
+    assert.equal(typeof scan.gate.build, 'string', 'which build the gate compared is reported');
     assert.ok(JSON.stringify(h).length < 4000, 'the frame stays small');
     assert.equal(stateStats().store, 'memory', 'the exported probe reads the live bridge');
   } finally {

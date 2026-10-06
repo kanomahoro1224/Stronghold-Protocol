@@ -383,6 +383,14 @@ export class StateBridge {
     /** @type {Map<string, { playerId: string, code: string, seat: number }>} sha256(token) → the seat it proves */
     this.claims = new Map();
     this.refused = [];
+    /**
+     * What the LAST boot scan saw (server/index.js `noteScan`), or null before it ran. `resumedCount: 0` alone cannot
+     * say whether the state directory was empty, the scan hit its own budget, or every record was refused — the live
+     * box reported 0 twice while the same call marked 151 of 293 records offline, so the boot path has to be
+     * measurable. In memory only: a restart replaces it with that boot's own report.
+     * @type {any}
+     */
+    this.scan = null;
     /** @type {NodeJS.Timeout | null} */
     this._sweepTimer = null;
     /**
@@ -521,6 +529,17 @@ export class StateBridge {
   /** The record refused by the version gate (logged once by the caller). */
   noteRefused(refused) { this.refused = Array.isArray(refused) ? refused : []; }
 
+  /**
+   * Remember what the boot scan saw. Reported by `/healthz.state.scan`, so a restart's `resumedCount: 0` can be told
+   * apart at a glance: an empty directory (`listed: 0`), a scan that ran out of budget (`capped: true`), or records the
+   * gate turned away (`reasons`). Never throws — this is a diagnostic, not a control path.
+   * @param {any} info
+   */
+  noteScan(info) {
+    if (!info || typeof info !== 'object') { this.scan = null; return; }
+    this.scan = { ...info };
+  }
+
   /** Log the version gate's refusals, once, without letting a big state dir flood the log. */
   logRefusals(limit = 5) {
     const counts = new Map();
@@ -605,6 +624,8 @@ export class StateBridge {
       resumedCount: this.records.size,
       resumed: this.resume,
       store: q.store,
+      // what the boot scan saw (SP_STATE observability): null until it ran, or on a bridge that never scans
+      scan: this.scan,
     };
   }
 
@@ -635,11 +656,12 @@ export class DisabledBridge {
   record() { return null; }
   claim() { return null; }
   noteRefused() {}
+  noteScan() {}
   logRefusals() {}
   purgeRefused() { return 0; }
   async sweepOnce() { return 0; }
   startSweeper() { return null; }
   stopSweeper() {}
   close() {}
-  stats() { return { queued: 0, written: 0, dropped: 0, errors: 0, lastError: null, resumedCount: 0, resumed: false, store: this.reason }; }
+  stats() { return { queued: 0, written: 0, dropped: 0, errors: 0, lastError: null, resumedCount: 0, resumed: false, store: this.reason, scan: null }; }
 }
