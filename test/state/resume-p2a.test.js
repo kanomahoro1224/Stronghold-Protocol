@@ -20,7 +20,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { makeMatch, give, giveItem, chessOfTier, legalTileFor } from '../match/harness.js';
+import { makeMatch, give, giveItem, chessOfTier, legalTileFor, DATA } from '../match/harness.js';
 import { buildRecord, RECORD_VERSION } from '../../server/state/snapshot.js';
 import { captureProps, applyPlayerState } from '../../server/state/playerstate.js';
 import { applyRecord, checkRecord, recordSeats, resumePlan, RESUME_TTL_MS } from '../../server/state/resume.js';
@@ -28,6 +28,16 @@ import { PHASE } from '../../shared/constants.js';
 
 const SEED = 4242;
 const NOW = Date.now();
+
+/**
+ * Plain equipment (no equip / merge side effects): the hand fillers test/match/temp.test.js uses. 0.2.0's `recompute()`
+ * runs `_fillHandFromTemp` (server/match/player/round.js), so a piece only STAYS in temp while every regular hand slot
+ * is taken — `decorate` below fills the hand for exactly that reason.
+ */
+const PLAIN_ITEMS = Object.values(DATA.items)
+  .filter((i) => i.itemType === 'EQUIP' && !i.isGolden && i.kind === 'passive')
+  .map((i) => i.itemId ?? i.id)
+  .filter(Boolean);
 
 /** Canonical JSON: keys sorted, so two graphs compare independently of insertion order. */
 function canon(v) {
@@ -75,11 +85,27 @@ function decorate(h) {
   const tile = legalTileFor(m, ps, chessId);
   if (tile) give(m, ps, chessId, 'board', tile);            // a deployed piece (dir / meta.round ride along)
   give(m, ps, chessId, 'hand');                             // a hand piece — never a merge (needs 3)
+  const itemId = ps.shop.slots.find((s) => s && s.kind === 'item')?.id;
+  if (itemId) giveItem(m, ps, itemId, 'hand');
+  // Fill the free regular hand slots BEFORE the temp overflow: since 0.2.0 a free hand slot pulls a temp piece in at
+  // every `recompute()` (_fillHandFromTemp), so the piece stowed below would be in the HAND by capture time and neither
+  // the `temp` payload nor the `tempDue` round trip below would be exercised. Filling the hand is the state
+  // test/match/temp.test.js builds for its own temp pieces; an item the seat already holds is skipped, because
+  // `giveItem` writes straight into the hand (it does not run the merge check a real acquisition does).
+  const heldItems = new Set();
+  for (const p of [...ps.hand.filter(Boolean), ...ps.board.values()]) {
+    if (p.kind === 'item') heldItems.add(p.id);
+    for (const it of p.items || []) heldItems.add(it.id);
+  }
+  for (let i = 0; i < PLAIN_ITEMS.length && ps.hand.some((x) => x == null); i++) {
+    const id = PLAIN_ITEMS[i];
+    if (heldItems.has(id)) continue;
+    heldItems.add(id);
+    giveItem(m, ps, id, 'hand');
+  }
   const temp = ps.newPiece('chess', otherId, { poolCopies: m.pool.take(m.gd.baseIdOf(otherId), 1) });
   ps.stow(temp, { toTemp: true });
   ps._tempDue.set(temp.uid, ps.prepsEnded + 1);             // overflowed after Ready: due at the NEXT prep
-  const itemId = ps.shop.slots.find((s) => s && s.kind === 'item')?.id;
-  if (itemId) giveItem(m, ps, itemId, 'hand');
   ps.pushRewardOffer('merge');                              // a queued offer (uses rngShop)
   ps.addLayers(m.gd.chess(chessId).bonds[0], 2);            // persistent layers (the derived bonds follow)
   ps.counters.test = 3;

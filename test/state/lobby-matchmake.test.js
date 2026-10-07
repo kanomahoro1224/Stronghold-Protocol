@@ -1,6 +1,6 @@
 // test/state/lobby-matchmake.test.js — 同盟匹配 (user request): an alliance searches for teammates from INSIDE the room.
 //
-// The old flow (DESIGN §23, queue.join) pooled lone sessions and built a brand-new room the moment four of them were
+// The old flow (DESIGN §26, queue.join) pooled lone sessions and built a brand-new room the moment four of them were
 // connected: the room you were in was left behind, and friends who wanted to play together could not use it at all.
 // The new flow keeps the room: its host puts the alliance in the difficulty's pool, the pool MOVES whole groups into
 // the OLDEST searching alliance while the seats fit, and a full alliance starts by itself. Friends keep the seats they

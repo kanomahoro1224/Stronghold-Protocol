@@ -5,7 +5,7 @@
 //   me          – { playerId, name, token } from `welcome`
 //   session     – { entered } (the player pressed 开始 on the title screen in this tab)
 //   room        – last `room.state` payload (without `t`) or null
-//   queue       – 搜寻队友 (matchmaking, DESIGN §23) search state, or null when not searching
+//   queue       – 搜寻队友 (matchmaking, DESIGN §26) search state, or null when not searching
 //   match       – { public, private, field, result } from the `m.*` pushes; `battle` = the local battle runner's
 //                 state (client-side combat, public/js/battle/runner.js): { battleId, fieldId, kind, authoritative,
 //                 watch, done, own, members, loading, speed, paused, leaks } | null — `paused`: the solo pause holds
@@ -22,6 +22,7 @@
 
 import { useLayoutEffect, useReducer, useRef } from '../vendor/hooks.module.js';
 import { PHASE } from '../../shared/constants.js';
+import { t } from '../../shared/i18n.js';
 
 /**
  * Create an observable store.
@@ -79,7 +80,7 @@ export const initialState = Object.freeze({
   me: { playerId: null, name: '', token: null },
   session: { entered: false },
   room: null,
-  // 搜寻队友 (DESIGN §23): the last `queue.state` (searching for teammates) or null when not searching —
+  // 搜寻队友 (DESIGN §26): the last `queue.state` (searching for teammates) or null when not searching —
   // { difficulty, size, max, solo, since }. `since` is a local Date.now() anchor (the server's `waitedMs` is a
   // snapshot), so the panel can count the search up without asking the server again. There is no deadline.
   queue: null,
@@ -132,8 +133,8 @@ export function isSpectating(room, playerId) {
 export function sessionResetNotice(prev, playerId) {
   const prevId = prev?.me?.playerId;
   if (prevId == null || prevId === playerId) return null;
-  if (prev?.match?.public || prev?.room?.inMatch) return '服务器会话已重置，上一局模拟已结束';
-  if (prev?.room) return '服务器会话已重置，已返回大厅';
+  if (prev?.match?.public || prev?.room?.inMatch) return t('服务器会话已重置，上一局模拟已结束');
+  if (prev?.room) return t('服务器会话已重置，已返回大厅');
   return null;
 }
 

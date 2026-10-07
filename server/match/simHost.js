@@ -1,4 +1,4 @@
-// server/match/simHost.js — worker entry of the simulation pool (DESIGN §23).
+// server/match/simHost.js — worker entry of the simulation pool (DESIGN §26).
 //
 // A field nobody watches is simulated by the server in wall-clock slices on the MAIN thread today (fields.js
 // HeadlessJob), on the same core that answers players and moves JSON; at ~700 concurrent matches that is what

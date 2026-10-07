@@ -64,6 +64,23 @@
 //     (or outside a room) it simply replaces the stored one; while the room's match runs it is also handed to
 //     match.setLoadout(playerId, loadout), which accepts it only during INFO_CHECK (the 干员调配 entry of the briefing)
 //     and refuses it afterwards (WRONG_PHASE: the match's loadout is locked, the stored one applies to the next match).
+//   * Operator ownership (干员持有, 0.2.0 补位, owner's decision 2026-10-05): room.ownership { notOwned } — the base chess
+//     ids the player marked as not owned — is checked leniently (shared/protocol.js checkNotOwned: anything that is not
+//     a droppable NORMAL chess is dropped, never the whole list; only a malformed list is BAD_MSG) and stored on the
+//     session and the seat like the loadout. The match receives seats[].notOwned when it starts (bots: none — they own
+//     every operator) and keeps it for its whole length: the setting is out of match ("局外设置，下一局生效"), so while
+//     the room's match runs a new list is only stored for the next match (ROOM_STARTED 'stored for the next match',
+//     never handed to the match). A spectator's list stays on its session.
+//   * 自选编队 (0.2.0 DIY, the owner's decisions of 2026-10-05): room.diy { picks } — the player's picks for the four DIY
+//     slots ({ [slotBaseId]: { charId, skillIndex?, uniEquipId? } | null }) — is checked leniently (shared/protocol.js
+//     checkDiyPicks against the game data and the kit registry, server/sim/content/kits/index.js KITTED_CHARS: an
+//     illegal pick — an operator without a kit, another tier's prototype, a prototype off its locked skill, a second slot
+//     of one owned operator, the same operator twice in a tier, an unknown slot / skill / module — is dropped, never the
+//     whole roster; only malformed picks are BAD_MSG) and stored on the session and the seat exactly like the
+//     not-owned list: the match receives seats[].diy when it starts (bots: none — they field no 自选 piece [ASSUMED]),
+//     and a change while it runs is stored for the next match (ROOM_STARTED 'stored for the next match'). Every
+//     `welcome` carries `diyKitted` (welcomeInfo): the operators a DIY slot may field, so the client's picker offers
+//     exactly what the server accepts.
 //   * Spectator seats (community report #26, owner's decision 2026-10-04 — a remake feature, the official room has none):
 //     room.spectate { code } takes one of a co-op room's MAX_SPECTATORS (2) spectator seats, in its lobby or while its
 //     match runs (▸ solo rooms: ROOM_FULL). A spectator is not a player: never in `seats`, never counted for the 1–4 players
@@ -71,20 +88,22 @@
 //     {empty} for its spectators). It receives room.state (`spectators: [{ playerId, name, connected }]`) and every match
 //     broadcast (m.public, m.ticker, m.emote, b.pool — public data); the match registers it (opts.spectators /
 //     addSpectator) and shows it fields like an eliminated player (b.start watch / m.field), never an m.private. It may
-//     only g.watch (the heavy bucket, like every watcher), g.leave / room.leave, and room.loadout (stored for its session,
-//     never handed to the match); anything else → SPECTATOR (▸ emotes too). Host: room.removeSpectator { playerId } any
+//     only g.watch (the heavy bucket, like every watcher), g.leave / room.leave, and room.loadout / room.ownership /
+//     room.diy (stored for its session, never handed to the match); anything else → SPECTATOR (▸ emotes too). Host: room.removeSpectator { playerId } any
 //     time → room.closed {kicked} to it. A spectator in a LOBBY room may take a free player seat with room.join of the same
 //     code; a player never switches to spectating in place (ALREADY). Disconnect / grace / reconnect / expiry work as for
 //     a player seat (the seat is kept and given back on resume).
 
 import { randomBytes, randomInt } from 'node:crypto';
 import { ERR, MAX_SEATS, MAX_SPECTATORS, ROOM_CODE_LEN, modeIdFor } from '../shared/constants.js';
-import { checkLoadout } from '../shared/protocol.js';
+import { checkLoadout, checkNotOwned, checkDiyPicks } from '../shared/protocol.js';
 import { encode, isDroppable, isErrCode, sendRaw, sendSession } from './net.js';
 import { getData as defaultGetData, lookup } from './data.js';
 import { Match as DefaultMatch } from './match/Match.js';
 import { tokenHash } from './state/snapshot.js';
 import { recordSeats, applyRecord } from './state/resume.js';
+import { KITTED_CHARS } from './sim/content/kits/index.js';
+import { N_ } from '../shared/i18n.js';
 
 /** Room code alphabet: uppercase letters without I and O (and no digits, so no 0/1). */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -97,7 +116,7 @@ export const LOBBY_DEFAULTS = Object.freeze({
   maxMatchesPerAddr: 8,   // matches started from one client network that may run at once (0 = unlimited)
   resyncMinGapMs: 1000,   // heavy resyncs (match state / result replay) per session at most this often on repeated hellos
   soloReconnectWindowMs: null, // a dropped solo run stays resumable this long (null = data singleReconnectTime, 24 h)
-  // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §23)
+  // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §26)
   matchQueueMaxPerAddr: 8,      // queue entries from one client network at once (0 = unlimited)
   matchQueueMax: 128,           // entries per difficulty pool
 });
@@ -106,7 +125,7 @@ export const LOBBY_DEFAULTS = Object.freeze({
 export const SOLO_RECONNECT_FALLBACK_SEC = 86_400;
 
 /** Display names for AI teammates (the tutorial NPCs first, then a few familiar faces). */
-export const BOT_NAMES = Object.freeze(['AI·华法琳', 'AI·阿米娅', 'AI·惊蛰', 'AI·杜宾', 'AI·凯尔希', 'AI·可露希尔']);
+export const BOT_NAMES = Object.freeze(['AI·华法琳', 'AI·阿米娅', 'AI·惊蛰', 'AI·杜宾', 'AI·凯尔希', 'AI·可露希尔']); // i18n-ignore: player names (docs/I18N.md)
 
 const OK = Object.freeze({ ok: true });
 const fail = (code, detail) => (detail ? { error: code, detail } : { error: code });
@@ -114,13 +133,22 @@ const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
 
 /**
  * @typedef {{ seat: number, playerId: string, name: string, isBot: boolean, ready: boolean,
- *             connected: boolean, left: boolean, loadout?: Record<string, { skill: number, module: string|null }> | null }} Seat
+ *             connected: boolean, left: boolean, loadout?: Record<string, { skill: number, module: string|null }> | null,
+ *             notOwned?: readonly string[] | null, diy?: Readonly<Record<string, DiyLoadout>> | null }} Seat
+ * @typedef {{ charId: string, skillIndex: number, uniEquipId: string|null }} DiyLoadout
  */
 
 /** Deep-frozen copy of a checked loadout (shared by the session, the seat and the match's PlayerState). */
 function freezeLoadout(loadout) {
   const out = {};
   for (const [id, e] of Object.entries(loadout || {})) out[id] = Object.freeze({ skill: e.skill, module: e.module ?? null });
+  return Object.freeze(out);
+}
+
+/** Deep-frozen copy of checked 自选 picks (shared by the session, the seat and the match's PlayerState). */
+function freezeDiy(picks) {
+  const out = {};
+  for (const [id, p] of Object.entries(picks || {})) out[id] = Object.freeze({ charId: p.charId, skillIndex: p.skillIndex, uniEquipId: p.uniEquipId ?? null });
   return Object.freeze(out);
 }
 
@@ -242,7 +270,7 @@ export class Lobby {
     /** @type {Map<string, NodeJS.Timeout>} deferred (coalesced) resyncs by playerId */
     this.resyncTimers = new Map();
     /**
-     * 搜寻队友 pools by difficulty (DESIGN §23): `{ difficulty, entries: [{ session, at }] }`. A pool has no timer —
+     * 搜寻队友 pools by difficulty (DESIGN §26): `{ difficulty, entries: [{ session, at }] }`. A pool has no timer —
      * the search runs until four connected doctors are in it (or the searcher cancels), so nothing expires by itself.
      * @type {Map<string, { difficulty: string, entries: { session: any, at: number }[] }>}
      */
@@ -441,7 +469,7 @@ export class Lobby {
     for (const r of this.rooms.values()) {
       if (r.match) {
         matches++;
-        // The server's own simulation load: battles it steps on its single core (DESIGN §23). `fieldsIdle` is the
+        // The server's own simulation load: battles it steps on its single core (DESIGN §26). `fieldsIdle` is the
         // subset nobody is watching — a match whose humans are all disconnected still steps their takeover fields for
         // the reconnect window (nothing suspends it any more; the box pays for that, deliberately). `paused` counts
         // the matches frozen by the owner's solo pause. `fieldsInThread` is the part of `fields`
@@ -547,6 +575,8 @@ export class Lobby {
       case 'room.loadout': return this.loadout(session, msg);
       case 'queue.join': return this.queueJoin(session, msg);
       case 'queue.leave': return this.queueLeave(session);
+      case 'room.ownership': return this.ownership(session, msg);
+      case 'room.diy': return this.diy(session, msg);
       case 'room.spectate': return this.spectate(session, msg);
       case 'room.removeSpectator': return this.removeSpectator(session, msg);
       default:
@@ -560,7 +590,7 @@ export class Lobby {
     this.clearResync(session.playerId); // the next resume resyncs immediately
     // A searcher who drops keeps their pool entry (a reconnect resumes the search), but the doctors still waiting
     // must see the smaller count — and the solo hint — right away: with no deadline timer there is nothing else that
-    // would tell them (DESIGN §23).
+    // would tell them (DESIGN §26).
     const waiting = this.queueOf(session);
     if (waiting) {
       this.pruneQueue(waiting);
@@ -628,7 +658,7 @@ export class Lobby {
     const code = this.genCode();
     if (!code) return fail(ERR.INTERNAL, 'no room code available');
     // Only once the create can no longer fail: a refused create must not silently end a 搜寻队友 search, or the
-    // client would be left showing a search panel the server has already forgotten (DESIGN §23).
+    // client would be left showing a search panel the server has already forgotten (DESIGN §26).
     this.dequeue(session, { notify: false });
     if (cur) this.removeMember(cur, session.playerId);
     const room = new Room(code, mode, difficulty, this.now(), pool);
@@ -656,7 +686,7 @@ export class Lobby {
     if (room.mode === 'solo') return fail(ERR.ROOM_FULL, 'solo room');
     const idx = room.freeSeat();
     if (idx < 0) return fail(ERR.ROOM_FULL);
-    // Only once the join can no longer fail: a refused join must not silently end a 搜寻队友 search (DESIGN §23).
+    // Only once the join can no longer fail: a refused join must not silently end a 搜寻队友 search (DESIGN §26).
     this.dequeue(session, { notify: false });
     if (cur) this.removeMember(cur, session.playerId);
     room.seats[idx] = this.humanSeat(idx, session);
@@ -763,7 +793,7 @@ export class Lobby {
   }
 
   /**
-   * Seat one AI teammate in the room's lowest free seat (room.addBot and 搜寻队友's fill-up, DESIGN §23).
+   * Seat one AI teammate in the room's lowest free seat (room.addBot and 搜寻队友's fill-up, DESIGN §26).
    * @param {Room} room
    * @returns {number} the seat index, or -1 when the room has no free seat
    */
@@ -865,15 +895,56 @@ export class Lobby {
     return OK;
   }
 
+  /**
+   * room.ownership (0.2.0 补位): keep the droppable chess of the not-owned list, store it on the session and the seat
+   * (see the header). A running match never takes it: it keeps the list its seat had at its start.
+   */
+  ownership(session, { notOwned }) {
+    const data = this.safeData();
+    const res = checkNotOwned(notOwned, (id) => lookup('chess', id, data));
+    if (!res || res.error) return fail(ERR.BAD_MSG, res && res.detail);
+    const list = Object.freeze(res.notOwned.slice());
+    session.notOwned = list;
+    const room = this.roomOf(session);
+    if (!room) return OK;
+    const seat = room.seatOf(session.playerId);
+    if (seat) seat.notOwned = list;
+    if (room.match && seat) return fail(ERR.ROOM_STARTED, 'stored for the next match');
+    return OK;
+  }
+
+  /**
+   * room.diy (0.2.0 自选编队): keep the legal picks (checkDiyPicks against the data and KITTED_CHARS), store them on the
+   * session and the seat (see the header). A running match never takes them: it keeps the picks its seat had at its
+   * start.
+   */
+  diy(session, { picks }) {
+    const res = checkDiyPicks(picks, { data: this.safeData(), kitted: KITTED_CHARS });
+    if (!res || !('ok' in res)) return fail(ERR.BAD_MSG, res && res.detail);
+    const kept = freezeDiy(res.picks);
+    session.diy = kept;
+    const room = this.roomOf(session);
+    if (!room) return OK;
+    const seat = room.seatOf(session.playerId);
+    if (seat) seat.diy = kept;
+    if (room.match && seat) return fail(ERR.ROOM_STARTED, 'stored for the next match');
+    return OK;
+  }
+
+  /** Extra fields of every `welcome` (net.js): the operators a 自选 slot may field (shared/diy.js `kitted`). */
+  welcomeInfo() {
+    return { diyKitted: KITTED_CHARS };
+  }
+
   // ---------------------------------------------------------------------------------------------------
-  // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §23)
+  // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §26)
   // ---------------------------------------------------------------------------------------------------
 
   /**
    * `queue.join {difficulty}`: search for teammates in that difficulty's pool. One entry per session — an existing
    * lobby room is left first (like room.create) and searching while a match runs is refused. Four connected doctors
    * form a room at once; with fewer the pool simply keeps waiting (no deadline, no AI fill — the searcher cancels or
-   * keeps waiting, DESIGN §23).
+   * keeps waiting, DESIGN §26).
    */
   queueJoin(session, { difficulty }) {
     const cur = this.roomOf(session);
@@ -1104,7 +1175,9 @@ export class Lobby {
     if (room.mode === 'solo') return fail(ERR.BAD_MSG, 'a solo room has nobody to match with');
     // The pool follows the card (Room.pool): a 同盟模拟 alliance plays with the friends it invited, so it may not be
     // pushed into the public pool — the client's 开始模拟 sends room.start instead.
-    if (!room.pool) return fail(ERR.BAD_MSG, 'this alliance was not created for 同盟匹配');
+    // N_(): an internal error detail, not a player-facing msgid — the same marker the client uses for this term
+    // (public/js/screens/lobby.js MODE_CARDS). Every sibling detail in this file is a plain English dev string.
+    if (!room.pool) return fail(ERR.BAD_MSG, N_('this alliance was not created for 同盟匹配'));
     if (!on) {
       if (room.searching) {
         room.searching = false;
@@ -1197,6 +1270,10 @@ export class Lobby {
       seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot, connected: s.connected,
       // DESIGN §16: the human's checked operator loadout (bots fight with the defaults)
       loadout: s.isBot ? null : s.loadout || null,
+      // 0.2.0 补位: the chess the human marked as not owned (bots own every operator)
+      notOwned: s.isBot ? null : s.notOwned || null,
+      // 0.2.0 自选编队: the human's checked DIY picks (bots field no 自选 piece [ASSUMED])
+      diy: s.isBot ? null : s.diy || null,
     }));
     // lastPublic / results: the latest m.public broadcast and the m.result frames (encoded), kept for the replay.
     const ctx = { live: true, ended: false, disposed: false, match: null, lastPublic: null, sharedResult: null, results: new Map() };
@@ -1463,6 +1540,8 @@ export class Lobby {
     return {
       seat: idx, playerId: session.playerId, name: session.name, isBot: false, ready: false, connected: session.connected, left: false,
       loadout: session.loadout || null,
+      notOwned: session.notOwned || null,
+      diy: session.diy || null,
     };
   }
 

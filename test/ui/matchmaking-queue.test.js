@@ -1,4 +1,4 @@
-// Regression tests (Node, no browser) of the client side of 同盟匹配 / 搜寻队友 (DESIGN §23, public/js/screens/lobby.js):
+// Regression tests (Node, no browser) of the client side of 同盟匹配 / 搜寻队友 (DESIGN §26, public/js/screens/lobby.js):
 //   1. the search counter starts at *this* player's own click and counts up from there — never from the pool's wait time
 //      (`queue.state.waitedMs` is the pool's first *connected* entry, broadcast to everybody, so a late clicker used to
 //      see somebody else's seconds the moment they joined);

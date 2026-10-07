@@ -69,7 +69,8 @@ export const actions = {
   emote: (id) => act('g.emote', { id }, { quiet: true }),
   // 游戏内文字聊天: quiet like an emote — the match owns the shared 1 s chatCD and the box keeps a refused line
   chat: (text) => act('g.chat', { text }, { quiet: true }),
-  watch: (fieldId) => act('g.watch', { fieldId }, { sfx: 'tab' }),
+  // `playerId`: the player tapped in the team panel (a shared field shows two) — what an eliminated viewer follows
+  watch: (fieldId, playerId = null) => act('g.watch', typeof playerId === 'string' && playerId ? { fieldId, playerId } : { fieldId }, { sfx: 'tab' }),
   autoplay: (on) => act('g.autoplay', { on }),
   // solo battles only (ui/matchStatus.js pauseAvailable): m.public.paused follows
   pause: (on) => act('g.pause', { on: !!on }, { sfx: on ? 'click' : 'confirm' }),

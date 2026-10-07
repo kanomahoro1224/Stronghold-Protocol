@@ -2,6 +2,8 @@
 // Every client→server message is `{ t, rid?, ...fields }`. Unknown `t` or invalid fields ⇒ ERR.BAD_MSG.
 
 import { DIFFICULTIES, NAME_MAX_LEN, ROOM_CODE_LEN, MAX_SEATS, EMOTES, GEO, CHAT_MAX_LEN } from './constants.js';
+import { isDroppableChess } from './standIn.js';
+import { diySlotIds, validateDiyPicks } from './diy.js';
 
 // ---- tiny validators -------------------------------------------------------
 const isInt = (v, lo = -Infinity, hi = Infinity) => Number.isInteger(v) && v >= lo && v <= hi;
@@ -171,6 +173,84 @@ export function resolveLoadout(loadout, chess, getChess) {
   return { skillIndex, moduleId };
 }
 
+// ---- operator ownership (干员持有, 0.2.0 补位): room.ownership { notOwned } -------------------------------------------
+
+/**
+ * `room.ownership { notOwned }`: the base chess ids the player marked as not owned on the 干员持有 screen (the
+ * per-browser setting next to 干员调配; default: every operator owned ⇒ []). Such a chess keeps its identity (name,
+ * bonds, 特质, tier, price, merge) and fights as its official stand-in (shared/standIn.js standInRecord). Structural
+ * limit below; the semantic check (`checkNotOwned`) is LENIENT, unlike checkLoadout: an id that is not a droppable chess
+ * (unknown, elite, PRESET / 自选, a stale id of another build) is dropped, never the whole list.
+ */
+export const OWNERSHIP_LIMITS = Object.freeze({ notOwned: 160 });
+/** Structural check of `room.ownership.notOwned`: an array of ≤ 160 ids. */
+export const isNotOwnedList = (v) => isList(v, OWNERSHIP_LIMITS.notOwned, isId);
+
+/**
+ * Semantic check + normalisation of a not-owned list against the game data: keeps the ids of droppable chess
+ * (shared/standIn.js isDroppableChess — NORMAL base chess with a stand-in), deduplicated and sorted; drops the rest.
+ * Used by the server (lobby, match) and by the client before it sends or imports a list.
+ * @param {any} list `room.ownership.notOwned`
+ * @param {(id: string) => any} getChess chess record lookup
+ * @returns {{ ok: true, notOwned: string[], dropped: number } | { error: 'BAD_MSG', detail: string }}
+ */
+export function checkNotOwned(list, getChess) {
+  if (!isNotOwnedList(list)) return { error: 'BAD_MSG', detail: 'bad notOwned list' };
+  const keep = new Set();
+  for (const id of list) {
+    const c = typeof getChess === 'function' ? getChess(id) : null;
+    if (c && c.chessId === id && isDroppableChess(c)) keep.add(id);
+  }
+  const notOwned = [...keep].sort();
+  return { ok: true, notOwned, dropped: list.length - notOwned.length };
+}
+
+// ---- 自选编队 (0.2.0 DIY): room.diy { picks } ------------------------------------------------------------------------
+
+/**
+ * `room.diy { picks }`: the player's 自选编队 — `{ [slotBaseId]: { charId, skillIndex?, uniEquipId? } | null }` for the
+ * four DIY slots (data/backups.json `diy.slots`: two at tier 5, two at tier 6; shared/diy.js). An out-of-match setting
+ * like 干员持有: stored per session / seat, a match takes the picks its seat had at its start. Structural limit below
+ * (room for more slots in a later season); the semantic check (`checkDiyPicks`) is LENIENT, like checkNotOwned: an
+ * illegal pick — not a pick of the slot's tier, an operator without a kit, a prototype off its locked skill, an unknown
+ * skill / module, the same operator twice in a tier, an owned operator in a second slot, an unknown slot — is dropped,
+ * never the whole roster; only malformed input is BAD_MSG.
+ */
+export const DIY_LIMITS = Object.freeze({ slots: 8 });
+const isDiyPickWire = (p) => p === null || (isPlain(p) && isId(p.charId)
+  && nullable((v) => isInt(v, 0, 9))(p.skillIndex) && nullable(isId)(p.uniEquipId));
+/** Structural check of `room.diy.picks`: a map of ≤ 8 slot ids → a pick `{ charId, skillIndex?, uniEquipId? }` or null. */
+export const isDiyPicks = (v) => isMap(v, DIY_LIMITS.slots, isId, isDiyPickWire);
+
+/**
+ * Semantic check + normalisation of a 自选 roster against the game data (`{ chess, backups }` or a sim DataSource) and
+ * the kit registry (`kitted`: server/sim/content/kits/index.js KITTED_CHARS — an operator without a kit is never fielded):
+ * the slots are taken in data order (tier 5, then tier 6), and each pick is kept when the roster so far plus it still
+ * passes shared/diy.js validateDiyPicks — so the result always passes it, and of two picks that clash (one owned operator
+ * in two slots, one operator twice in a tier) the first slot keeps it. Kept picks are complete
+ * (`{ charId, skillIndex, uniEquipId }`: a prototype's locked selection, uniEquipId null = no module).
+ * @param {any} picks `room.diy.picks`
+ * @param {{ data: any, kitted?: Iterable<string>|((id: string) => boolean)|null }} opts
+ * @returns {{ ok: true, picks: Record<string, { charId: string, skillIndex: number, uniEquipId: string|null }>, dropped: number }
+ *   | { error: 'BAD_MSG', detail: string }}
+ */
+export function checkDiyPicks(picks, { data, kitted = null } = { data: null }) {
+  if (!isDiyPicks(picks)) return { error: 'BAD_MSG', detail: 'bad 自选 picks' };
+  const slots = diySlotIds(data);
+  /** @type {Record<string, { charId: string, skillIndex: number, uniEquipId: string|null }>} */
+  const kept = {};
+  let dropped = 0;
+  for (const id of Object.keys(picks)) if (picks[id] != null && !slots.includes(id)) dropped++;
+  for (const slotId of slots) {
+    const pick = Object.hasOwn(picks, slotId) ? picks[slotId] : null;
+    if (pick == null) continue;
+    const res = validateDiyPicks({ ...kept, [slotId]: pick }, { data, kitted });
+    if ('ok' in res) kept[slotId] = res.picks[slotId];
+    else dropped++;
+  }
+  return { ok: true, picks: kept, dropped };
+}
+
 // ---- unit stats (user playtest #4 item 7): m.unitStats units and the browser battle's live stats ---------------------
 
 const fin = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -256,13 +336,19 @@ export const C2S = {
   'room.matchmake': { on: isBool, $optional: ['on'] },
   // operator loadout (DESIGN §16): stored per session/seat; accepted until the match leaves INFO_CHECK
   'room.loadout': { entries: isLoadoutEntries },
+  // operator ownership (干员持有, 0.2.0 补位): stored per session / seat; a match takes the list its seat had when it
+  // started (an out-of-match setting — during a match it is stored for the next one: ROOM_STARTED)
+  'room.ownership': { notOwned: isNotOwnedList },
+  // 自选编队 (0.2.0 DIY): the player's DIY slot picks; stored per session / seat like room.ownership (a match takes the
+  // picks its seat had when it started; during a match they are stored for the next one: ROOM_STARTED)
+  'room.diy': { picks: isDiyPicks },
   // spectator seats (remake feature, community report #26; MAX_SPECTATORS): take one of a co-op room's spectator seats —
   // in its lobby or while its match runs — never a player seat; the host frees one by playerId (the spectator gets
   // room.closed { reason: 'kicked' }). room.leave / g.leave leave a spectator seat like a player seat.
   'room.spectate': { code: (v) => isStr(v, ROOM_CODE_LEN + 2) && /^[A-Za-z0-9]+$/.test(v) },
   'room.removeSpectator': { playerId: isId },
 
-  // 搜寻队友 (matchmaking, research 06 §3.3, DESIGN §23): one entry per session, one pool per difficulty. The server
+  // 搜寻队友 (matchmaking, research 06 §3.3, DESIGN §26): one entry per session, one pool per difficulty. The server
   // forms a co-op room from the pool once 4 connected humans wait in it; the free seats (only reachable through a
   // reconnect) go to AI teammates and the match starts right away (no ready check). A smaller pool just keeps
   // searching — there is no deadline and no AI fill — and nothing else starts it: nobody gets to cut another
@@ -296,7 +382,9 @@ export const C2S = {
   // 游戏内文字聊天: bounded here (the cap the input enforces), trimmed and re-checked by the match, which also owns
   // the shared 1 s chatCD. The line travels verbatim and is rendered as a text node — never as markup.
   'g.chat': { text: (v) => typeof v === 'string' && v.length <= CHAT_MAX_LEN },
-  'g.watch': { fieldId: (v) => isStr(v, 32) },
+  // playerId: the player tapped in the team panel (a 联防 / boss pair field shows two) — what an eliminated viewer or a
+  // spectator seat follows from then on (Match.watchPref; community report of 2026-10-06, item 56)
+  'g.watch': { fieldId: (v) => isStr(v, 32), playerId: isId, $optional: ['playerId'] },
   'g.autoplay': { on: isBool },
   // solo pause (official PauseUp / ResumeUp, DESIGN §14): freezes the running battle (field clock, deadlines, the
   // browser's local runner) — solo matches only (co-op ⇒ WRONG_PHASE), only while a battle runs; m.public.paused
@@ -325,7 +413,7 @@ export const S2C = [
   // presence { onlineCount } — currently connected browsers, including title visitors before hello; excludes AI.
   'presence',
   'room.state', 'room.closed',
-  // 搜寻队友 (DESIGN §23): queue.state { active, difficulty, size, max, waitedMs, solo } — pushed to a queued
+  // 搜寻队友 (DESIGN §26): queue.state { active, difficulty, size, max, waitedMs, solo } — pushed to a queued
   // session on join / pool change (solo: true ⇒ nobody else is waiting right now, so the client says so and points
   // at 同盟模拟 + AI instead). active: false ⇒ this session left the queue. The search has no deadline: it runs
   // until four connected doctors are in the pool or the searcher cancels. The room a matchmade pool forms arrives as
@@ -370,7 +458,7 @@ export const EV = Object.freeze({
 });
 
 /**
- * The model form a `b.ev` 'fx' tuple ['fx', kind, x, y, extra] puts its unit in: `extra.form` (sim content/enemies.js
+ * The model form a `b.ev` 'fx' tuple ['fx', kind, x, y, extra] puts its unit in: `extra.form` (sim content/enemies/helpers.js
  * setForm — 转译基底·α's forms, a 逐火 余烬 and its revival, a leader's 重生, 守墓石像's modes, 掠海漂移体's crawl; a 傀儡师's 替身,
  * sim professions.js; a string is that clip set, null the base one), undefined for any other tuple. A form is state, not decoration: a view that misses
  * the fx keeps drawing the old model (player report #5 after 0.1.0), so the client's catch-up frames, its hidden-tab

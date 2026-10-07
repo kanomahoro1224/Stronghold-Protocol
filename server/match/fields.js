@@ -32,7 +32,7 @@
 import { TICK, SNAPSHOT_EVERY } from '../sim/constants.js';
 import { layerGainRoom } from '../../shared/constants.js';
 import { uniteLeft } from '../sim/spec.js';
-import { GRANTED_CAP_OVERRIDE } from '../sim/content/garrisons/battle.js';
+import { diyTokenOwner } from '../../shared/diy.js';
 
 export const MAX_TICKS_PER_INTERVAL = 8;
 export const INTERVAL_MS = 1000 / 30;
@@ -112,7 +112,7 @@ export class FieldRunner {
 
   /**
    * Battles this runner is stepping right now. `/healthz` sums it over every match: it is the server's own
-   * simulation load (DESIGN §23), and the number that predicts event-loop delay — a single-threaded process
+   * simulation load (DESIGN §26), and the number that predicts event-loop delay — a single-threaded process
    * pays for each hosted battle on the same core that answers players. A frozen match (solo pause, or the idle
    * suspension of a match nobody is connected to) steps nothing, so it counts nothing.
    */
@@ -555,6 +555,17 @@ function summonsOf(gd, chessId) {
   for (const id of [chessId, rec && rec.baseId, rec && rec.goldenId]) for (const t of (id && idx.byOwner.get(id)) || []) out.add(t);
   return [...out];
 }
+/**
+ * Summon ids a 自选 piece (0.2.0: a DIY slot `slotId` with its `pick`) can create: data/backups.json tokens whose owners
+ * name the pick's owner form (`<charId>@<statusKey>`, shared/diy.js diyTokenOwner).
+ */
+function diySummonsOf(gd, slotId, pick) {
+  const tokens = gd.raw && gd.raw.backups && gd.raw.backups.tokens && typeof gd.raw.backups.tokens === 'object' ? gd.raw.backups.tokens : null;
+  const slot = typeof gd.chess === 'function' && typeof slotId === 'string' ? gd.chess(slotId) : null;
+  if (!tokens || !slot || !pick || typeof pick.charId !== 'string') return [];
+  const owner = diyTokenOwner(pick.charId, slot.status);
+  return Object.keys(tokens).filter((id) => Array.isArray(tokens[id] && tokens[id].owners) && tokens[id].owners.includes(owner));
+}
 /** Summons no chess owns (bond / band units every player may field: 炎佑, 预备干员-医疗, Touch). */
 function ownerlessSummons(gd) { return summonIndex(gd).ownerless; }
 
@@ -647,8 +658,8 @@ function layerBondsOf(p, gd) {
  * §21.26): the traits of its units (garrisons with `bond_add_count` / `bond_add_count_multi`) and the ones their ADD_BOND
  * traits hand out (`give_garrison_id`, counted for every operator of the player — "所有【X】" reaches them all), each on
  * the bonds it names (`bond_by_id` ids; `bond_self` / `bond_actived_maxstack`: every bond of the player's snapshot and
- * units), up to the per-battle cap the sim applies (content/garrisons/battle.js: `max_add_count_per_battle`, the handed-out
- * 华法琳 trait's GRANTED_CAP_OVERRIDE). A trait the data gives no cap (初雪 / 银灰's freeze trait, 菲莱 / 百炼嘉维尔's per-skill
+ * units), up to the per-battle cap the sim applies (content/garrisons/battle.js: `max_add_count_per_battle` — a handed-out
+ * trait's too, 华法琳's 7 / 14, GitHub #175). A trait the data gives no cap (初雪 / 银灰's freeze trait, 菲莱 / 百炼嘉维尔's per-skill
  * 萨尔贡, 斯卡蒂's per-kill …) — or a 魔王, whose +extra on every trait gain counts toward no cap — leaves its bonds bounded
  * only by the room under 999 (Infinity here): such boards legitimately gain hundreds of layers a battle.
  * @returns {Map<string, number>} bondId → extra allowance (Infinity: uncapped)
@@ -699,8 +710,7 @@ function computeChessAllowance(gd, rec) {
     if (!Number.isFinite(bb.bond_add_count) && !Number.isFinite(bb.bond_add_count_multi)) return;
     const s = g.bbStr || {};
     const bonds = s.bond_type === 'bond_by_id' ? String(s.bond_id ?? '').split(',').map((x) => x.trim()).filter((x) => gd.bond(x)) : null;
-    const override = handed ? GRANTED_CAP_OVERRIDE[g.garrisonId] : undefined;
-    const cap = override ?? (Number(bb.max_add_count_per_battle) > 0 ? Number(bb.max_add_count_per_battle) : Infinity);
+    const cap = Number(bb.max_add_count_per_battle) > 0 ? Number(bb.max_add_count_per_battle) : Infinity;
     entries.push({ bonds, cap, handed });
   };
   for (const gid of (rec && rec.garrisonIds) || []) {
@@ -795,6 +805,7 @@ function computeSpecBounds(spec, gd) {
       if (u.kind !== 'token') {
         chess.set(u.uid, defId);
         if (gd) for (const t of summonsOf(gd, defId)) defIds.add(t);
+        if (gd && u.diy) for (const t of diySummonsOf(gd, defId, u.diy)) defIds.add(t);
       }
     }
     // the layers each bond starts the battle with (PlayerBattleInput.bonds): a gain never passes BOND_LAYER_CAP
