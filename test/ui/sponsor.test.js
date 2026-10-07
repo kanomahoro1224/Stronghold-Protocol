@@ -53,10 +53,10 @@ describe('赞助: the QR in the 公告 panel', () => {
     assert.match(NOTICE_SRC, /<div class="notice__layout">/);
     assert.match(NOTICE_SRC, /class="notice__body"[\s\S]*?<aside class="notice__side"><\$\{SponsorQr\} \/><\/aside>/,
       'the QR is the layout\'s second column, after the text');
-    assert.match(NOTICE_SRC, /width="min\(11\.2rem, 94vw\)"/, 'a wider dialog that still fits a phone');
+    assert.match(NOTICE_SRC, /width="min\(12\.4rem, 94vw\)"/, 'a wider dialog that still fits a phone');
     const css = read('public/css/screens/title.css');
     assert.match(css, /\.notice__layout \{ display: flex;/);
-    assert.match(css, /\.notice__side \{ flex: 0 0 4\.7rem;/, 'the QR column the operator asked to enlarge');
+    assert.match(css, /\.notice__side \{ flex: 0 0 5\.6rem;/, 'the QR column the operator asked to enlarge');
     assert.match(css, /@media \(max-width: 760px\) \{\s*\.notice__layout \{ flex-direction: column; \}/);
     assert.match(css, /\.sponsor__qr \{[\s\S]*?width: 100%/);
   });

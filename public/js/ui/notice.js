@@ -365,7 +365,7 @@ export function NoticeButton({ class: cls, size = 'sm', variant = 'ghost', label
  *  text on the left, the sponsorship QR on the right (ui/sponsor.js, .notice__layout in css/screens/title.css). */
 export function NoticeHost() {
   const { open, status, notice } = useStore((s) => s, Object.is, noticeStore);
-  return html`<${Modal} open=${open} onClose=${closeNotice} title=${notice.title} micro="NOTICE // 公告" width="min(11.2rem, 94vw)"
+  return html`<${Modal} open=${open} onClose=${closeNotice} title=${notice.title} micro="NOTICE // 公告" width="min(12.4rem, 94vw)"
     actions=${html`<${Button} variant="primary" icon="check" onClick=${closeNotice}>关闭<//>`}>
     <div class="notice__layout">
       <div class="notice__body">
