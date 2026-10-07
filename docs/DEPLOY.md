@@ -259,3 +259,26 @@ services:
 **没有客户端的服务器**想要上表中的官方素材：从**同一版本**的完整包（[Releases](https://github.com/sganggs/Stronghold-Protocol/releases)）里，把 `public/assets/local/` 文件夹和 `data/local-assets.json` 复制到服务器项目目录下的相同位置。服务器每次请求都会重新读取这两处，不必重启，玩家刷新页面即可。一定要用与服务器代码相同版本的完整包：各版本提取的内容和清单可能不同（例如灼热 / 炽焰源石虫的模型是 0.1.0 之后才加入的），混用其他版本的文件会缺图或用错图。复制后 `node tools/doctor.mjs` 会显示本地素材的条目数和「3D 棋盘可用」。
 
 **3D 棋盘贴图的下载量**：每位玩家进入对局时都要从开服的电脑下载 3D 棋盘的 12 张贴图。提取时会给这 12 张各写一份 WebP（颜色贴图有损、质量 95，法线和数据贴图无损），清单里列的是 WebP，同名 PNG 留在旁边给裁切工具和 setup 用。这部分下载量从约 6.7 MB 降到约 2 MB，网速慢的远程联机最明显。只有 PNG 的本地素材（例如在这一改动之前提取的）可以用提取时的 Python 环境运行 `tools/local-extract/extract.py --webp` 就地补上，只需要 Pillow，不需要客户端。
+
+## 7. 运营通告（维护 tips 与公告）
+
+线上有**两种**通告，别搞混（2026-10-07 被问过一次：说的「维护 tips」是黄横幅，不是公告弹窗）：
+
+| | 长什么样 | 数据在哪 | 怎么发 |
+|---|---|---|---|
+| 维护 / 紧急**横幅** | 页面顶部黄条：`[维护] ⧗ 12:00 更新，可能会中断对局　约 1 分钟…　×` | **`public/runtime/status.json`**（线上 `/runtime/status.json`；客户端每次加载用 `cache:'no-store'` 读一次） | 直接往服务器写这个文件，**不用重启、不用重新部署**（它不在代码包里，`git archive` 也不含它） |
+| **公告**弹窗 | 点标题页「公告」才出现，左边文字右边赞助码 | **`data/notice.json`**（每次打开都 `cache:'no-cache'` 重取） | 改完 `put` 上去，或随代码部署；格式见 `public/js/ui/notice.js` 顶部注释，超过 20 段 / 40 行 / 单行 200 字 / 共 4000 字的部分会被客户端丢掉 |
+
+横幅字段：`{ id, tone: "emergency"|"maintenance"|"info", text, detail?, link?{label,href}, minOnline? }`。`id` 换成新的，之前点过 × 的玩家会重新看到；`minOnline` 表示在线人数低于该值就自动退休，不必手动撤。撤掉横幅就是 `rm public/runtime/status.json`。
+
+**定时部署**（服务器是 UTC，11:59 北京时间 = 03:59 UTC；`OnCalendar` 用 UTC 写）：
+
+```
+systemd-run --on-calendar='2026-10-07 03:59:00' --unit=sp-deploy-1159 /opt/stronghold-deploy/deploy-214.sh
+systemctl list-timers 'sp-deploy*' --all        # 确认已武装
+```
+
+部署脚本自己会备份当前代码、`node --check`、重启、做健康检查并打印回滚命令；要取消就 `systemctl stop sp-deploy-1159.timer`。**部署前在服务器上跑一次** `node tools/asset-hashes.mjs`（写 `data/asset-hashes.json`，约 500 KB / 7000 项）：没有它，客户端缓存清单每次变化都会让所有人重下整个素材（约 380 MB）。
+
+**掉线宽限**：掉线后**不再立刻** AI 接管 —— 先等 `DROP_TAKEOVER_MS`（`shared/constants.js`，默认 60 000 = 1 分钟）的重连窗口，窗口内回来座位还是你的；窗口过后引擎才接管（`Match.takeOverNow(playerId)` 可手动立即接管）。独立模拟本来就不代打，会一直等玩家。
+
