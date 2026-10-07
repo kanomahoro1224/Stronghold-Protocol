@@ -522,7 +522,14 @@ describe('公告: the real singleton the UI uses', () => {
     assert.equal(n.fallback, false, 'the shipped file has a usable body');
     assert.equal(n.title, '服务器公告');
     assert.equal(n.updatedAt, '2026-10-07');
-    assert.deepEqual(n.sections.map((s) => s.label), ['服务说明', '联系', '反馈', '制作中']);
+    assert.deepEqual(n.sections.map((s) => s.label), ['维护提醒', '服务说明', '联系', '反馈', '制作中']);
+    // the operator's maintenance tip for the 12:00 flash update (2026-10-07) — pinned verbatim so a later republish
+    // cannot quietly drop it (the tip is the only warning players get before a restart interrupts a match)
+    assert.deepEqual(n.sections.find((s) => s.label === '维护提醒').lines, [
+      '今日 12:00 进行一次闪断更新（约 1 分钟），正在进行的对局可能会被中断，非常抱歉',
+      '掉线后不再立刻由 AI 接管：有 1 分钟的重连时间，1 分钟后才转 AI 托管',
+      '更新后：同盟对局与房间在闪断后可恢复；正在战斗、抽卡、决战中的对局仍需重开',
+    ]);
     const text = n.body.map(noticeLineText);
     assert.ok(text.length >= 1);
     assert.ok(text.every((l) => l.length > 0), 'the sectioned file has no blank filler line');

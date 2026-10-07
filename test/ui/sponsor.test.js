@@ -65,6 +65,8 @@ describe('赞助: the QR in the 公告 panel', () => {
     assert.ok(!read('public/js/screens/title.js').includes('花鹿云心'), 'the footer sponsor line is gone');
     assert.ok(!read('public/js/screens/title.js').includes('title-foot__link'), 'and its link');
     assert.ok(!read('data/notice.json').includes('花鹿云心'), 'the notice section was removed too');
-    assert.ok(!read('data/notice.json').includes('维护提醒'), 'and the outdated maintenance reminder with it');
+    // 维护提醒 was dropped with it, but the operator asked for a real one back on 2026-10-07 (12:00 flash update), so
+    // the label is expected again — only the OUTDATED reminder text must stay gone.
+    assert.ok(!read('data/notice.json').includes('本次维护'), 'the outdated maintenance reminder text');
   });
 });
