@@ -278,7 +278,7 @@
    (.modal__box / .modal__body / .modal__actions in components.css), so only its content lives here: the small dim
    section labels and their lines from data/notice.json, scrolled by .modal__body when the body is long. */
 .notice-btn .btn__icon { color: var(--mint-500); }
-.notice__body { display: flex; flex-direction: column; gap: .18rem; }
+.notice__body { display: flex; flex-direction: column; gap: .18rem; flex: 1 1 auto; min-width: 0; }
 /* One section of the notice: the label row, then its lines. The flat legacy `body` form is one unlabelled section. */
 .notice__section { display: flex; flex-direction: column; gap: .06rem; }
 /* The section label: the project's .micro idiom (theme.css) — small, dim, letter-spaced — as a row of its own above
@@ -312,6 +312,26 @@
 .notice__updated { margin: 0; font-family: var(--font-num); font-size: .14rem; letter-spacing: .08em; color: var(--text-dim); }
 @media (max-height: 560px) {
   .notice__line { font-size: .16rem; }
+}
+
+/* ---- 赞助 (support; js/ui/sponsor.js) -------------------------------------------------------------- */
+/* The 公告 dialog is two columns: the operator's text on the left, the sponsorship QR on the right. The QR is the
+   operator's own screenshot (two panels side by side), scaled to its column and never cropped or distorted; on a
+   narrow screen the dialog stacks again, text first. */
+.notice__layout { display: flex; align-items: flex-start; gap: .32rem; }
+.notice__side { flex: 0 0 3.5rem; min-width: 0; }
+.sponsor { display: flex; flex-direction: column; gap: .12rem; }
+.sponsor__qr {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: .06rem;
+  background: #fff; /* the QR is drawn on white in the screenshot; keep the edges clean while it loads */
+}
+.sponsor__hint { margin: 0; font-size: .15rem; line-height: 1.7; color: var(--text-md); text-align: center; }
+@media (max-width: 760px) {
+  .notice__layout { flex-direction: column; }
+  .notice__side { flex: none; width: 100%; max-width: 4.4rem; }
 }
 
 /* preload: the home screen entry (public/js/ui/resourcePanel.js) */

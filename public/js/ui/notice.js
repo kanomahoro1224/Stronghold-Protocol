@@ -2,7 +2,8 @@
 // beside 「玩法说明」 (ui/guide.js GuideButton) in the same row (.title-conn__actions) and mirrors it exactly: a
 // ghost/sm Button with an icon, the same label / title / aria-label and a `notice-btn` class of its own. The panel is
 // the project's standard dialog (components.js Modal — the settings / exit idiom), so it closes on exactly the
-// affordances those dialogs use: its own 关闭 button, Escape, and a click outside the box.
+// affordances those dialogs use: its own 关闭 button, Escape, and a click outside the box. It is TWO columns — the
+// notice text on the left, the sponsorship QR on the right (ui/sponsor.js) — and stacks on a narrow screen.
 //
 // Content: /data/notice.json, fetched at runtime, root-relative and with `cache: 'no-cache'`. That combination is
 // deliberate: unlike the game data (data.js, whose base is the immutable code-version prefix in production and is
@@ -33,6 +34,7 @@
 
 import { html, Modal, Button } from './components.js';
 import { createStore, useStore } from '../store.js';
+import { SponsorQr } from './sponsor.js';
 
 /** Where the notice lives: a static file of the /data mount — no server route, no new endpoint. */
 export const NOTICE_URL = '/data/notice.json';
@@ -359,16 +361,20 @@ export function NoticeButton({ class: cls, size = 'sm', variant = 'ghost', label
     onClick=${onClick} title="公告" aria-label="公告">${square ? null : label}<//>`;
 }
 
-/** The panel (mounted once near the root): the shared Modal supplies the close affordances. */
+/** The panel (mounted once near the root): the shared Modal supplies the close affordances. Two columns — the notice
+ *  text on the left, the sponsorship QR on the right (ui/sponsor.js, .notice__layout in css/screens/title.css). */
 export function NoticeHost() {
   const { open, status, notice } = useStore((s) => s, Object.is, noticeStore);
-  return html`<${Modal} open=${open} onClose=${closeNotice} title=${notice.title} micro="NOTICE // 公告" width="7.4rem"
+  return html`<${Modal} open=${open} onClose=${closeNotice} title=${notice.title} micro="NOTICE // 公告" width="min(9.6rem, 94vw)"
     actions=${html`<${Button} variant="primary" icon="check" onClick=${closeNotice}>关闭<//>`}>
-    <div class="notice__body">
-      ${status === 'loading' ? html`<p class="notice__hint">正在获取公告…</p>` : null}
-      ${status === 'failed' ? html`<p class="notice__hint">公告暂时无法加载，以下为内置说明。</p>` : null}
-      ${notice.sections.map((section, i) => noticeSectionNode(section, i))}
-      ${notice.updatedAt ? html`<p class="notice__updated num">更新于 ${notice.updatedAt}</p>` : null}
+    <div class="notice__layout">
+      <div class="notice__body">
+        ${status === 'loading' ? html`<p class="notice__hint">正在获取公告…</p>` : null}
+        ${status === 'failed' ? html`<p class="notice__hint">公告暂时无法加载，以下为内置说明。</p>` : null}
+        ${notice.sections.map((section, i) => noticeSectionNode(section, i))}
+        ${notice.updatedAt ? html`<p class="notice__updated num">更新于 ${notice.updatedAt}</p>` : null}
+      </div>
+      <aside class="notice__side"><${SponsorQr} /></aside>
     </div>
   <//>`;
 }

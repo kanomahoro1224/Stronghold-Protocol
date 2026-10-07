@@ -280,7 +280,6 @@ export function TitleScreen() {
     <footer class="title-foot">
       <div class="title-foot__legal">
         <span>本服务器为公益服务器，可能会不定期重启更新版本等，对此造成的游戏中断致歉</span>
-        <span>本服务器不要求赞助 可以前往 <a class="title-foot__link" href="https://ai.xiaolubao.com" target="_blank" rel="noopener noreferrer">花鹿云心中转站</a> 消费 盈利部分大部分会用来为爱发电</span>
         <span>非官方同人复刻 · 游戏素材版权归 上海鹰角网络 / Yostar 所有</span>
       </div>
       <${MicroLabel}>v${APP_VERSION} · WEB SIMULATION<//>

@@ -521,8 +521,8 @@ describe('公告: the real singleton the UI uses', () => {
     const n = normalizeNotice(raw);
     assert.equal(n.fallback, false, 'the shipped file has a usable body');
     assert.equal(n.title, '服务器公告');
-    assert.equal(n.updatedAt, '2026-10-06');
-    assert.deepEqual(n.sections.map((s) => s.label), ['维护提醒', '服务说明', '联系', '反馈', '赞助', '制作中']);
+    assert.equal(n.updatedAt, '2026-10-07');
+    assert.deepEqual(n.sections.map((s) => s.label), ['服务说明', '联系', '反馈', '制作中']);
     const text = n.body.map(noticeLineText);
     assert.ok(text.length >= 1);
     assert.ok(text.every((l) => l.length > 0), 'the sectioned file has no blank filler line');
@@ -531,13 +531,8 @@ describe('公告: the real singleton the UI uses', () => {
     assert.match(raw._doc, /sections/, 'and the sectioned shape');
     assert.match(raw._doc, /联系邮箱/, 'and the sections that were deliberately left out');
     assert.match(raw._doc, /github\.com/i, 'and how to add the repository section later');
-    // the operator's text, verbatim (looked up by label: the 维护提醒 section the operator added on 2026-10-06 leads the file)
+    // the operator's text, verbatim (looked up by label)
     const section = (label) => n.sections.find((s) => s.label === label);
-    assert.deepEqual(section('维护提醒').lines, [
-      '即将进行一次闪断更新（约 1 分钟）',
-      '更新期间正在进行的对局会被中断，非常抱歉，敬请谅解',
-      '更新后：同盟对局与房间在闪断后可恢复；正在战斗、抽卡、决战中的对局仍需重开',
-    ]);
     assert.deepEqual(section('服务说明').lines, [
       '本站为纯公益的非官方同人站点，与游戏官方及其关联方无关',
       '可能会不定期重启更新版本等　对此造成的游戏中断致歉',
@@ -546,10 +541,9 @@ describe('公告: the real singleton the UI uses', () => {
     assert.ok(text.some((l) => l === 'QQ：永远喜欢着鹿乃 🍓𐂂　3497593286'), 'the QQ row shows the user\'s own text plus the number he asked to add');
     assert.ok(text.includes('B 站：鹿可可Official'));
     assert.ok(text.includes('如遇服务器方面的问题，可以通过B站私信或发送邮件联系。'));
-    assert.ok(text.some((l) => l.includes('花鹿云心AI中转站')), 'the sponsor is named in the text');
-    assert.ok(!text.some((l) => l.includes('ai.xiaolubao.com')), 'the sponsor domain is NOT displayed — the name is the link');
-    // the sponsor row reads as one sentence, with 花鹿云心AI中转站 (and only it) carrying the link
-    assert.ok(text.includes('本服务器不要求赞助　可以前往 花鹿云心AI中转站消费　盈利部分大部分会用来为爱发电　升级服务器　制作额外功能'));
+    // the sponsor row left the notice's text: the QR is the panel's right-hand column now (ui/sponsor.js)
+    assert.ok(!text.some((l) => l.includes('花鹿云心AI中转站')), 'the old sponsor line is gone from the notice');
+    assert.ok(!text.some((l) => l.includes('ai.xiaolubao.com')), 'nor is its domain displayed anywhere');
     assert.ok(text.some((l) => l.includes('目前正在制作功能：键位设置　皮肤功能（正在考量）')));
     // the QQ NUMBER is only in the href — it is never part of the visible text
     assert.ok(text.some((l) => l.includes('3497593286')), 'the QQ number is not displayed anywhere');
@@ -561,25 +555,24 @@ describe('公告: the real singleton the UI uses', () => {
     assert.ok(qq.segments[1].href.includes('3497593286'), 'the number lives in the href only');
     // the emoji survive normalization intact (surrogate pairs are never split)
     assert.deepEqual([...qq.segments[1].t].slice(-2).map((c) => c.codePointAt(0)), [0x1f353, 0x10082], '🍓 and 𐂂');
-    // exactly the three links the user asked for, all whitelisted as authored, all bare values (no brackets)
+    // exactly the two links the user asked for, all whitelisted as authored, all bare values (no brackets)
     const links = n.sections.flatMap((s) => s.lines)
       .flatMap((l) => (typeof l === 'string' || l.spacer ? [] : l.segments.filter((g) => g.href)));
     assert.deepEqual(links.map((g) => g.href), [
       'https://wpa.qq.com/msgrd?v=3&uin=3497593286&site=qq&menu=yes',
       'https://space.bilibili.com/426276698',
-      'https://ai.xiaolubao.com',
     ]);
     for (const g of links) assert.equal(safeNoticeHref(g.href), g.href, `${g.href} is whitelisted as authored`);
     for (const g of links) assert.doesNotMatch(g.t, /[（）()「」【】\[\]]/, `"${g.t}" is a bare value, no brackets`);
-    assert.deepEqual(links.map((g) => g.t), ['永远喜欢着鹿乃 🍓𐂂', '鹿可可Official', '花鹿云心AI中转站']);
+    assert.deepEqual(links.map((g) => g.t), ['永远喜欢着鹿乃 🍓𐂂', '鹿可可Official']);
     const authored = JSON.stringify(raw).match(/"href":"[^"]*"/g) || [];
     assert.equal(authored.length, links.length, 'no authored href was silently dropped');
     const anchors = n.sections.flatMap((s) => s.lines)
       .flatMap((l) => (typeof l === 'string' || l.spacer ? [] : [].concat(noticeLineNode(l, 0).props.children).filter(Boolean)))
       .filter((k) => k && k.type === 'a');
-    assert.equal(anchors.length, 3, 'three clickable links in the panel');
-    assert.deepEqual(anchors.map((a) => a.props.class), ['notice__link', 'notice__link', 'notice__link']);
-    assert.deepEqual(anchors.map((a) => a.props.target), ['_blank', '_blank', '_blank']);
-    assert.deepEqual(anchors.map((a) => a.props.rel), ['noopener noreferrer', 'noopener noreferrer', 'noopener noreferrer']);
+    assert.equal(anchors.length, 2, 'two clickable links in the panel');
+    assert.deepEqual(anchors.map((a) => a.props.class), ['notice__link', 'notice__link']);
+    assert.deepEqual(anchors.map((a) => a.props.target), ['_blank', '_blank']);
+    assert.deepEqual(anchors.map((a) => a.props.rel), ['noopener noreferrer', 'noopener noreferrer']);
   });
 });
