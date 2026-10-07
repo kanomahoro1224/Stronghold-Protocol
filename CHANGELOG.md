@@ -2,6 +2,14 @@
 
 ## 未发布（本 fork）
 
+### 干员战斗语音：中文 / 日本語 双轨，设置里可切换
+
+- **新增「配音语言」设置**（「设置」→ 干员语音滑块下面的「配音语言」，`中文` / `日本語`）：只影响**干员战斗语音**，音效、BGM 和界面语言都不受影响；切换后下一句台词就用新语言，并和其它设置一起保存在当前浏览器里。
+- **日语缺的台词自动用中文顶上**（`public/js/audio.js` `voiceLines`）：清单里的 `audio.voiceAlt.jp` 只列出日语配音真正有的槽位（新干员常常还没录），其余槽位照常播放中文配音，所以切成日语**永远不会变成静音**。服务端还没抓日语配音时（清单里没有 `audio.voiceAlt`）也照常播放中文。
+- **清单新增 `audio.voiceAlt`，`audio.voice` 原样不动**：`audio.voice` 仍是原来的中文表，老客户端、预载和工具照旧读它（docs/ASSETS.md「Manifest schema」）。
+- **部署时抓日语配音**：`node tools/fetch-assets.mjs --voice-langs=cn,jp`（第一个语言写进 `audio.voice`，其它语言写进 `audio.voiceAlt.<语言>`）；不加这个参数时行为与以前完全一样。日语音频本身不在仓库里。
+- 测试：`test/ui/voice-lang.test.js`（清单双轨、回退、设置项、四份语言包）、`test/ui/audio.test.js`（`voiceLines` 与 AudioManager），`test/docs-consistency.test.js` 增补了 `audio.voiceAlt` 的形状与文档断言。
+
 ### 对局恢复：战斗中也能救回（P2b）
 
 - **正在打的对局，重启后回到本回合的备战期**（`server/state/resume.js` 的 `REWINDABLE_PHASES` + `Match.afterRoundStart({ rewind })`）：`COMBAT` / `UNITE`（联防）/ `FINAL_ASSAULT` 的落盘记录不再被拒，而是**回退到同一回合的休整期** —— 玩家重新购买、重新部署、**重新打这一回合**。之所以忠实：记录里的载荷本来就是那一回合备战期的真相（收入、商店、棋盘、这一回合的敌人波次都在），战斗在各玩家的浏览器里跑，泄漏与奖励要到**结算**才落到座位上，所以重打不会重复结算。

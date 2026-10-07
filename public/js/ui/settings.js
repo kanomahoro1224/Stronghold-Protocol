@@ -1,5 +1,5 @@
-// Player settings (BGM/SFX/voice volume, mute, damage numbers, render quality, the shortcut keys): a tiny observable
-// store persisted in localStorage (`sp.pref.settings`), applied to the audio manager on every change, plus
+// Player settings (BGM/SFX/voice volume, 配音语言, mute, damage numbers, render quality, the shortcut keys): a tiny
+// observable store persisted in localStorage (`sp.pref.settings`), applied to the audio manager on every change, plus
 // the settings modal — which also holds the language switch (ui/lang.js; kept apart in `sp.pref.lang`; under it a note
 // while the current language's pack is a machine translation, `_meta.machineTranslated`) and the 快捷键
 // section that rebinds the in-match shortcuts (the key map: ui/gameLogic/shortcuts.js; the community request
@@ -18,14 +18,16 @@ import { t, tc, N_ } from '../../../shared/i18n.js';
 
 const cx = (...p) => p.flat().filter(Boolean).join(' ');
 
-/** Settings store: { bgm, sfx, voice, muted, damageNumbers, quality, preload, preloadOptional, keys }. */
+/** Settings store: { bgm, sfx, voice, muted, damageNumbers, quality, preload, preloadOptional, voiceLang, keys }. */
 export const settingsStore = createStore(sanitizeSettings(loadPref('settings', null)));
 
 settingsStore.subscribe((s) => {
   savePref('settings', sanitizeSettings(s));
   audio.setVolumes(s);
+  audio.setVoiceLang(s.voiceLang);   // 配音语言: takes effect on the next battle line (audio.js voiceLines)
 });
 audio.setVolumes(settingsStore.get());
+audio.setVoiceLang(settingsStore.get().voiceLang);
 
 /** @param {Partial<ReturnType<typeof sanitizeSettings>>} patch */
 export function updateSettings(patch) {
@@ -61,6 +63,9 @@ function Toggle({ label, micro, value, onChange }) {
 }
 
 const QUALITY = [['high', N_('高')], ['medium', N_('中')], ['low', N_('低')]];
+/** 配音语言 of the operator battle voice (ui/gameLogic/settings.js `voiceLang`, audio.js VOICE_LANGS). The labels are
+ * msgids: a player of any interface language recognises their own dub's name (中文 / 日本語). */
+const VOICE_LANG_OPTIONS = [['cn', N_('中文')], ['jp', N_('日本語')]];
 /** The rebindable shortcuts' names (msgids), by action. */
 const HOTKEY_NAMES = { refresh: N_('刷新商店'), freeze: N_('冻结 / 解冻商店'), levelUp: N_('升级调度中心'), retreat: N_('撤退选中干员'),
   sell: N_('出售选中干员'), ready: N_('准备就绪 / 暂停（独立模拟）') };
@@ -166,6 +171,14 @@ export function SettingsModal({ open, onClose }) {
       ${mtNote ? html`<p class="set-hint set-lang-note" data-testid="lang-mt-note">${mtNote}</p>` : null}
       <${Slider} label=${t('背景音乐')} micro="BGM" icon="play" value=${s.bgm} onInput=${(v) => updateSettings({ bgm: v })} />
       <${Slider} label=${t('干员语音')} micro="VOICE" icon="mic" value=${s.voice} onInput=${(v) => updateSettings({ voice: v })} />
+      <div class="set-row">
+        <span class="set-row__label">${t('配音语言')}<${MicroLabel}>VOICE LANGUAGE<//></span>
+        <div class="set-seg" role="radiogroup">
+          ${VOICE_LANG_OPTIONS.map(([id, label]) => html`<button key=${id} type="button" role="radio" data-voice-lang=${id}
+            aria-checked=${s.voiceLang === id ? 'true' : 'false'} class=${s.voiceLang === id ? 'is-on' : ''}
+            onClick=${() => updateSettings({ voiceLang: id })}>${t(label)}</button>`)}
+        </div>
+      </div>
       <${Slider} label=${t('音效')} micro="SFX" icon="signal" value=${s.sfx}
         onInput=${(v) => { updateSettings({ sfx: v }); if (!tested) { setTested(true); setTimeout(() => setTested(false), 400); audio.sfx('click'); } }} />
       <${Toggle} label=${t('静音')} micro="MUTE" value=${s.muted} onChange=${(v) => updateSettings({ muted: v })} />

@@ -936,6 +936,39 @@ test('干员战斗语音 (DESIGN §21.30): the manifest data, the official prior
   // a battle slot usually carries several lines (选中干员 / 部署 have two), so the battle set alone stays well above 10 each
   assert.ok(lines.length >= charIds.length * 10, `${lines.length} voice lines for ${charIds.length} operators`);
   for (const u of lines) assert.match(u, /^\/assets\/audio\/voice\/cn\/char_[^/]+\/cn_\d+\.mp3$/);
+  // 配音语言 (the dual-track voice, docs/ASSETS.md "干员战斗语音, two tracks"): `audio.voiceAlt.<lang>` carries ONLY the
+  // slots that alternate dump does — an empty table, and the key itself while nobody has run the alternate fetch (as in
+  // this committed manifest), are absent — in the primary table's own slot vocabulary. The file names stay the CN ones
+  // (`<char>/cn_nn.mp3`: upstream keeps one file per line and dub, only the dump folder differs), so the alternate URL
+  // shape is asserted as strictly as the CN one.
+  const voiceAlt = manifest.audio?.voiceAlt ?? {};
+  const altStats = manifest.stats.voiceAltChars ?? {};
+  assert.deepEqual(Object.keys(altStats).sort(), Object.keys(voiceAlt).sort(), 'stats.voiceAltChars names exactly the planned dubs');
+  const altLines = [];
+  const walkAlt = (x) => {
+    if (typeof x === 'string') altLines.push(x);
+    else if (Array.isArray(x)) x.forEach(walkAlt);
+    else if (x && typeof x === 'object') Object.values(x).forEach(walkAlt);
+  };
+  for (const [lang, table] of Object.entries(voiceAlt)) {
+    const altIds = Object.keys(table);
+    assert.ok(altIds.length > 0, `${lang}: an empty alternate table is left out of the manifest`);
+    assert.equal(altStats[lang], altIds.length, `stats.voiceAltChars.${lang} counts them`);
+    altLines.length = 0;
+    for (const id of altIds) {
+      assert.ok(voice[id], `${lang}: ${id} is an operator of the primary table`);
+      for (const [slot, line] of Object.entries(table[id])) {
+        assert.ok(slots.includes(slot), `${lang}: ${id}.${slot} is a slot the client can ask for`);
+        for (const s of prepOnly) assert.notEqual(slot, s, `${lang}: ${id}.${slot} is a prep-only slot`);
+        walkAlt(line);
+      }
+    }
+    assert.ok(altLines.length > 0, `${lang}: the planned lines`);
+    for (const u of altLines) {
+      assert.match(u, new RegExp(`^/assets/audio/voice/${lang}/char_[^/]+/cn_\\d+\\.mp3$`), `${lang} line`);
+      assert.ok(!u.includes('/voice/cn/'), `${lang}: an alternate line is its own file, the CN fallback is the client's`);
+    }
+  }
   // the official scheduling numbers (audio_data.json battleVoice.voiceTypeOptions)
   assert.equal(VOICE_PRIORITY.start, 100);
   assert.equal(VOICE_PRIORITY.faceEnemy, 90);
@@ -951,6 +984,13 @@ test('干员战斗语音 (DESIGN §21.30): the manifest data, the official prior
   assert.match(DESIGN, /\*\*Where each line plays — battle only\.\*\*/);
   assert.match(doc('docs/ASSETS.md'), /\| 干员战斗语音 \|/);
   assert.match(doc('docs/ASSETS.md'), /voiceChars/);
+  // 配音语言: the alternate track is a documented flag and manifest key, the client resolves it through voiceLines
+  // (per-slot CN fallback) and the settings row is the only writer of `voiceLang`
+  assert.match(doc('docs/ASSETS.md'), /--voice-langs=cn,jp/);
+  assert.match(doc('docs/ASSETS.md'), /voiceAlt: \{ \[lang\]/);
+  assert.match(doc('public/js/audio.js'), /export function voiceLines\(manifest, charId, slot, lang = 'cn'\)/);
+  assert.match(doc('public/js/ui/settings.js'), /t\('配音语言'\)/);
+  assert.match(doc('public/js/ui/gameLogic/settings.js'), /voiceLang: VOICE_LANGS\.includes\(r\.voiceLang\)/);
   assert.match(SIM, /\['engage', id\]/);
   // the code: every slot the client asks for comes from a running battle's own stream — the three prep-only lines
   // (干员报到 / 编入队伍 / 任命队长) are never requested, and 选中干员 sits behind the panel's combat flag

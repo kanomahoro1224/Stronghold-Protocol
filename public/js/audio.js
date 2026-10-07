@@ -4,6 +4,8 @@
 //   bgm { lobby, prep, combat, combatAlts?: [ {intro?, loop}, … ], boss: { intro?, loop } },
 //   bossBgm { [bossId]: { intro?, loop } },
 //   voice { [charId]: { start, faceEnemy, select, place, skill1…skill4, squad, squadFirst, result*, gacha } },
+//   voiceAlt { [lang]: { [charId]: { <slot>: url | [url] } } } (an alternate dub, e.g. jp: the same shape, only the
+//     slots that dub carries — a slot it lacks falls back to `voice` for that same slot, see voiceLines),
 //   sfx.ui { click, buy, sell, refresh, freeze, levelup, merge, equip, ready, timer, yourTurn, … },
 //   sfx.battle { deploy, tokenDeploy, charDie, tokenDie?, enemyDie, enemyHit, heal, killCoin, … },
 //   sfx.units { [charId|tokenId|enemyId]: { attack?, hit?, skill?, die?, born?, mix?: { [role]: { p?, vol? } } } }.
@@ -23,6 +25,10 @@
 //   operators, then fires dozens of skills, so they run on their own channel (own gain, settings 干员语音) through
 //   VoiceGate: one line at a time, a global gap, a per-unit per-slot cooldown, and a higher-priority line taking the
 //   channel over — the official scheduling of `audio_data.json battleVoice.voiceTypeOptions`.
+// - 配音语言 (setting `voiceLang`): 'cn' (default) reads `audio.voice`, 'jp' reads `audio.voiceAlt.jp` and falls back
+//   to `audio.voice` slot by slot (voiceLines) — a partially dubbed operator still speaks, and a manifest with no
+//   `voiceAlt` at all (a deployment where nobody ran the alternate fetch) is silent about the switch: everything
+//   stays CN. The table is picked per line, so switching mid-battle takes effect on the next line.
 // - Battle SFX from `b.ev` tuples (`handleBattleEvents`): at most MAX_VOICES concurrent unit sounds, at most
 //   MAX_PER_URL overlapping copies of one sound (the official banks' maxSoundAllowed 2), a per-unit cooldown and a
 //   per-URL minimum gap (SfxLimiter), so a 60-unit fight stays listenable.
@@ -268,6 +274,33 @@ export const VOICE_COOLDOWN_MS = Object.freeze({
 });
 
 /**
+ * 配音语言: the battle-voice tables a player may choose between (settings `voiceLang`). 'cn' is `audio.voice` and the
+ * fallback of every other language; a language is only useful once a deploy planned its table (`--voice-langs=cn,jp` →
+ * `audio.voiceAlt.jp`), and a manifest without one plays CN lines for it (voiceLines is told to stay on `voice`).
+ */
+export const VOICE_LANGS = Object.freeze(['cn', 'jp']);
+
+/**
+ * The battle line(s) of one operator slot in one language: `audio.voiceAlt[lang][charId][slot]` when that alternate
+ * dub carries this very slot, else `audio.voice[charId][slot]` — the per-slot fallback that keeps a partially dubbed
+ * operator speaking (a dub usually lacks the newest operators). A missing `voiceAlt` (or an unknown language, or 'cn')
+ * reads `audio.voice` outright, so a deployment that never planned an alternate dub silently stays CN. The returned
+ * value has the manifest's shape: a URL string, an array of them (the caller draws one), or null when the slot is
+ * empty in both tables.
+ * @param {any} manifest data/assets.json
+ * @param {string} charId
+ * @param {string} slot
+ * @param {string} [lang] 'cn' (default) | 'jp' | …
+ * @returns {string|string[]|null}
+ */
+export function voiceLines(manifest, charId, slot, lang = 'cn') {
+  const pick = (table) => table?.[charId]?.[slot];
+  const alt = lang && lang !== 'cn' ? pick(manifest?.audio?.voiceAlt?.[lang]) : undefined;
+  const line = alt !== undefined ? alt : pick(manifest?.audio?.voice);
+  return line ?? null;
+}
+
+/**
  * The settlement slot of a finished 作战: 完美作战 ⇒ 3星结束行动 (绝境 / 终极 ⇒ 完成高难行动 instead), a leaked enemy
  * ⇒ 非3星结束行动, nothing killed at all ⇒ 行动失败.
  * @param {{perfect?:boolean, leaked?:number, killed?:number, total?:number, hard?:boolean}} [o]
@@ -450,6 +483,7 @@ export class AudioManager {
     this.sfxGain = null;
     this.voiceGain = null;
     this.volumes = { bgm: 0.6, sfx: 0.8, voice: 0.8, muted: false };
+    this.voiceLang = 'cn';    // 配音语言 (settings voiceLang; setVoiceLang) — the table voice() reads first
     this.buffers = new Map(); // url → Promise<AudioBuffer|null> (insertion order = LRU)
     this.bufBytes = new Map(); // url → decoded PCM bytes (the byte budget of the LRU, see _buffer)
     this.warned = new Set();
@@ -594,6 +628,15 @@ export class AudioManager {
       muted: typeof v?.muted === 'boolean' ? v.muted : this.volumes.muted,
     };
     this._applyVolumes();
+  }
+
+  /**
+   * 配音语言: which battle-voice table `voice()` reads first (settings `voiceLang`; VOICE_LANGS). An unknown value
+   * (a profile saved by a newer release, a typo) falls back to 'cn', so the voice channel never goes silent over it.
+   * @param {'cn'|'jp'|string} lang
+   */
+  setVoiceLang(lang) {
+    this.voiceLang = VOICE_LANGS.includes(lang) ? lang : 'cn';
   }
 
   _applyVolumes() {
@@ -823,7 +866,8 @@ export class AudioManager {
   // ---- operator battle voice ----------------------------------------------------------------------------------
 
   /**
-   * Play an operator's battle line (`audio.voice[charId][slot]`; a slot with several lines draws one at random).
+   * Play an operator's battle line (`audio.voice[charId][slot]`, or `audio.voiceAlt[voiceLang][charId][slot]` with a
+   * per-slot fallback to `audio.voice` — 配音语言, see voiceLines; a slot with several lines draws one at random).
    * Only in battle: every caller is a running battle's own event stream or its settlement (user request — the 休整期
    * is silent). The line must pass VoiceGate: one at a time, a global gap, a per-unit cooldown, higher priority wins.
    * @param {string} charId e.g. 'char_263_skadi'
@@ -836,7 +880,7 @@ export class AudioManager {
     try {
       if (!this.ctx || !this.voiceGain || this.volumes.muted || this.volumes.voice <= 0) return false;
       if (typeof charId !== 'string' || typeof slot !== 'string') return false;
-      const line = this.getManifest()?.audio?.voice?.[charId]?.[slot];
+      const line = voiceLines(this.getManifest(), charId, slot, this.voiceLang);
       const url = Array.isArray(line) ? line[Math.floor(Math.random() * line.length)] : line;
       if (typeof url !== 'string' || !url) return false;
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -1039,13 +1083,13 @@ export const audio = new AudioManager({ getManifest: () => manifestGetter() });
 /**
  * Wire the singleton to the app (called once by main.js): manifest source, settings and store-driven BGM.
  * @param {{ getManifest: () => any, subscribe: (fn: (s:any, prev:any) => void) => () => void, getState: () => any,
- *   selectRoute: (s:any) => string, settings?: { bgm:number, sfx:number, voice:number, muted:boolean } }} deps
+ *   selectRoute: (s:any) => string, settings?: { bgm:number, sfx:number, voice:number, muted:boolean, voiceLang?:string } }} deps
  */
 export function installAudio(deps) {
   try {
     manifestGetter = typeof deps?.getManifest === 'function' ? deps.getManifest : manifestGetter;
     audio.install();
-    if (deps?.settings) audio.setVolumes(deps.settings);
+    if (deps?.settings) { audio.setVolumes(deps.settings); audio.setVoiceLang(deps.settings.voiceLang); }
     if (typeof deps?.subscribe === 'function' && typeof deps?.getState === 'function') {
       const sync = (s) => {
         try {

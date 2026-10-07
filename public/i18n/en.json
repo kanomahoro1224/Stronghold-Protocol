@@ -1208,5 +1208,8 @@
   "可将已缓存的资源导出为 ZIP 分享给他人，也可以导入他人分享的资源包。支持导入旧版本资源包；导入会校验完整性，只复用当前版本仍有效的文件，并增量下载缺少的资源。": "Export the cached resources as a ZIP to share, or import a package someone else shared. Packages from older versions are accepted: the import verifies integrity, reuses only the files the current version still lists, and downloads whatever is missing.",
   "导入 ZIP": "Import ZIP",
   "导出 ZIP": "Export ZIP",
-  "关闭预载会保留已缓存资源。": "Turning the preload off keeps the cached resources."
+  "关闭预载会保留已缓存资源。": "Turning the preload off keeps the cached resources.",
+  "配音语言": "Voice Language",
+  "中文": "Chinese",
+  "日本語": "Japanese"
 }

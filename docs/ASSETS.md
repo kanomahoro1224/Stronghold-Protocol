@@ -20,7 +20,8 @@ npm run assets       # = node tools/vendor.mjs && node tools/fetch-assets.mjs
 | `--offline` | No network. Re-runs post-processing (atlas fixes, skeleton parsing, WOFF2) on what is already on disk, then rebuilds `data/assets.json`. |
 | `--dry-run` | Print the plan (file and model counts, alias notes) and exit. |
 | `--refresh-index` | Re-download the upstream indexes: `audio_data.json`, `charword_table.json` (the 干员战斗语音 slots) and `models_data.json`. |
-| `--voice-lang=cn` | 干员战斗语音 language: `cn` (default) | `jp` | `en` | `kr` — the same file names under `voice_cn/`, `voice/`, `voice_en/`, `voice_kr/`. |
+| `--voice-lang=cn` | 干员战斗语音 language: `cn` (default) | `jp` | `en` | `kr` — the same file names under `voice_cn/`, `voice/`, `voice_en/`, `voice_kr/`. One run plans one language into `audio.voice`, exactly as before. |
+| `--voice-langs=cn,jp` | Plan several dubs in **one** run: the **first** language fills `audio.voice`, every other one `audio.voiceAlt[<lang>]`, with the same slots and only the lines that dump actually carries. The client falls back to `audio.voice` slot by slot (public/js/audio.js `voiceLines`), so **keep `cn` first**. The alternate audio files are downloaded by this run like any other asset. An empty table (no file of that dub on disk) is left out of the manifest entirely, and the `voiceAlt` entries are under the same shrink guard as everything else. |
 | `--voice-all` | Plan every official voice slot, including the prep-only lines no battle plays (干员报到 / 编入队伍 / 任命队长 — 360 files, one per operator and slot). Off by default: nothing requests them, so planning them only makes every run download more. |
 | `--prune` | Delete files under `public/assets/` that the manifest no longer references, for example after a mapping change. Without this flag they are only listed in the report. `public/assets/local/` (written by `tools/local-extract`) is never pruned. Implies `--allow-shrink`. |
 | `--allow-shrink` | Write `data/assets.json` even when it loses entries the current one has (see "The manifest never shrinks by accident" below). |
@@ -53,7 +54,7 @@ How downloads are fetched:
 - A manifest entry with fallbacks (for example an enemy icon that falls back to its base enemy's icon) only moves on to the next alternative after a **definitive 404**. When the primary fails transiently (network error, 5xx or an invalid payload after all retries), no fallback is fetched. The path is listed under `downloadErrors` in the report, and the next run retries the primary.
 - A skeleton that fails to parse is deleted and removed from the ledger, so the next online run downloads it again.
 
-The first run downloads about **309 MiB in about 5,690 files** (it took 134 s on a ~3 MB/s link before the 55 emote and 玩法说明 files, 21.3 MiB, and the 1,680 干员战斗语音 files, 40.1 MiB, were added). A re-run takes about 1 s. The voice count is the twelve slots a battle plays; the three prep-only slots the official client uses elsewhere (干员报到 / 编入队伍 / 任命队长, 360 more files, 18.4 MiB) are left out unless `--voice-all` is passed.
+The first run downloads about **309 MiB in about 5,690 files** (it took 134 s on a ~3 MB/s link before the 55 emote and 玩法说明 files, 21.3 MiB, and the 1,680 干员战斗语音 files, 40.1 MiB, were added). A re-run takes about 1 s. The voice count is the twelve slots a battle plays; the three prep-only slots the official client uses elsewhere (干员报到 / 编入队伍 / 任命队长, 360 more files, 18.4 MiB) are left out unless `--voice-all` is passed. An alternate dub (`--voice-langs=cn,jp`) is **not** part of that default: it downloads the same lines a second time, from the other dump folder — see "干员战斗语音, two tracks".
 
 Outputs:
 - `data/assets.json`: the manifest (committed).
@@ -94,7 +95,28 @@ The research JSONs in `docs/research/` (03, 05, 07) define **which** ids are nee
 | BGM | AA2 `voice` branch `audio/sound_beta_2/music/**` (大厅/休整期 `act1autochess`, 开战 `act13side/m_bat_kazimierz2_{1,2}` — 骑士之日 / 无畏者; the 开战 track follows the round: `_2` 无畏者 rounds 1–7, `_1` 骑士之日 from round 8) | `audio/bgm/{file}.mp3` |
 | SFX (UI, battle, per unit) | AA2 `voice` `audio/sound_beta_2/**`, mapped from `audio_data.json` banks | `audio/sfx/{same sub-path}.mp3` |
 | 干员战斗语音 | AA2 `voice` `audio/sound_beta_2/voice_cn/{charId}/cn_nn.mp3` — the lines `charword_table.json` lists (`placeType` = when the game plays one, `voiceAsset` = the path); `--voice-lang=jp|en|kr` takes the same file names from `voice/`, `voice_en/`, `voice_kr/` | `audio/voice/{lang}/{charId}/{cn_nn}.mp3` |
+| 干员战斗语音, alternate dub (日本語) | the same lines again from AA2 `voice` `audio/sound_beta_2/voice/{charId}/cn_nn.mp3` (`--voice-langs=cn,jp`, one file per slot per operator, fetched at deploy time) | `audio/voice/jp/{charId}/{cn_nn}.mp3` |
 | Fonts: Bender Regular and Light, Novecento Wide | TimWangZi/The-font-of-Arknights | `public/fonts/*.{otf,ttf,woff2}`, `public/fonts/fonts.css` |
+
+**干员战斗语音, two tracks (中文 + 日本語; settings 配音语言).** The committed `data/assets.json` carries the CN table only
+(`audio.voice`). The JP one appears when a deploy fetches it, in the same run:
+
+```bash
+node tools/fetch-assets.mjs --voice-langs=cn,jp   # CN files already on disk are skipped; the JP dub is downloaded
+```
+
+That writes `audio.voice` from `cn` and `audio.voiceAlt.jp` from `jp` (the first language is always the primary table:
+**keep `cn` first**, the client's fallback reads `audio.voice`). The JP files are the same names under `voice/` —
+upstream keeps one file per line per dub — so a line a dub does not carry is simply absent from `voiceAlt.<lang>` and
+that slot plays in CN (`public/js/audio.js voiceLines`). The alternate audio itself is **not** in this repository: it is
+fetched on the server by that command at deploy time, into the same `public/assets/audio/voice/<lang>/` tree, which the
+existing `/voice/` preload group and the `/assets/**` path rule already serve — no server or client deploy change.
+
+**Use that command on every server that carries the JP dub.** Once `audio.voiceAlt.jp` is in the manifest, a plain
+`node tools/fetch-assets.mjs` (`npm run assets`, `tools/setup.mjs`) plans the CN table alone and would drop it — so the
+shrink guard refuses the write, the run names every `audio.voiceAlt.**` entry it would lose and exits 1, and the
+committed manifest (and the JP files) stay as they are. That is the guard doing its job, not a broken deploy: re-run
+with `--voice-langs=cn,jp`, or pass `--allow-shrink` when the alternate track is meant to go away.
 
 The `stem` of a Spine model is the upstream file name. Two examples: `char_107_liskam` has the stem `char_107_liskarm`, and `enemy_9032_aclionk` uses `enemy_1559_vtlionk`. The skel and atlas of a model always share one stem. pixi-spine locates the atlas by swapping the extension, so this matters.
 
@@ -148,7 +170,8 @@ All paths are URL paths relative to the site root, for example `/assets/char/ava
   hash: 'a1b2c3d4e5f6',             // content hash (cache busting)
   generator: 'tools/fetch-assets.mjs',
   stats: { files, bytes, chars, charsWithBack, enemies, enemiesWithSpine, tokens, tokensWithSpine,
-           spineModels, bonds, items, bands, skills, modules, ui, sfxUnits, voiceChars },
+           spineModels, bonds, items, bands, skills, modules, ui, sfxUnits, voiceChars,
+           voiceAltChars? },        // voiceAltChars = { [lang]: operators }, only when a run planned an alternate dub
   chars:   { [charId]: { avatar, avatarE2?, portrait, portraitE2?, spine: { front: Spine, back?: Spine } } },
   enemies: { [enemyId]: { icon, spine?: Spine, spineAliasOf?: enemyId,
                           spineLocal?: { group, skel, atlas, textures, …Spine } } },
@@ -186,6 +209,13 @@ All paths are URL paths relative to the site root, for example `/assets/char/ava
                            // prep-only slots 干员报到 / 编入队伍 / 任命队长 are left out of the plan by default —
                            // nothing requests them and they cost 360 files (19.3 MB) per run — and `--voice-all` adds
                            // them (audio.mjs VOICE_PREP_SLOTS) for the complete official set
+    voiceAlt: { [lang]: { [charId]: { <slot>: url | [url] } } },
+                           // 配音语言 (`--voice-langs=cn,jp`): the same shape as `voice`, holding ONLY the slots that
+                           // alternate dub carries (its dump usually lacks the newest operators). The whole key is
+                           // absent when no run planned a second dub, and then the client stays on `voice` — the switch
+                           // (设置 → 配音语言, settings `voiceLang`) silently plays CN. public/js/audio.js voiceLines
+                           // picks `voiceAlt[lang][charId][slot]` and falls back to `voice[charId][slot]` for that same
+                           // slot, so a partially dubbed operator still speaks
     sfx: {
       ui:     { click, back, confirm, tab, pick, drop, error, buy, sell, income, refresh, freeze, levelup,
                 merge, equip, itemMerge, bondUp, artPlace, ready, timer, draft, yourTurn, yourTurnCircle,

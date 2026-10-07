@@ -43,6 +43,7 @@
 // Usage: node tools/fetch-assets.mjs [--concurrency=16] [--force] [--offline]
 //                                    [--dry-run] [--refresh-index] [--prune]
 //                                    [--allow-shrink] [--add-only] [--local-spines] [--help]
+//                                    [--voice-lang=cn] [--voice-langs=cn,jp] [--voice-all]
 
 import { readFile, writeFile, mkdir, rename, readdir, unlink } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
@@ -93,6 +94,11 @@ const HELP = `Usage: node tools/fetch-assets.mjs [options]
   --dry-run         print the plan and exit
   --refresh-index   re-download the audio_data.json / charword_table.json / models_data.json indexes
   --voice-lang=cn   operator battle voice language: cn (default) | jp | en | kr
+  --voice-langs=cn,jp
+                    plan several voice dumps in one run: the FIRST one fills audio.voice, every other one
+                    audio.voiceAlt[<lang>] (the same slots, only the lines that dump carries — the client falls
+                    back to audio.voice slot by slot, so keep cn first). The alternate audio files are
+                    downloaded here like any other asset (docs/ASSETS.md "干员战斗语音").
   --voice-all       plan every official voice slot, including the prep-only lines no battle plays
                     (干员报到 / 编入队伍 / 任命队长; 360 files / 19.3 MB more per run — off by default)
   --prune           delete files under public/assets that the manifest no longer references
@@ -113,10 +119,10 @@ failures. Only explicitly enabled GitHub downloads use the third-party proxy.`;
 /**
  * Parse CLI flags.
  * @param {string[]} argv
- * @returns {{concurrency:number, force:boolean, offline:boolean, dryRun:boolean, refreshIndex:boolean, prune:boolean, allowShrink:boolean, addOnly:boolean, localSpines:boolean, voiceLang:string, voiceAll:boolean, help:boolean, source:string}}
+ * @returns {{concurrency:number, force:boolean, offline:boolean, dryRun:boolean, refreshIndex:boolean, prune:boolean, allowShrink:boolean, addOnly:boolean, localSpines:boolean, voiceLang:string, voiceLangs:string[], voiceAll:boolean, help:boolean, source:string}}
  */
 export function parseArgs(argv) {
-  const o = { concurrency: 16, force: false, offline: false, dryRun: false, refreshIndex: false, prune: false, allowShrink: false, addOnly: false, localSpines: false, voiceLang: 'cn', voiceAll: false, help: false, source: process.env.SP_ASSET_SOURCE || 'direct' };
+  const o = { concurrency: 16, force: false, offline: false, dryRun: false, refreshIndex: false, prune: false, allowShrink: false, addOnly: false, localSpines: false, voiceLang: 'cn', voiceLangs: ['cn'], voiceAll: false, help: false, source: process.env.SP_ASSET_SOURCE || 'direct' };
   for (const a of argv) {
     const [k, v] = a.split('=');
     if (k === '--concurrency') o.concurrency = Math.max(1, Math.min(64, parseInt(v, 10) || 16));
@@ -129,11 +135,19 @@ export function parseArgs(argv) {
     else if (k === '--allow-shrink') o.allowShrink = true;
     else if (k === '--add-only') o.addOnly = true;
     else if (k === '--local-spines') o.localSpines = true;
-    else if (k === '--voice-lang') { if (!VOICE_DIRS[v]) throw new Error(`unknown --voice-lang ${v} (cn | jp | en | kr)`); o.voiceLang = v; }
+    else if (k === '--voice-lang') { if (!VOICE_DIRS[v]) throw new Error(`unknown --voice-lang ${v} (cn | jp | en | kr)`); o.voiceLangs = [v]; }
+    // one run, several dumps: the first language is the primary table (audio.voice), the others audio.voiceAlt[<lang>]
+    else if (k === '--voice-langs') {
+      const langs = String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
+      if (!langs.length) throw new Error(`--voice-langs needs one or more languages (cn | jp | en | kr)\n${HELP}`);
+      for (const l of langs) if (!VOICE_DIRS[l]) throw new Error(`unknown --voice-langs ${l} (cn | jp | en | kr)`);
+      o.voiceLangs = [...new Set(langs)];
+    }
     else if (k === '--voice-all') o.voiceAll = true;
     else if (k === '--help' || k === '-h') o.help = true;
     else throw new Error(`unknown option ${a}\n${HELP}`);
   }
+  o.voiceLang = o.voiceLangs[0];
   if (o.addOnly && (o.prune || o.force)) throw new Error(`--add-only never deletes or rewrites files: not with --prune / --force\n${HELP}`);
   if (!o.help) validateSource(o.source);
   return o;
@@ -235,6 +249,11 @@ function countStats(m, bytes, files) {
   for (const c of vals(m.chars)) for (const s of vals(c.spine)) spines.add(s.skel);
   for (const e of vals(m.enemies)) if (e.spine) spines.add(e.spine.skel);
   for (const t of vals(m.tokens)) if (t.spine) spines.add(t.spine.skel);
+  // voiceChars counts the primary table (audio.voice, CN) — what every consumer and test reads. The alternate dubs of
+  // `--voice-langs=cn,jp` are counted per language beside it, and only when one was planned (a cn-only run's stats are
+  // exactly what they were before).
+  const voiceAltChars = {};
+  for (const [lang, table] of Object.entries(m.audio?.voiceAlt || {})) voiceAltChars[lang] = Object.keys(table || {}).length;
   return {
     files,
     bytes,
@@ -253,6 +272,7 @@ function countStats(m, bytes, files) {
     ui: Object.keys(m.ui || {}).length,
     sfxUnits: Object.keys(m.audio?.sfx?.units || {}).length,
     voiceChars: Object.keys(m.audio?.voice || {}).length,
+    ...(Object.keys(voiceAltChars).length ? { voiceAltChars } : {}),
   };
 }
 
@@ -329,6 +349,7 @@ async function main() {
   const localTokenSpines = await syncLocalSpines(opts, 'token');
   const plan = buildPlan({
     assets07, ops03, enemies05, maps05, audio, modelsData, charword, voiceLang: opts.voiceLang,
+    voiceLangs: opts.voiceLangs,
     // default: only the slots a battle can play (plan.mjs VOICE_BATTLE_SLOTS); --voice-all takes the whole official set
     voiceSlots: opts.voiceAll ? null : undefined,
     extraEnemyIds: Object.keys(dataEnemies || {}),
@@ -340,11 +361,14 @@ async function main() {
     moduleTypes: extras.moduleTypes,
   });
   const leaves = collectLeaves(plan.template);
+  const altLangs = opts.voiceLangs.slice(1);
+  const altCounts = altLangs.map((l) => `${Object.keys(plan.template.audio.voiceAlt?.[l] || {}).length} ${l.toUpperCase()}`);
   log(`[plan] ${leaves.length} files + ${plan.models.size} Spine models ` +
     `(${Object.keys(plan.template.chars).length} chars, ${Object.keys(plan.template.enemies).length} enemies, ` +
     `${Object.keys(plan.template.tokens).length} tokens, ${Object.keys(plan.template.ui).length} UI sprites, ` +
     `${Object.keys(plan.template.audio.sfx.units).length} units with SFX, ` +
-    `${Object.keys(plan.template.audio.voice).length} operators with ${opts.voiceLang.toUpperCase()} voice)`);
+    `${Object.keys(plan.template.audio.voice).length} operators with ${opts.voiceLang.toUpperCase()} voice` +
+    `${altCounts.length ? ` + alt ${altCounts.join(' / ')}` : ''})`);
   if (opts.dryRun) {
     for (const n of plan.notes) log(`  note: ${n}`);
     return 0;
@@ -434,7 +458,8 @@ async function main() {
   log(`bonds ${s.bonds} · items ${s.items} · bands ${s.bands} · skill icons ${s.skills} · UI ${s.ui} · units with SFX ${s.sfxUnits}`);
   const overlays = (o) => Object.values(o || {}).filter((e) => e?.spineLocal).length;
   log(`local-client models (spineLocal, drawn when extracted): enemies ${overlays(manifest.enemies)} · tokens ${overlays(manifest.tokens)}`);
-  log(`operator battle voice: ${s.voiceChars} charIds (--voice-lang=${opts.voiceLang})`);
+  const voiceAltStats = Object.entries(s.voiceAltChars || {}).map(([l, n]) => `${l.toUpperCase()} ${n}`).join(' · ');
+  log(`operator battle voice: ${s.voiceChars} charIds (--voice-lang=${opts.voiceLang}${voiceAltStats ? ` + alt ${voiceAltStats}` : ''})`);
   log(`fonts: ${Object.values(fonts.files).map((f) => f.woff2 || f.original).join(', ') || 'none'}`);
   if (resolved.fallbacks.length) { log(`fallbacks used (${resolved.fallbacks.length}):`); for (const f of resolved.fallbacks.slice(0, 20)) log(`  ${f}`); }
   if (downloadErrors.length) log(`download errors (${downloadErrors.length}, re-run to retry): ${downloadErrors.slice(0, 10).join(', ')}`);

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bgmKeyFor, resolveBgm, SfxLimiter, AudioManager, normalAttackSfx, installAudio, audio, combatTrackFor, COMBAT_TRACK_SWITCH_ROUND, VoiceGate, resultSpeaker, resultVoiceSlot, VOICE_PRIORITY, VOICE_COOLDOWN_MS } from '../../public/js/audio.js';
+import { bgmKeyFor, resolveBgm, SfxLimiter, AudioManager, normalAttackSfx, installAudio, audio, combatTrackFor, COMBAT_TRACK_SWITCH_ROUND, VoiceGate, resultSpeaker, resultVoiceSlot, VOICE_PRIORITY, VOICE_COOLDOWN_MS, VOICE_LANGS, voiceLines } from '../../public/js/audio.js';
 import { mediaUrl } from '../../public/js/media.js';
 import { PHASE } from '../../shared/constants.js';
 import { makeBattle, chessRec } from '../helpers/battleHarness.js';
@@ -369,6 +369,106 @@ describe('operator battle voice', () => {
       await tick();
       assert.equal(a.voice('char_a', 'place', { unitKey: 8 }), false, 'the failed load kept out of the newest line\'s way');
     } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});
+
+// ---- 配音语言: the alternate dub (audio.voiceAlt) with a per-slot CN fallback --------------------------------
+// The dual-track manifest (docs/ASSETS.md "干员战斗语音, two tracks"): `audio.voice` stays the CN table and
+// `audio.voiceAlt.<lang>` holds only the slots that dub carries (a dump usually lacks the newest operators), so a
+// slot with no alternate line must play its CN line — the operator still speaks. A manifest without `voiceAlt` at all
+// (a deployment where nobody ran the alternate fetch) keeps everything on CN whatever the setting says.
+
+describe('配音语言 (audio.voiceAlt + per-slot CN fallback)', () => {
+  const fixture = {
+    audio: {
+      voice: {
+        char_a: { start: '/cn/a_start.mp3', place: ['/cn/a_p1.mp3', '/cn/a_p2.mp3'], skill1: '/cn/a_s1.mp3' },
+        char_b: { start: '/cn/b_start.mp3' },
+      },
+      voiceAlt: {
+        jp: {
+          char_a: { start: '/jp/a_start.mp3' },
+          char_b: { start: '/jp/b_start.mp3', place: '/jp/b_p1.mp3' },
+        },
+      },
+    },
+  };
+
+  test('a JP slot wins; a slot JP lacks falls back to that same CN slot (arrays included)', () => {
+    assert.deepEqual(VOICE_LANGS, ['cn', 'jp'], 'the languages the switch offers');
+    assert.equal(voiceLines(fixture, 'char_a', 'start', 'jp'), '/jp/a_start.mp3');
+    assert.equal(voiceLines(fixture, 'char_a', 'skill1', 'jp'), '/cn/a_s1.mp3', 'this slot has no JP line: CN speaks');
+    assert.deepEqual(voiceLines(fixture, 'char_a', 'place', 'jp'), ['/cn/a_p1.mp3', '/cn/a_p2.mp3'], 'a CN array stays one entry');
+    assert.equal(voiceLines(fixture, 'char_b', 'place', 'jp'), '/jp/b_p1.mp3', 'the fallback is per slot, not per operator');
+    assert.equal(voiceLines(fixture, 'char_b', 'skill1', 'jp'), null, 'neither table carries it');
+    assert.equal(voiceLines(fixture, 'char_zz', 'start', 'jp'), null, 'an operator with no voice at all');
+  });
+
+  test('cn, an unknown language and a manifest with no voiceAlt all read audio.voice', () => {
+    for (const lang of ['cn', 'kr', 'JP', '', null, undefined]) {
+      assert.equal(voiceLines(fixture, 'char_a', 'start', lang), '/cn/a_start.mp3', `lang=${String(lang)}`);
+    }
+    const noAlt = { audio: { voice: fixture.audio.voice } };
+    assert.equal(voiceLines(noAlt, 'char_a', 'start', 'jp'), '/cn/a_start.mp3', 'no voiceAlt: the switch silently stays CN');
+    assert.equal(voiceLines(noAlt, 'char_a', 'skill1', 'jp'), '/cn/a_s1.mp3');
+    assert.equal(voiceLines({ audio: { voiceAlt: { jp: {} } } }, 'char_a', 'start', 'jp'), null, 'no CN table either');
+    assert.equal(voiceLines({}, 'char_a', 'start', 'jp'), null);
+    assert.equal(voiceLines(null, 'char_a', 'start', 'jp'), null);
+  });
+
+  test('AudioManager: setVoiceLang picks the table per line, an unknown language falls back to cn', async () => {
+    const fw = fakeWindow();
+    const origFetch = globalThis.fetch;
+    const urls = [];
+    globalThis.fetch = async (u) => { urls.push(u); return { ok: true, arrayBuffer: async () => new ArrayBuffer(8) }; };
+    const tick = () => new Promise((r) => setTimeout(r, 10));
+    try {
+      const a = new AudioManager({ win: fw.win, getManifest: () => fixture });
+      a.voiceGate = new VoiceGate({ gapMs: 0 });   // the gap itself is covered above
+      a.install();
+      fw.fire('pointerdown');
+      await tick();
+      assert.equal(a.voiceLang, 'cn', 'CN by default');
+      a.setVoiceLang('jp');
+      assert.equal(a.voice('char_a', 'start', { unitKey: 1 }), true);
+      await tick();
+      assert.ok(asked(urls, '/jp/a_start.mp3'), 'the JP line of that slot');
+      a._stopVoice(); a.voiceGate.reset();
+      assert.equal(a.voice('char_a', 'skill1', { unitKey: 2 }), true);
+      await tick();
+      assert.ok(asked(urls, '/cn/a_s1.mp3'), 'no JP line for 作战中1 ⇒ the CN line of that same slot');
+      a._stopVoice(); a.voiceGate.reset();
+      // a language nobody carries (a profile from a newer release, a typo) is CN, never silence
+      a.setVoiceLang('kr');
+      assert.equal(a.voiceLang, 'cn');
+      assert.equal(a.voice('char_a', 'start', { unitKey: 3 }), true);
+      await tick();
+      assert.ok(asked(urls, '/cn/a_start.mp3'));
+      a._stopVoice(); a.voiceGate.reset();
+      a.setVoiceLang(undefined);
+      assert.equal(a.voiceLang, 'cn');
+      // a manifest without voiceAlt: the switch changes nothing, the CN lines keep playing
+      const bare = { audio: { sfx: { ui: {}, battle: {}, units: {} }, voice: { char_a: { start: '/cn/a_start.mp3' } } } };
+      const b = new AudioManager({ win: fw.win, getManifest: () => bare });
+      b.voiceGate = new VoiceGate({ gapMs: 0 });
+      b.install();
+      fw.fire('pointerdown');            // the fake window keeps the newest handler: this unlocks b
+      await tick();
+      b.setVoiceLang('jp');
+      assert.equal(b.voice('char_a', 'start', { unitKey: 1 }), true);
+      await tick();
+      assert.ok(asked(urls, '/cn/a_start.mp3'));
+      // installAudio applies the persisted setting to the app-wide manager (main.js passes settingsStore.get())
+      installAudio({ getManifest: () => fixture, settings: { voiceLang: 'jp' } });
+      assert.equal(audio.voiceLang, 'jp');
+      installAudio({ getManifest: () => fixture, settings: { voiceLang: 'kr' } });
+      assert.equal(audio.voiceLang, 'cn', 'an unknown persisted value is CN');
+      installAudio({ getManifest: () => fixture });
+      assert.equal(audio.voiceLang, 'cn', 'no settings at all leaves the manager as it was');
+    } finally {
+      audio.setVoiceLang('cn');
       globalThis.fetch = origFetch;
     }
   });

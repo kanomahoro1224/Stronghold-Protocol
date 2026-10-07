@@ -651,12 +651,19 @@ describe('keyboard & settings', () => {
   test('sanitizeSettings', () => {
     assert.deepEqual(sanitizeSettings(null), { ...DEFAULT_SETTINGS });
     assert.deepEqual(sanitizeSettings({ bgm: 3, sfx: -1, voice: 2, muted: 'yes', damageNumbers: false, quality: 'ultra' }),
-      { bgm: 1, sfx: 0, voice: 1, muted: false, damageNumbers: false, quality: 'high', preload: false, preloadOptional: true, keys: { ...DEFAULT_SETTINGS.keys } },
+      { bgm: 1, sfx: 0, voice: 1, muted: false, damageNumbers: false, quality: 'high', preload: false, preloadOptional: true, voiceLang: 'cn', keys: { ...DEFAULT_SETTINGS.keys } },
       'a saved profile without `keys` (before 0.2.0) gets the default key map (test/ui/feedback5-hotkeys.test.js), and one without `preload` / `preloadOptional` the preload defaults');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).voice, DEFAULT_SETTINGS.voice, 'a saved profile without `voice` gets the default');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).preload, DEFAULT_SETTINGS.preload, 'a saved profile without `preload` gets the default');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).preloadOptional, DEFAULT_SETTINGS.preloadOptional, 'a saved profile without `preloadOptional` gets the default');
     assert.equal(sanitizeSettings({ preloadOptional: 'no' }).preloadOptional, DEFAULT_SETTINGS.preloadOptional, 'a non-boolean falls back');
+    // 配音语言 (audio.js VOICE_LANGS): an absent, unknown or mistyped value plays CN — never a silent voice channel
+    assert.equal(DEFAULT_SETTINGS.voiceLang, 'cn');
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).voiceLang, 'cn', 'a saved profile without `voiceLang` gets the default');
+    assert.equal(sanitizeSettings({ voiceLang: 'jp' }).voiceLang, 'jp');
+    for (const bad of ['kr', 'JP', 'en', '', null, 1, {}, ['jp']]) {
+      assert.equal(sanitizeSettings({ voiceLang: bad }).voiceLang, 'cn', `voiceLang=${JSON.stringify(bad)}`);
+    }
     assert.equal(sanitizeSettings({ bgm: 0.333 }).bgm, 0.33);
     assert.equal(sanitizeSettings({ quality: 'low' }).quality, 'low');
   });
