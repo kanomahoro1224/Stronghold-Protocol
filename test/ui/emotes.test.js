@@ -15,7 +15,7 @@ import {
 } from '../../shared/constants.js';
 import { validateC2S } from '../../shared/protocol.js';
 import { buildEmotes, formatEmotes, THEME_DIRS } from '../../tools/build-emotes.mjs';
-import { chatDraftValue, setChatDraft, clearChatDraft, chatSendable, chatDraftAfterSend } from '../../public/js/ui/emotes.js';
+import { chatDraftValue, setChatDraft, clearChatDraft, chatSendable, chatDraftAfterSend, chatLogLines, CHAT_LOG_MAX } from '../../public/js/ui/emotes.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const readJson = (rel) => JSON.parse(readFileSync(path.join(ROOT, rel), 'utf8'));
@@ -277,6 +277,39 @@ describe('游戏内文字聊天：表情面板下方的输入框', () => {
     assert.equal(chatDraftValue().length, CHAT_MAX_LEN, 'the input itself stops at the cap');
     assert.equal(chatDraftAfterSend('没发出去', false), '没发出去', 'the 1 s cooldown keeps the draft for another try');
     assert.equal(chatDraftAfterSend('发出去了', true), '', 'a sent line clears the input');
+  });
+
+  test('历史对话 lists the last lines in order with the sender name, and drops a blank one', () => {
+    const names = { a: '博士A', b: '博士B' };
+    const lines = chatLogLines([
+      { seq: 1, playerId: 'a', text: '你好', at: 1 },
+      { seq: 2, playerId: 'b', text: '  走中路  ', at: 2 },
+    ], (p) => names[p]);
+    assert.deepEqual(lines.map((l) => [l.name, l.text]), [['博士A', '你好'], ['博士B', '走中路']], 'names resolved, lines trimmed, order kept');
+    assert.deepEqual(chatLogLines(undefined, () => 'x'), [], 'no chats yet');
+    assert.deepEqual(chatLogLines(null, () => 'x'), []);
+    assert.equal(chatLogLines([{ seq: 3, playerId: 'a', text: '   ' }], () => 'x').length, 0, 'a blank line is never listed');
+    assert.equal(chatLogLines([{ seq: 4, playerId: 'a', text: 'hi' }], null)[0].name, '', 'a missing nameOf keeps the line, without a name');
+    const many = Array.from({ length: CHAT_LOG_MAX + 5 }, (_, i) => ({ seq: i, playerId: 'a', text: `l${i}` }));
+    assert.equal(chatLogLines(many).length, CHAT_LOG_MAX, 'the log is capped');
+    assert.equal(chatLogLines(many).at(-1).text, `l${CHAT_LOG_MAX + 4}`, 'it is the newest tail that is kept');
+  });
+
+  test('the panel carries the 发表情 / 历史对话 rail, both labels wrapped for the language packs', () => {
+    const js = readFileSync(path.join(ROOT, 'public/js/ui/emotes.js'), 'utf8');
+    const css = readFileSync(path.join(ROOT, 'public/css/emotes.css'), 'utf8');
+    assert.match(js, /class="ewheel__rail"/, 'the left rail exists');
+    assert.match(js, /t\('发表情'\)/, '发表情 goes through t()');
+    assert.match(js, /t\('历史对话'\)/, '历史对话 goes through t()');
+    assert.match(js, /class="ewheel__history"/, 'the log view exists');
+    assert.match(js, /chatLogLines\(chats, nameOf\)/, 'the log is fed from store.chats');
+    assert.match(css, /\.ewheel__rail-btn\b/, 'rail styles exist');
+    assert.match(css, /\.ewheel__history-row\b/, 'log styles exist');
+    // the rail eats .26rem of the fixed plate, so the cell grid shrinks: three columns must still fit the viewport
+    const cells = /grid-template-columns: repeat\(3, ([\d.]+)rem\)/.exec(css);
+    const view = /\.ewheel__viewport \{ position: absolute; left: [\d.]+rem; top: [\d.]+rem; width: ([\d.]+)rem/.exec(css);
+    assert.ok(cells && view, 'the grid and the viewport are still declared');
+    assert.ok(3 * Number(cells[1]) <= Number(view[1]), `3 × ${cells[1]}rem cells fit the ${view[1]}rem viewport`);
   });
 });
 

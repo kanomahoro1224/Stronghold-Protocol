@@ -59,7 +59,8 @@ import { t, N_, translateWire } from '../../shared/i18n.js';
 const RESTORE_GRACE_MS = 1500;
 const JOIN_DELAY_MS = 350;
 const TICKER_KEEP = 20;
-const EMOTE_KEEP = 20;
+const EMOTE_KEEP = 20;   // emote bubbles / chat bubbles beside an avatar (ui/teamPanel.js)
+const CHAT_KEEP = 80;    // the 历史对话 log view of the emote panel keeps a longer tail than the bubbles (ui/emotes.js)
 
 const SCREENS = { title: TitleScreen, lobby: LobbyScreen, room: RoomScreen, game: GameScreen };
 
@@ -259,7 +260,7 @@ function wireNet() {
   // 游戏内文字聊天: same keep window and the same shared `seq` as emotes, so the team panel can pick the newer of the
   // two for the one bubble slot beside a player's avatar.
   net.on('m.chat', (msg) => {
-    store.set((s) => ({ chats: [...s.chats.slice(-(EMOTE_KEEP - 1)), { seq: ++seq, playerId: msg.playerId, text: msg.text, at: Date.now() }] }));
+    store.set((s) => ({ chats: [...s.chats.slice(-(CHAT_KEEP - 1)), { seq: ++seq, playerId: msg.playerId, text: msg.text, at: Date.now() }] }));
   });
 
   // Entering (title → lobby) while already online also needs the deep-link join.

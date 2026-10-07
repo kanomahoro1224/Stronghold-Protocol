@@ -224,6 +224,29 @@ export function chatDraftAfterSend(text, accepted) {
 }
 
 /** Neutral stand-in for a missing emote picture (a glyph, never text). */
+/** How many lines the 历史对话 view lists (main.js keeps at least this many in `store.chats`). */
+export const CHAT_LOG_MAX = 80;
+
+/**
+ * The 历史对话 lines: the last `max` chat messages, oldest first, each with the sender's display name (`nameOf`; an id
+ * that resolves to nothing keeps the line, without a name). A blank line is dropped — the server refuses one, so that
+ * is only ever the defensive case.
+ * @param {Array<{seq:number, playerId:string, text:string}>|null|undefined} chats
+ * @param {(playerId:string)=>string} [nameOf]
+ * @param {number} [max]
+ */
+export function chatLogLines(chats, nameOf, max = CHAT_LOG_MAX) {
+  if (!Array.isArray(chats)) return [];
+  const cap = Math.max(1, Math.trunc(max) || CHAT_LOG_MAX);
+  const out = [];
+  for (const c of chats.slice(-cap)) {
+    const text = typeof c?.text === 'string' ? c.text.trim() : '';
+    if (!text) continue;
+    out.push({ seq: c.seq, playerId: c.playerId, text, name: nameOf ? nameOf(c.playerId) || '' : '' });
+  }
+  return out;
+}
+
 function EmoteGlyph({ class: cls }) {
   return html`<span class=${cx('eart', 'eart--glyph', cls)} aria-hidden="true"><${GIcon} name="emote" /></span>`;
 }
@@ -286,11 +309,15 @@ export function ChatBubble({ text, class: cls, ttl = EMOTE_BUBBLE_MS, at }) {
 }
 
 /**
- * 交流 button + emote panel, with the 游戏内文字聊天 box under the grid.
- * @param {{ onSend: (id:string)=>void, onChat?: (text:string)=>void, open: boolean, onToggle: (open:boolean)=>void,
- *   disabled?: boolean, cooldownMs?: number }} props
+ * 交流 button + emote panel, with the 游戏内文字聊天 box under the grid and a left rail that switches between the emote
+ * grid (发表情) and the chat log (历史对话, owner request 2026-10-07). The rail sits inside the panel's left edge: the
+ * panel is a fixed sprite whose cell grid used to fill it edge to edge, so the grid shrinks (.85 → .75 rem cells)
+ * instead of the panel growing left past the screen edge (`.gm__corner` is at left .24rem — public/css/emotes.css).
+ * @param {{ onSend: (id:string)=>void, onChat?: (text:string)=>void,
+ *   chats?: Array<{seq:number, playerId:string, text:string, at?:number}>, nameOf?: (playerId:string)=>string,
+ *   open: boolean, onToggle: (open:boolean)=>void, disabled?: boolean, cooldownMs?: number }} props
  */
-export function EmoteWheel({ onSend, onChat, open, onToggle, disabled = false, cooldownMs = EMOTE_COOLDOWN_MS }) {
+export function EmoteWheel({ onSend, onChat, chats = [], nameOf, open, onToggle, disabled = false, cooldownMs = EMOTE_COOLDOWN_MS }) {
   useData('local');
   useEffect(() => { ensureEmoteCss(); }, []);
   const [page, setPage] = useState(lastThemeIndex);
@@ -299,6 +326,9 @@ export function EmoteWheel({ onSend, onChat, open, onToggle, disabled = false, c
   const [cooling, setCooling] = useState(() => cooldownLeft(lastSentAt, Date.now(), cooldownMs) > 0);
   // the chat box: the draft lives in the module (chatDraft), this state only mirrors it into the render
   const [draft, setDraft] = useState(chatDraftValue);
+  // the left rail's view: the emote grid or the 历史对话 log (kept across a close/reopen, like the draft)
+  const [view, setView] = useState('emotes');
+  const logRef = useRef(null);
   const drag = useRef(null);                  // { id, x0, moved }
   const swallowClick = useRef(false);
   const wheelAcc = useRef({ x: 0, t: -Infinity, spent: false });
@@ -315,6 +345,15 @@ export function EmoteWheel({ onSend, onChat, open, onToggle, disabled = false, c
 
   // reopen on the last used theme
   useEffect(() => { if (open) { setPage(lastThemeIndex()); setDir(0); setDx(0); } }, [open]);
+
+  // the log opens on its newest line, and a line that arrives while it is open scrolls it down too
+  useEffect(() => {
+    if (!open || view !== 'history') return;
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [open, view, chats.length]);
+
+  const log = open ? chatLogLines(chats, nameOf) : [];
 
   // cooldown: the button is greyed for chatCD after a send (from the send time, so a remounted wheel keeps it)
   useEffect(() => {
@@ -417,7 +456,22 @@ export function EmoteWheel({ onSend, onChat, open, onToggle, disabled = false, c
       ${btnSprite ? null : html`<${GIcon} name="emote" />`}<span class="ewheel__label">${t('交流')}</span>
     </button>
     ${open ? html`<div class=${cx('ewheel__panel', 'has-chat', panelBg && 'has-sprite', cellBg && 'has-cell')} style=${panelStyle} role="dialog" aria-label=${t('交流')}>
-      <div class="ewheel__viewport" onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
+      <div class="ewheel__rail" role="tablist" aria-label=${t('交流面板')}>
+        <button type="button" role="tab" class=${cx('ewheel__rail-btn', view === 'emotes' && 'is-on')}
+          aria-selected=${view === 'emotes' ? 'true' : 'false'} aria-label=${t('发表情')} title=${t('发表情')}
+          onClick=${() => setView('emotes')}><${GIcon} name="emote" /></button>
+        <button type="button" role="tab" class=${cx('ewheel__rail-btn', view === 'history' && 'is-on')}
+          aria-selected=${view === 'history' ? 'true' : 'false'} aria-label=${t('历史对话')} title=${t('历史对话')}
+          onClick=${() => setView('history')}><${GIcon} name="book" /></button>
+      </div>
+      ${view === 'history' ? html`<div class="ewheel__history" ref=${logRef} role="log" aria-label=${t('历史对话')}>
+        ${log.length === 0 ? html`<p class="ewheel__history-empty">${t('本局暂无聊天记录')}</p>`
+          : log.map((c) => html`<div key=${c.seq} class="ewheel__history-row">
+            ${c.name ? html`<span class="ewheel__history-name">${c.name}</span>` : null}
+            <span class="ewheel__history-text">${c.text}</span>
+          </div>`)}
+      </div>` : null}
+      ${view === 'emotes' ? html`<div class="ewheel__viewport" onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
         onPointerUp=${(e) => endDrag(e, false)} onPointerCancel=${(e) => endDrag(e, true)} onWheel=${onWheel}>
         <div key=${theme.themeId} class=${cx('ewheel__page', dir > 0 && 'is-from-right', dir < 0 && 'is-from-left', dx !== 0 && 'is-dragging')}
           style=${dx ? `transform:translateX(${dx}px)` : ''} role="group" aria-label=${t(theme.name)} data-theme=${theme.themeId}>
@@ -432,16 +486,16 @@ export function EmoteWheel({ onSend, onChat, open, onToggle, disabled = false, c
       <div class="ewheel__dots" role="tablist" aria-label=${t('表情主题')}>
         ${EMOTE_THEMES.map((th, i) => html`<button key=${th.themeId} type="button" role="tab" class=${cx('ewheel__dot', i === page && 'is-on')}
           aria-selected=${i === page ? 'true' : 'false'} aria-label=${`${t(th.name)} ${i + 1}/${EMOTE_THEMES.length}`} onClick=${() => go(i)}></button>`)}
-      </div>
+      </div>` : null}
       <div class="ewheel__chat">
         <input class="ewheel__chat-input" type="text" value=${draft} maxlength=${CHAT_MAX_LEN} autocomplete="off"
-          enterkeyhint="send" placeholder="输入聊天内容…" aria-label="聊天输入"
+          enterkeyhint="send" placeholder=${t('输入聊天内容…')} aria-label=${t('聊天输入')}
           onInput=${(e) => setDraft(setChatDraft(e.currentTarget.value))}
           onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } }} />
-        <button type="button" class="ewheel__chat-clear" aria-label="清空输入" title="清空输入" disabled=${!draft}
+        <button type="button" class="ewheel__chat-clear" aria-label=${t('清空输入')} title=${t('清空输入')} disabled=${!draft}
           onClick=${() => setDraft(clearChatDraft())}>×</button>
-        <button type="button" class="ewheel__chat-send" aria-label="发送" disabled=${!chatSendable(draft) || cooling || disabled}
-          onClick=${sendChat}>发送</button>
+        <button type="button" class="ewheel__chat-send" aria-label=${t('发送')} disabled=${!chatSendable(draft) || cooling || disabled}
+          onClick=${sendChat}>${t('发送')}</button>
       </div>
     </div>` : null}
   </div>`;

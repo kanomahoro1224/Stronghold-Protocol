@@ -74,10 +74,42 @@
   background-size: 100% 100%;
 }
 .ewheel__panel.has-sprite::before { content: none; }
-.ewheel__viewport { position: absolute; left: .205rem; top: .19rem; width: 2.71rem; height: 1.78rem; overflow: hidden; touch-action: pan-y; cursor: grab; }
+/* ---- left rail: 发表情 / 历史对话, one view at a time --------------------------------------------------------- */
+/* Owner request 2026-10-07: two buttons on the panel's left, one to send an emote, one to read the chat log. The plate
+   is a fixed 313×231 sprite whose cell grid used to fill it edge to edge (3×.85 + 2×.08 = 2.71 = the viewport), so the
+   rail takes .26rem of the plate's left and the grid shrinks to .75rem cells (3×.75 + 2×.09 = 2.43 ≤ 2.53) rather than
+   pushing the panel off the screen: .gm__corner sits at left .24rem and the panel already starts at .09rem. */
+.ewheel__rail {
+  position: absolute; left: .15rem; top: .19rem; width: .26rem; height: 1.78rem; z-index: 2;
+  display: flex; flex-direction: column; gap: .06rem;
+}
+.ewheel__rail-btn {
+  flex: 1 1 0; min-height: 0; display: grid; place-items: center; width: 100%; padding: 0; margin: 0;
+  background: rgba(255, 255, 255, .10); border: 1px solid rgba(255, 255, 255, .10); border-radius: .05rem;
+  color: rgba(242, 242, 242, .72); font-size: 0; cursor: pointer;
+  transition: background-color var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.ewheel__rail-btn .icon { width: .19rem; height: .19rem; }
+.ewheel__rail-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .2); color: #fff; }
+.ewheel__rail-btn.is-on { background: rgba(51, 214, 179, .20); border-color: var(--mint-700); color: var(--mint-400); }
+.ewheel__rail-btn:focus-visible { outline: 2px solid var(--mint-500); outline-offset: 1px; }
+
+.ewheel__viewport { position: absolute; left: .44rem; top: .19rem; width: 2.53rem; height: 1.78rem; overflow: hidden; touch-action: pan-y; cursor: grab; }
+
+/* the 历史对话 view: the same rect as the grid, scrolled to the newest line */
+.ewheel__history {
+  position: absolute; left: .44rem; top: .19rem; width: 2.53rem; height: 1.78rem; box-sizing: border-box;
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  display: flex; flex-direction: column; gap: .05rem; padding: .05rem .06rem;
+  background: rgba(0, 0, 0, .22); border-radius: .05rem;
+}
+.ewheel__history-empty { margin: auto; color: rgba(242, 242, 242, .45); font-size: .15rem; text-align: center; }
+.ewheel__history-row { display: flex; gap: .06rem; font-size: .15rem; line-height: 1.35; text-align: left; }
+.ewheel__history-name { flex: 0 0 auto; max-width: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mint-400); }
+.ewheel__history-text { flex: 1 1 auto; color: #f2f2f2; word-break: break-word; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .ewheel__viewport:active { cursor: grabbing; }
 .ewheel__page {
-  display: grid; grid-template-columns: repeat(3, .85rem); grid-auto-rows: .85rem; gap: .08rem;
+  display: grid; grid-template-columns: repeat(3, .75rem); grid-auto-rows: .75rem; gap: .09rem;
   justify-content: space-between; align-content: start; height: 100%;
   animation: emo-page-in 180ms var(--ease-out);
   will-change: transform;
@@ -87,7 +119,7 @@
 .ewheel__page.is-dragging { animation: none; transition: none; opacity: .92; }
 
 .ewheel__item {
-  position: relative; display: grid; place-items: center; width: .85rem; height: .85rem; padding: .07rem; margin: 0; box-sizing: border-box;
+  position: relative; display: grid; place-items: center; width: .75rem; height: .75rem; padding: .06rem; margin: 0; box-sizing: border-box;
   background: rgba(255, 255, 255, .16); border: 0; border-radius: .08rem; color: inherit; font-size: 0; flex-direction: initial; gap: 0;
   transition: background-color var(--t-fast), filter var(--t-fast), transform 90ms var(--ease-out);
 }
