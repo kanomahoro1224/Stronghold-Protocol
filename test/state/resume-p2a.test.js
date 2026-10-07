@@ -13,8 +13,9 @@
 //   4. the SETTLE record continues into R2 and lands on the very state the source match reached by itself;
 //   5. a PREP record — the point the mid-round heartbeat writes — is ACCEPTED and reconstructs the mid-prep seat exactly
 //      (the same proof as 3, on the path a real crash usually lands on), and the resumed prep can still be finished;
-//   6. a v1 record, a co-op record, a COMBAT / SP_DRAFT / FINAL_ASSAULT record are each refused with their own reason,
-//      and the same record applied twice is the same state (nothing compounds on a resume).
+//   6. a v1 record and a SP_DRAFT / BAND_DRAFT / INFO_CHECK record are each refused with their own reason (their draft
+//      or briefing is still AHEAD of the prep), a COMBAT / UNITE / FINAL_ASSAULT record is REWOUND to that round's prep
+//      and refought (P2b), and the same record applied twice is the same state (nothing compounds on a resume).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -501,11 +502,13 @@ test('a v1 record is refused (never read as v2) and an unreadable point is refus
     assert.deepEqual(checkRecord({ ...rich, loneHuman: false }, opts), { ok: true },
       'more than one human seat no longer refuses the record: the restore is per-seat');
     assert.deepEqual(resumePlan({ ...rich, loneHuman: false }), { ok: true, round: 2, payloadFirst: false, intoPrep: false });
-    // PREP is the point the heartbeat writes and is ACCEPTED since P2a-b (see the PREP section above); COMBAT and
-    // SP_DRAFT are still refused, each with its own case in the tests below
+    // PREP is the point the heartbeat writes and is ACCEPTED since P2a-b (see the PREP section above); a record written
+    // mid-BATTLE is accepted since P2b and REWOUND to the same round's prep (its own section below); SP_DRAFT is still
+    // refused, because the round's 机变 draft is AHEAD of the record.
     assert.deepEqual(checkRecord({ ...rich, phase: PHASE.PREP }, opts), { ok: true },
       'the gate includes the open prep: the heartbeat record is the newest truth on disk');
-    assert.deepEqual(checkRecord({ ...rich, phase: PHASE.COMBAT }, opts), { ok: false, reason: 'phase' });
+    assert.deepEqual(checkRecord({ ...rich, phase: PHASE.COMBAT }, opts), { ok: true },
+      'P2b: a mid-battle record is rewound to this round\'s prep instead of being thrown away');
     assert.deepEqual(checkRecord({ ...rich, phase: PHASE.SP_DRAFT }, opts), { ok: false, reason: 'phase' });
     // the Hidden Core chapter (round 15 here) is entered from the visible final assault's live outcome: refused
     assert.equal(rich.hiddenRound, 15);
@@ -519,9 +522,10 @@ test('a v1 record is refused (never read as v2) and an unreadable point is refus
     assert.deepEqual(resumePlan({ ...rich, state: null }), { ok: false, reason: 'no-state' });
     // a match implementation without engine state (the platform stub) is NOT gated: it has no round to re-enter
     assert.deepEqual(checkRecord({ ...rich, state: null, loneHuman: false, phase: 'INFO_CHECK' }, opts), { ok: true });
-    // and applyRecord never half-enters a refused point
+    // and applyRecord never half-enters a refused point (a COMBAT record is no longer one of them — the REWIND section
+    // below covers what it does instead)
     const b = rebuild(rich);
-    assert.equal(applyRecord(b.m, { ...rich, phase: PHASE.COMBAT }), 0);
+    assert.equal(applyRecord(b.m, { ...rich, phase: PHASE.SP_DRAFT }), 0);
     assert.equal(b.m.phase, 'INFO_CHECK', 'the match was left untouched');
     assert.equal(b.m.round, 0);
     assert.equal(applyRecord(b.m, { ...rich, version: 1 }), 0, 'nor does a v1 record get to re-enter a round');
@@ -531,9 +535,10 @@ test('a v1 record is refused (never read as v2) and an unreadable point is refus
 });
 
 /**
- * One refused phase, one case: the reason, and the proof that nothing was half-entered. P2a-b widened the gate to PREP;
- * these three are the phases that MUST stay refused, because a battle in flight, a draft in progress and the final
- * assault are not persisted anywhere in a record.
+ * One refused phase, one case: the reason, and the proof that nothing was half-entered. P2a-b widened the gate to PREP
+ * and P2b added the REWIND for the phases whose prep is complete; these are the points that MUST stay refused, because
+ * the round's own 机变 draft (SP_DRAFT / BAND_DRAFT) and the briefing's ready check (INFO_CHECK) are AHEAD of the prep —
+ * rewinding one of those would skip a card the player never drew, or a briefing they never saw.
  * @param {string} phase @param {string} why @param {object} [over]
  */
 function refusesPhase(phase, why, over = {}) {
@@ -550,17 +555,87 @@ function refusesPhase(phase, why, over = {}) {
   } finally { h.m.dispose(); b.m.dispose(); }
 }
 
-test('a COMBAT record is still refused: a battle in flight is not persisted', () => {
-  refusesPhase(PHASE.COMBAT, 'mid-combat resume stays refused (the battle would be invented, not restored)');
-});
-
-test('an SP_DRAFT record is still refused: a draft in progress is not persisted', () => {
+test('an SP_DRAFT record is still refused: the round\'s 机变 draft is ahead of the prep', () => {
   refusesPhase(PHASE.SP_DRAFT, 'mid-draft resume stays refused (the cards and the picked order are not in the record)');
 });
 
-test('a FINAL_ASSAULT record is still refused: the final assault is not persisted', () => {
-  // at the boss round, where the final assault really happens: a state whose team LP / boss pool are not recorded
-  refusesPhase(PHASE.FINAL_ASSAULT, 'the final assault stays refused', { round: 14 });
+test('a BAND_DRAFT record is still refused: the co-op band draft is ahead of the prep too', () => {
+  refusesPhase(PHASE.BAND_DRAFT, 'a record written during the band draft stays refused');
+});
+
+test('an INFO_CHECK record is still refused: the briefing is ahead of the prep', () => {
+  refusesPhase(PHASE.INFO_CHECK, 'a record written during the briefing stays refused');
+});
+
+// ---------------------------------------------------------------------------------------------------
+// P2b: the REWIND — a record written while the round was being FOUGHT goes back to that round's prep
+// ---------------------------------------------------------------------------------------------------
+
+/**
+ * One rewound phase, one case: the plan, the gate, and — the part that matters — the rebuilt match actually landing in
+ * the SAME round's PREP with the recorded wave and the recorded seats, ready to be bought and fought again.
+ * @param {string} phase @param {string} why @param {object} [over]
+ */
+function rewindsPhase(phase, why, over = {}) {
+  const { h, rich } = sourceRun();
+  const rec = { ...rich, phase, ...over };
+  const b = rebuild(rich);
+  try {
+    assert.deepEqual(resumePlan(rec), { ok: true, round: rec.round, payloadFirst: false, intoPrep: false, rewound: true }, why);
+    assert.deepEqual(checkRecord(rec, { now: NOW, ttlMs: RESUME_TTL_MS }), { ok: true }, why);
+    assert.equal(applyRecord(b.m, rec), 2, 'both seats are restored');
+    // the round start arms a 1.5 s presentation deadline; afterRoundStart({ rewind }) then re-opens the prep
+    b.run(() => b.m.phase === PHASE.PREP);
+    assert.equal(b.m.phase, PHASE.PREP, `${why}: back in the prep`);
+    assert.equal(b.m.round, rec.round, 'the SAME round, not the next one');
+    assert.deepEqual(b.m.wave, rec.state.wave, 'and the recorded wave: the round is refought against the enemies it had');
+    for (const p of rec.players) {
+      assert.equal(seatDigest(b.m.players.get(p.playerId)), canon(p.props), `${p.playerId}: the recorded seat is back`);
+    }
+    assert.equal(runDigest(b.m), canon(rec.state), 'and so are the streams, the pool and the counters');
+    b.invariants();
+  } finally { h.m.dispose(); b.m.dispose(); }
+}
+
+test('P2b: a COMBAT record is REWOUND to its round\'s prep — the round is refought, never invented', () => {
+  rewindsPhase(PHASE.COMBAT, 'mid-combat is the case that was hit in production (2026-10-07: 480 records refused)');
+});
+
+test('P2b: an UNITE record (co-op 联防) is rewound the same way', () => {
+  rewindsPhase(PHASE.UNITE, 'the 联防 phase is past this round\'s prep too');
+});
+
+test('P2b: a FINAL_ASSAULT record at the boss round is rewound to that round\'s prep', () => {
+  rewindsPhase(PHASE.FINAL_ASSAULT, 'the visible final assault is refought from its prep', { round: 14 });
+});
+
+test('P2b: the rewound prep is USABLE — `ready` is cleared AFTER the payload, so the players buy and ready again', () => {
+  // The real shape: a mid-battle record has everyone readied (that is what started the fight) and the payload carries
+  // it. A prep where every seat is `ready` and no battle runs is a dead end — `Ready` is a no-op once set, and nothing
+  // re-checks it — so the rewind clears it again AFTER the payload (the clear `enterPrep` did is overwritten by the
+  // restore). Everything else must come back untouched.
+  const { h, rich } = sourceRun();
+  const readied = {
+    ...rich,
+    phase: PHASE.COMBAT,
+    players: rich.players.map((p) => ({ ...p, props: { ...p.props, ready: true } })),
+  };
+  const b = rebuild(readied);
+  try {
+    assert.equal(applyRecord(b.m, readied), 2);
+    b.run(() => b.m.phase === PHASE.PREP);
+    assert.equal(b.m.phase, PHASE.PREP);
+    for (const p of readied.players) {
+      if (p.isBot) continue;
+      assert.equal(b.m.players.get(p.playerId).ready, false, `${p.playerId}: must be able to ready again after the rewind`);
+    }
+    const restored = captureProps(b.m.players.get('p_0'));
+    assert.deepEqual(restored, { ...readied.players.find((p) => p.playerId === 'p_0').props, ready: false },
+      'only `ready` differs from the payload');
+    assert.equal(b.m.round, readied.round);
+    assert.deepEqual(b.m.wave, readied.state.wave);
+    b.invariants();
+  } finally { h.m.dispose(); b.m.dispose(); }
 });
 
 test('the lobby resume path is unchanged for a record without engine state (no resumeAt on the stub)', () => {

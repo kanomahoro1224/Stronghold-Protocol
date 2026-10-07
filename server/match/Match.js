@@ -501,12 +501,15 @@ export class Match {
    * NOT a replay: the outcome of the rounds the dead process already ran is not reproduced — the payload IS that
    * outcome. See server/state/snapshot.js and server/state/playerstate.js for exactly what is restorable.
    * @param {number} round 1-based round index
-   * @param {{ playerStart?: boolean, drawWave?: boolean, wave?: any, bossWaves?: any, intoPrep?: boolean }} [opts]
+   * @param {{ playerStart?: boolean, drawWave?: boolean, wave?: any, bossWaves?: any, intoPrep?: boolean,
+   *          rewind?: boolean }} [opts]
    *   `intoPrep` (a PREP record): the recorded phase is the OPEN prep, so the round start must neither replay this
    *   round's 机变 draft (a second card) nor re-run the prep entry (a cleared `ready`, a second `onPrepStart`).
+   *   `rewind` (a COMBAT / UNITE / FINAL_ASSAULT record, P2b): the round was already fought, so the draft is skipped
+   *   the same way, but the prep entry RUNS — the round is refought from the same prep (see `afterRoundStart`).
    * @returns {boolean} false when the match is already over (or round is unusable)
    */
-  resumeAt(round, { playerStart = true, drawWave = true, wave = undefined, bossWaves = undefined, intoPrep = false } = {}) {
+  resumeAt(round, { playerStart = true, drawWave = true, wave = undefined, bossWaves = undefined, intoPrep = false, rewind = false } = {}) {
     if (this.disposed || this.ended) return false;
     const r = Number.isInteger(round) && round > 0 ? Math.min(round, this.gd.lastRound) : 1;
     this.cancel(this._phaseTimer);
@@ -522,7 +525,7 @@ export class Match {
       this.wave = wave === undefined ? null : wave;
       this.bossWaves = bossWaves === undefined ? null : bossWaves;
     }
-    this.startRound(r, { playerStart, drawWave, intoPrep });
+    this.startRound(r, { playerStart, drawWave, intoPrep, rewind });
     return true;
   }
 
@@ -1883,13 +1886,14 @@ export class Match {
 
   /**
    * Begin round `r`.
-   * @param {number} r @param {{ playerStart?: boolean, drawWave?: boolean, intoPrep?: boolean }} [opts] resume options (see `resumeAt`):
+   * @param {number} r @param {{ playerStart?: boolean, drawWave?: boolean, intoPrep?: boolean, rewind?: boolean }} [opts] resume options (see `resumeAt`):
    *   `playerStart:false` keeps `PlayerState.startRound` (income / upgrade price / shop roll) from running a second
    *   time on top of a payload that already contains it; `drawWave:false` keeps `this.wave` / `this.bossWaves` the
    *   caller restored from the record instead of drawing the round's enemies; `intoPrep:true` sends the round start
-   *   straight to the prep (a record written inside the prep is past the draft and past the prep entry).
+   *   straight to the prep (a record written inside the prep is past the draft and past the prep entry); `rewind:true`
+   *   does the same for the draft but RE-OPENS the prep (a record written mid-battle, see `afterRoundStart`).
    */
-  startRound(r, { playerStart = true, drawWave = true, intoPrep = false } = {}) {
+  startRound(r, { playerStart = true, drawWave = true, intoPrep = false, rewind = false } = {}) {
     this.phase = PHASE.ROUND_START;
     this.round = r;
     this.fields = [];
@@ -1921,7 +1925,7 @@ export class Match {
       try { this.dispatcher.dispatchEliminated(ps, 'onRoundStart', { round: r }); } catch (e) { this.reportError('dispatch onRoundStart (eliminated)', e); }
     }
     for (const ps of alive) ps.recompute();
-    this.setDeadline(DELAYS.ROUND_START / 1000, () => this.afterRoundStart({ intoPrep }), { silent: this.soloUntimed });
+    this.setDeadline(DELAYS.ROUND_START / 1000, () => this.afterRoundStart({ intoPrep, rewind }), { silent: this.soloUntimed });
     this.markPublic();
     // match-state persistence (P0/P1): the round boundary is the first of the three points a resume can re-enter
     // (round start, the open prep the heartbeat writes, settle — server/state/resume.js `resumePlan`), and it starts the
@@ -1946,7 +1950,14 @@ export class Match {
    *   already past this round's draft and inside its prep, so neither the draft nor the prep entry may run again — a
    *   replayed draft would hand the player a second 机变 card for a round they already drafted.
    */
-  afterRoundStart({ intoPrep = false } = {}) {
+  afterRoundStart({ intoPrep = false, rewind = false } = {}) {
+    // P2b REWIND (server/state/resume.js `resumePlan`): the recorded round was already FOUGHT once, so it is past this
+    // round's 机变 draft — the draft must not run again (a second card for a round that already handed one out) — but
+    // the prep is RE-OPENED for real: `ready` is cleared, the prep grants and the bots' prep run against the restored
+    // state, and the deadline is re-armed, so the players buy and deploy again and the round is refought. The payload
+    // is applied right after this (applyRecord), so anything the re-entry derived is overwritten by the record.
+    // `rewind` and `intoPrep` are mutually exclusive: `intoPrep` stays INSIDE a prep a record was written in.
+    if (rewind) { this.enterPrep({ replay: true }); return; }
     if (!intoPrep && this.gd.spRounds().includes(this.round)) this.enterSpDraft();
     else this.enterPrep({ replay: !intoPrep });
   }

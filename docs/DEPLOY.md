@@ -306,3 +306,27 @@ systemctl list-timers 'sp-deploy*' --all        # 确认已武装
 
 **掉线宽限**：掉线后**不再立刻** AI 接管 —— 先等 `DROP_TAKEOVER_MS`（`shared/constants.js`，默认 60 000 = 1 分钟）的重连窗口，窗口内回来座位还是你的；窗口过后引擎才接管（`Match.takeOverNow(playerId)` 可手动立即接管）。独立模拟本来就不代打，会一直等玩家。
 
+## 8. 关掉会自动重启服务的自动升级（务必做一次）
+
+如果主机开着 Ubuntu 的 `unattended-upgrades` 又装了 `needrestart`，它会在**自己的时间表**上升级系统库，然后**自动重启所有受影响的服务** —— 包括游戏服。2026-10-07 线上就这样被打断过两次（06:43:51 / 06:45:36 UTC = 北京 14:43 / 14:45 高峰）：`apt-daily-upgrade.timer` 在 06:37 升级了 openssh / man-db / gnupg / ufw / libnghttp2，`needrestart` 随后把 `stronghold` 连同 `cron` / `nginx` / `systemd-journald` / `snapd` 一起重启了。**那不是崩溃**（`Result=success`、`NRestarts=0`、内核无 OOM、日志是 `disposed (shutdown)` 优雅退出、内存峰值仅 462 MB），但那一批正在打的对局当场就没了。
+
+```bash
+# 1) 两个周期升级单元：停、禁、mask（mask 能顶住软件包升级时被重新启用）
+systemctl disable --now apt-daily.timer apt-daily-upgrade.timer
+systemctl mask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service
+# 2) 周期开关也关掉（双保险；先备份这个文件）
+sed -i 's/"1"/"0"/g' /etc/apt/apt.conf.d/20auto-upgrades
+# 3) needrestart 只列不重启，而且永不碰游戏服
+mkdir -p /etc/needrestart/conf.d
+cat > /etc/needrestart/conf.d/99-no-auto-restart.conf <<'EOF'
+$nrconf{restart} = 'l';
+$nrconf{override_rc}{qr(^stronghold\.service$)} = 0;
+EOF
+# 4) 关掉那个等关机信号再装更新的 helper
+systemctl disable --now unattended-upgrades.service
+```
+
+核对（四条都要对）：`systemctl is-enabled apt-daily.timer apt-daily-upgrade.timer` → `masked`；`systemctl start apt-daily-upgrade.service` → `Unit ... is masked`；`grep Periodic /etc/apt/apt.conf.d/20auto-upgrades` → 全是 `"0"`；`NEEDRESTART_MODE=l needrestart -b` → 只打印列表、且**不含** `stronghold.service`。
+
+安全更新改为**低峰手动**：`apt-get update && apt-get -y upgrade`，然后**由你决定**重启哪些服务 —— `systemctl restart stronghold` 会中断进行中对局，所以先按 §7 发一条维护横幅预告。
+

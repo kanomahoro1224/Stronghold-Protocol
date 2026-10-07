@@ -56,11 +56,20 @@ const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
  *                   itself does next (`afterSettle` → `startRound(r + 1)`): the payload is applied first, then the next
  *                   round start runs normally (income, upgrade price, a fresh shop, a freshly drawn wave).
  *
+ * A record written while the round was being FOUGHT is neither re-entered where it was nor refused: it is REWOUND to
+ * the same round's prep (P2b — the operator's rule of 2026-10-07: 「假如第9回合购买阶段过开打，重启之后回到购买阶段」).
+ * COMBAT, UNITE (联防) and FINAL_ASSAULT are all past this round's 机变 draft and the prep is the last point the record
+ * describes, so replaying it is faithful by exactly the measurement the PREP case rests on — the payload already holds
+ * the income, the rolled shop, the board and the recorded wave. What a battle in flight would add (the outcome the
+ * browsers computed) is not guessed at, it is recomputed when the round is fought again; nothing of the abandoned
+ * battle was ever applied to the seats, because leak damage and rewards land in `settle()`.
+ *
  * Everything else is REFUSED, by design and not by omission:
  *   * `final` — the Hidden Core chapter is entered from the VISIBLE final assault's live outcome (team LP, the shared
  *     boss pool, the hidden layer sum), none of which a record holds (P2a refuses the final assault);
- *   * `phase` — COMBAT / UNITE / SP_DRAFT / BAND_DRAFT / FINAL_ASSAULT / INFO_CHECK: a battle in flight, a draft in
- *     progress or a final assault is not persisted anywhere in the record, so re-entering it would invent one;
+ *   * `phase` — SP_DRAFT / BAND_DRAFT / INFO_CHECK: the round's own draft is still AHEAD of the record, so rewinding it
+ *     to the prep would skip a 机变 card the player never drew (or the briefing's ready check) — the record describes a
+ *     point before the prep, and the honest answer there is still "this one cannot be re-entered";
  *   * `no-state` — a record of a match implementation that exposes no engine state (the platform stub): there is no
  *     round to re-enter, and reading it as one would be a guess. `checkRecord` deliberately does NOT gate those (their
  *     records have no `state`), so the platform's own resume path keeps working unchanged.
@@ -73,7 +82,8 @@ const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
  * test/state/lobby-resume.test.js, which does it end to end through `claim` + `rehydrate`.
  *
  * @param {any} record
- * @returns {{ ok: true, round: number, payloadFirst: boolean, intoPrep: boolean } | { ok: false, reason: string }}
+ * @returns {{ ok: true, round: number, payloadFirst: boolean, intoPrep: boolean, rewound?: boolean }
+ *           | { ok: false, reason: string }}
  */
 export function resumePlan(record) {
   if (!record || typeof record !== 'object') return { ok: false, reason: 'missing' };
@@ -102,6 +112,15 @@ export function resumePlan(record) {
     };
   }
   if (record.phase === PHASE.SETTLE) return { ok: true, round: (Number.isInteger(record.round) ? record.round : 0) + 1, payloadFirst: true, intoPrep: false };
+  // P2b: the round was being FOUGHT when the record was written. The battle is not in the record and is not invented —
+  // the match is rewound to the SAME round's prep, where the payload is the truth: the players buy and deploy again and
+  // the round is refought. `rewound` tells `Match` to skip this round's 机变 draft (it is already past it) while
+  // RE-OPENING the prep for real (`ready` cleared, the deadline re-armed), unlike `intoPrep`, which stays inside the
+  // prep a record was written in. COMBAT / UNITE / FINAL_ASSAULT are the phases whose prep is complete; a record still
+  // inside the draft or the briefing keeps its refusal below.
+  if (REWINDABLE_PHASES.has(record.phase)) {
+    return { ok: true, round: Number.isInteger(record.round) ? record.round : 1, payloadFirst: false, intoPrep: false, rewound: true };
+  }
   return { ok: false, reason: 'phase' };
 }
 
@@ -111,6 +130,12 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 /** Record keys: `match:<ROOM CODE>` (the prefix `loadResumable` scans). */
 export const KEY_PREFIX = 'match:';
 export const matchKey = (code) => `${KEY_PREFIX}${String(code)}`;
+
+/**
+ * The phases a record may be REWOUND from (P2b): the round was already fought, so its prep is complete and re-opening it
+ * costs the player one battle, never a 机变 card or a briefing. See `resumePlan`.
+ */
+export const REWINDABLE_PHASES = new Set([PHASE.COMBAT, PHASE.UNITE, PHASE.FINAL_ASSAULT]);
 
 /**
  * The state directory as the scan report may disclose it: its last path segment plus a short hash of the full path. The
@@ -421,9 +446,20 @@ export function applyRecord(match, record) {
         wave: record.state.wave,
         bossWaves: record.state.bossWaves,
         intoPrep: plan.intoPrep,
+        // P2b: a rewound record (written mid-battle) re-opens the SAME round's prep instead of staying in it
+        rewind: plan.rewound === true,
       });
     }
     applied = applyPlayers(match, record);
+    // P2b: a REWOUND record was written mid-battle, so its payload carries `ready: true` — everyone had readied, that is
+    // what started the fight. The re-opened prep just cleared it (enterPrep's replay), and the payload would put it
+    // straight back: a prep where every seat is ready and no battle runs is a dead end (`Ready` is a no-op once set),
+    // so the humans are cleared AGAIN here, after the payload. Bots are left alone — `enterPrep` scheduled their prep
+    // job, which re-plans from the restored state, and an already-ready bot simply waits for the humans.
+    if (plan.rewound) {
+      for (const ps of match.players?.values?.() ?? []) if (!ps.isBot && !ps.left) ps.ready = false;
+      match.markPublic?.();
+    }
     if (hasRunState && typeof match.restoreRunState === 'function') match.restoreRunState(record.state);
   }
   return applied;
@@ -628,9 +664,9 @@ export class StateBridge {
    * Delete the records that can NEVER become resumable again. Only those: `version`, `shape`, `ended`, `no-human`,
    * `key-mismatch`, `expired` are terminal, but `phase`, `build` and `rules` are not.
    *
-   *   * `phase` (COMBAT / SP_DRAFT / INFO_CHECK / UNITE / FINAL_ASSAULT) is the ONLY record a mid-combat room has —
-   *     `noteRoom` refuses to write while a match runs — so purging it threw away the last trace of a live match AND
-   *     the P2 lobby around it (host, seats, spectators): the returning players got a brand-new room.
+   *   * `phase` (SP_DRAFT / BAND_DRAFT / INFO_CHECK — the points left after P2b's rewind) is the ONLY record a
+   *     mid-draft room has — `noteRoom` refuses to write while a match runs — so purging it threw away the last trace of
+   *     a live match AND the P2 lobby around it (host, seats, spectators): the returning players got a brand-new room.
    *   * `build` / `rules` are undone by rolling the deploy back, and a rolled-back process can use them again.
    *
    * A kept record costs one refused verdict per boot and ages out through its own TTL, which is cheaper than the
