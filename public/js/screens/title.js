@@ -20,6 +20,8 @@ import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual } from '../store.js';
 import { data, useData } from '../data.js';
 import { FullscreenButton, detectFeatures } from '../ui/device.js';
+import { GIcon } from '../ui/gameComponents.js';
+import { SettingsModal } from '../ui/settings.js';
 
 // Same character classes as server/net.js sanitizeName (control, zero-width, bidi, BOM), so a name
 // the client accepts is never rejected by the server's hello validation.
@@ -187,6 +189,7 @@ export function TitleScreen() {
   const conn = useStore((s) => s.connection, shallowEqual);
   const pendingJoin = useStore((s) => s.ui.pendingJoin);
   const [name, setName] = useState(() => store.get().me.name || identity.loadName() || '');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const assetsSettled = useData('assets');
   const assets = data.get('assets');
   const backdrop = findUiAsset(assets, BACKDROP_KEYS);
@@ -269,6 +272,8 @@ export function TitleScreen() {
           <span class="title-conn__actions">
             <${GuideButton} class="title-guide" />
             <${NoticeButton} class="title-notice" />
+            <button type="button" class="title-settings fsbtn tapx" aria-label="设置" title="设置"
+              onClick=${() => setSettingsOpen(true)}><${GIcon} name="gear" /></button>
             <${FullscreenButton} class="title-fs" />
           </span>
         </div>
@@ -276,6 +281,7 @@ export function TitleScreen() {
     </main>
 
     <div class="title-preload"><${ResourceLauncher} enabled=${settings.preload} onChange=${(v) => updateSettings({ preload: v })} /></div>
+    <${SettingsModal} open=${settingsOpen} onClose=${() => setSettingsOpen(false)} />
 
     <footer class="title-foot">
       <div class="title-foot__legal">
