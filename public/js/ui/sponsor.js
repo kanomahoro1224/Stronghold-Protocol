@@ -13,8 +13,9 @@ import { html } from './components.js';
 
 /** The QR image (public/img/sponsor-qr.png — a committed file, not an asset-tree entry). */
 export const SPONSOR_QR = '/img/sponsor-qr.png';
-/** One line under the QR, in the operator's own words (the image itself already carries 鹿可 的赞赏码 / 推荐使用支付宝). */
-export const SPONSOR_HINT = '本服务器不要求赞助　扫码纯属自愿　非常感谢使用我们的 app！';
+/** One line under the QR, in the operator's own words (the image itself already carries 鹿可 的赞赏码 / 推荐使用支付宝,
+ *  and its own 「非常感谢使用我们的 app!」 line, so the operator had that sentence taken out of this hint on 2026-10-07). */
+export const SPONSOR_HINT = '本服务器不要求赞助　扫码纯属自愿';
 
 /**
  * The sponsorship block: the QR plus that line, sized by its container (the notice dialog's right column).

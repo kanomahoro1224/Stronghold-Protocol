@@ -32,6 +32,8 @@ describe('赞助: the QR in the 公告 panel', () => {
     assert.equal(hint.props.class, 'sponsor__hint');
     assert.equal(hint.props.children, SPONSOR_HINT);
     assert.match(SPONSOR_HINT, /本服务器不要求赞助/);
+    // the image already prints 「非常感谢使用我们的 app!」: the operator had the duplicate taken out of the hint
+    assert.ok(!SPONSOR_HINT.includes('感谢'), 'the duplicated thank-you line stays gone from the hint');
     assert.ok(!/fetch\(|createStore/.test(read('public/js/ui/sponsor.js')), 'nothing to fetch, nothing to remember');
   });
 
