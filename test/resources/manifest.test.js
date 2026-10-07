@@ -10,7 +10,10 @@ import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 
-import { createStaticHandler, rewriteAssetPaths } from '../../server/index.js';
+// The asset-URL rewriter moved out of the server entry point in the 0.2.0 split (server/http/static.js imports it from
+// shared/cdn.js): the test pinned `server/index.js` as the module that re-exports it.
+import { createStaticHandler } from '../../server/index.js';
+import { rewriteAssetPaths } from '../../shared/cdn.js';
 import {
   RESOURCE_MANIFEST_FILE, RESOURCES_FORMAT, TIER_ESSENTIAL, TIER_REST, buildResourceManifest, collectResourceFiles,
   createResourceIndex, isResourcePath, localPathFor, resourceType, tierForPath, validateResourceUrl,

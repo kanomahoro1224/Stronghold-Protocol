@@ -24,8 +24,10 @@ import path from 'node:path';
 import { MEDIA_PREFIX } from '../../shared/media.js';
 import { ROOT, noopLog } from './config.js';
 import { sendError, sendJson } from './common.js';
-import { MIME, GzipCache, isNotModified, serveFile } from './files.js';
+import { MIME, GzipCache, acceptsGzip, isNotModified, serveFile } from './files.js';
 import { serveMedia } from './media.js';
+import { createResourceIndex, RESOURCE_MANIFEST_FILE } from '../resources.js';
+import { rewriteAssetPaths } from '../../shared/cdn.js';
 import { createPackRegistry } from '../packs.js';
 import { PACKS_URL, PACK_INDEX_FILE } from '../../shared/packs.js';
 
@@ -55,8 +57,14 @@ const EMPTY_LOCAL_ART = Buffer.from(JSON.stringify({ version: 1, source: 'none',
  *   packs: the server's pack registry (default: one over publicDir, dataDir and packsDir — ROOT/packs)
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, rawPath: string, query: string) => Promise<void>}
  */
-export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), packsDir = path.join(ROOT, 'packs'), packs = null, log = noopLog }) {
+export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), packsDir = path.join(ROOT, 'packs'), packs = null, log = noopLog, cdnBase = '' }) {
   const registry = packs || createPackRegistry({ publicDir, dataDir, packsDir }, { log: /** @type {any} */ (log) });
+  // The asset-preload manifest (docs/ASSETS.md「Preload」, server/resources.js): generated from the two data manifests
+  // on first request and cached until one of them changes. It has no file on disk, so it is served here, before the
+  // /data/ mount below would look for one. `cdnBase` (the fork's SP_ASSETS_CDN hook; the server passes nothing today,
+  // so the entries stay origin-relative and the client's assetOrigin.js does the rewriting) is honoured when given.
+  const cdn = typeof cdnBase === 'string' ? cdnBase : '';
+  const resources = createResourceIndex({ dataDir, publicDir, cdnBase: cdn, rewrite: (v) => (cdn ? rewriteAssetPaths(v, cdn) : v), log });
   const mounts = [
     { prefix: '/data/', name: 'data', dir: path.resolve(dataDir) },
     { prefix: '/shared/', name: 'shared', dir: path.resolve(sharedDir) },
@@ -73,6 +81,35 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
     try { decoded = decodeURIComponent(rawPath); } catch { sendError(req, res, 400, '请求地址无效 · Bad request'); return; }
     if (!decoded.startsWith('/') || decoded.includes('\0') || decoded.includes('\\')) {
       sendError(req, res, 400, '请求地址无效 · Bad request');
+      return;
+    }
+    // The offline-resource manifest the preload fetches (docs/ASSETS.md「Preload」). Generated, never read from disk,
+    // gzipped when the client accepts it and revalidated by ETag/Last-Modified like the other generated payloads.
+    if (decoded.toLowerCase() === `/data/${RESOURCE_MANIFEST_FILE}`) {
+      let idx;
+      try {
+        idx = await resources.get();
+      } catch (e) {
+        log.error('[http] cannot build the resource manifest', e);
+        sendError(req, res, 500, '服务器内部错误 · Internal error');
+        return;
+      }
+      const gz = acceptsGzip(req.headers['accept-encoding']) ? idx.gzip : null;
+      const body = gz || idx.body;
+      const mtime = new Date(idx.mtimeMs);
+      const etag = gz ? `${idx.etag.slice(0, -1)}-gz"` : idx.etag;
+      const headers = {
+        'Content-Type': MIME['.json'],
+        'Cache-Control': 'no-cache',
+        ETag: etag,
+        'Last-Modified': mtime.toUTCString(),
+        Vary: 'Accept-Encoding',
+      };
+      if (gz) headers['Content-Encoding'] = 'gzip';
+      if (isNotModified(req, etag, mtime)) { res.writeHead(304, headers); res.end(); return; }
+      headers['Content-Length'] = body.length;
+      res.writeHead(200, headers);
+      res.end(req.method === 'HEAD' ? undefined : body);
       return;
     }
     if (decoded === '/data.js') {

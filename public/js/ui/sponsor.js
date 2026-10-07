@@ -10,12 +10,13 @@
 // Nothing here fetches or stores anything, and there is no trigger button of its own: the only way in is 公告.
 
 import { html } from './components.js';
+import { t, N_ } from '../../../shared/i18n.js';
 
 /** The QR image (public/img/sponsor-qr.png — a committed file, not an asset-tree entry). */
 export const SPONSOR_QR = '/img/sponsor-qr.png';
 /** One line under the QR, in the operator's own words (the image itself already carries 鹿可 的赞赏码 / 推荐使用支付宝,
  *  and its own 「非常感谢使用我们的 app!」 line, so the operator had that sentence taken out of this hint on 2026-10-07). */
-export const SPONSOR_HINT = '本服务器不要求赞助　扫码纯属自愿';
+export const SPONSOR_HINT = N_('本服务器不要求赞助　扫码纯属自愿');
 
 /**
  * The sponsorship block: the QR plus that line, sized by its container (the notice dialog's right column).
@@ -23,7 +24,7 @@ export const SPONSOR_HINT = '本服务器不要求赞助　扫码纯属自愿';
  */
 export function SponsorQr() {
   return html`<div class="sponsor">
-    <img class="sponsor__qr" src=${SPONSOR_QR} alt="赞助码（支付宝）" width="1143" height="685" decoding="async" />
-    <p class="sponsor__hint">${SPONSOR_HINT}</p>
+    <img class="sponsor__qr" src=${SPONSOR_QR} alt=${t('赞助码（支付宝）')} width="1143" height="685" decoding="async" />
+    <p class="sponsor__hint">${t(SPONSOR_HINT)}</p>
   </div>`;
 }

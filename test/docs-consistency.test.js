@@ -903,7 +903,7 @@ test('同盟匹配 / 搜寻队友 (DESIGN §26): the protocol lists, the pool ru
   // The client sends exactly those two intents, and the third mode card exists.
   const screen = doc('public/js/screens/lobby.js');
   for (const t of ['queue.join', 'queue.leave']) assert.match(screen, new RegExp(`net\\.request\\('${t.replace('.', '\\.')}'`));
-  assert.match(screen, /id: 'match', name: '同盟匹配'/);
+  assert.match(screen, /id: 'match', name: N_\('同盟匹配'\)/);
   assert.match(doc('public/js/main.js'), /net\.on\('queue\.state'/);
   assert.match(doc('public/css/screens/lobby.css'), /repeat\(3, minmax\(0, 1fr\)\)/);
   // CHANGELOG tells players about it (the release-version test reads its first entry).

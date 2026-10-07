@@ -7,7 +7,7 @@ Part of [DESIGN.md](../DESIGN.md) (the index; section numbers are global).
 A faithful, polished, **online co-op** browser remake of Arknights' seasonal auto-chess TD mode 「卫戍协议：盟约」(下半, `act2autochess`).
 
 In scope:
-- Title → lobby (nickname, create room / join by 4-letter code or `?room=CODE` link, host picks difficulty, up to 4 players, **AI teammates** can fill seats, ready/start). Solo (独立模拟) and co-op (同盟模拟, 1–4 humans + optional AI).
+- Title → lobby (nickname, create room / join by 4-letter code or `?room=CODE` link, host picks difficulty, up to 4 players, **AI teammates** can fill seats, ready/start, **搜寻队友 matchmaking** — §26). Solo (独立模拟) and co-op (同盟模拟, 1–4 humans + optional AI).
 - Difficulties: 标准 FUNNY, 险境 NORMAL, 绝境 HARD, 终极 ABYSS (solo and multi variants from `modeDataDict`). Training/tutorial mode is out of scope.
 - Pre-game: INFO_CHECK briefing (disabled bonds, banned operators, enemy factions, stage) → BAND_CHECK strategy draft (40 bands, random order, 1 skip in co-op) → BATTLE_CHECK.
 - Rounds 1–14 (+ hidden 15): prep (shop, hand, board, items, freeze, refresh, level-up, sell, merge + reward pick, ready), 机变 draft rounds, simultaneous auto-combat on each player's own field, 联防 unite phase, LP loss/elimination, Final Assault boss round with merged LP and shared boss HP pool, Hidden Core, settlement with titles.
@@ -15,7 +15,7 @@ In scope:
 - Rendering with the real Spine battle chibis (PixiJS 7 + pixi-spine 4), procedural tiles, VFX, damage numbers, real BGM/SFX, emotes, broadcast ticker.
 - Reconnect, AI take-over of disconnected players, robust validation of every client intent.
 
-Out of scope v1: matchmaking queue, training/tutorial, DIY (甄选) slots (the 4 DIY chess are removed from the shared pool — 0.2.0 plays them as 自选编队: the picks of the 干员调配 overlay's 自选编队 tab, each sold only in its player's shop; DATA.md §18, shared/diy.js, server/match/player/diy.js), trophies/progression persistence, reporting.
+Out of scope v1: training/tutorial, DIY (甄选) slots (the 4 DIY chess are removed from the shared pool — 0.2.0 plays them as 自选编队: the picks of the 干员调配 overlay's 自选编队 tab, each sold only in its player's shop; DATA.md §18, shared/diy.js, server/match/player/diy.js), trophies/progression persistence, reporting. (The matchmaking queue was on this list; the owner asked for it after 0.1.1 — §26. 精确搜寻, which matches by trophy level, stays out with the trophies.)
 
 ---
 

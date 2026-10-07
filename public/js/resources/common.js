@@ -4,6 +4,8 @@
 // this module. It owns the manifest shape, the URL/MIME rules and byte formatting — the same rules the server applies
 // when it generates /data/resource-manifest.json (server/resources.js).
 
+import { N_ } from '../../../shared/i18n.js';
+
 /** Cache Storage names this app owns. One cache holds every version: entries are replaced per file (by hash), so an
  * asset update re-downloads the changed files only (docs/ASSETS.md「Preload」). */
 export const CACHE_PREFIX = 'stronghold-resources-v1-';
@@ -27,6 +29,36 @@ export const TIER_ESSENTIAL = 1;
 export const TIER_REST = 2;
 export const MANIFEST_URL = '/data/resource-manifest.json';
 export const SW_URL = '/resource-sw.js';
+
+/**
+ * The categories the resource manager lists, by the path of a file (`resourceGroup`). The names are msgids: the panel
+ * shows `t(group.name)`. The *tier* of a category is not declared here — it is whichever tier the current server
+ * manifest gives its files (`store.js #tally`), so a category follows the server when its tiering changes instead of
+ * contradicting the counters beside it.
+ */
+export const RESOURCE_GROUPS = Object.freeze({
+  map: { name: N_('地图与棋盘') },
+  character: { name: N_('干员与敌人图片') },
+  spine: { name: N_('Spine 模型与特效') },
+  ui: { name: N_('界面、图标与字体') },
+  voice: { name: N_('角色语音') },
+  sfx: { name: N_('音效') },
+  music: { name: N_('背景音乐') },
+  other: { name: N_('玩法说明与其他资源') },
+});
+
+/** The category of a manifest entry, from its path alone (see RESOURCE_GROUPS). */
+export function resourceGroup(file) {
+  const path = new URL(file.url, 'https://resources.invalid').pathname;
+  if (/\/voice\//.test(path)) return 'voice';
+  if (/\/sfx\//.test(path)) return 'sfx';
+  if (/\/bgm\//.test(path)) return 'music';
+  if (/\/spine\/|\.(?:skel|atlas)$/.test(path)) return 'spine';
+  if (/\/(?:map|maps|mesh|board)\/|\.obj$/.test(path)) return 'map';
+  if (/\/(?:char|chars|enemy|enemies|token|tokens|prof|portrait)/.test(path)) return 'character';
+  if (/\/guide\//.test(path)) return 'other';
+  return 'ui';
+}
 
 /** The extension-less audio route the game asks audio through (`shared/media.js`; a test keeps the two lists identical).
  * The manifest keeps the real `/assets/audio/….mp3` URLs — a plain static host (the CDN) cannot resolve `/media/…` — and
@@ -69,6 +101,10 @@ export function resourceType(url) {
  * extension-less audio route (answered from the stored `/assets/audio/…` entry — `mediaCandidates`). */
 export function isResourcePath(pathname) {
   const p = String(pathname || '');
+  // Bundler output lives under /build/assets/ too (tools/vendor.mjs + the build step): code and its HTTP caching must
+  // never enter this subsystem — an imported package must not be able to name a bundle as a cache destination, and the
+  // worker must never answer one from Cache Storage. Mirror of server/resources.js isResourcePath.
+  if (p.startsWith('/build/')) return false;
   return /\/(?:assets|fonts)\//.test(p) || p.startsWith(MEDIA_PREFIX);
 }
 

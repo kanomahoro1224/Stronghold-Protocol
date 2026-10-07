@@ -71,7 +71,10 @@ export function resourceType(url) {
 
 /** Whether a URL path is served from the asset trees the preload may cache. */
 export function isResourcePath(pathname) {
-  return /\/(?:assets|fonts)\//.test(String(pathname || ''));
+  const p = String(pathname || '');
+  // /build/ is bundler output, never a preloadable asset — the client's public/js/resources/common.js applies the same rule
+  if (p.startsWith('/build/')) return false;
+  return /\/(?:assets|fonts)\//.test(p);
 }
 
 /**
@@ -300,9 +303,9 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', rewrite 
       local: localDoc && localDoc.hash ? localDoc.hash : local ? `l${Math.floor(local.mtimeMs)}` : 'none',
     };
     const fileHashes = resolveHashes(files, real, stamps, cdnBase);
-    // The version is informational now (the client keys its cache per file), but it must still change whenever the set
-    // or any hash does — the settings panel and the /healthz-style diagnostics read it.
-    const version = shortHash([cdnBase, ...files.map((f) => `${f.url}|${fileHashes.get(f.url)}`)].join('\n'));
+    // The version is informational now (the client keys its cache per file), but it must still change whenever the set,
+    // any hash or any tier does — the settings panel and the /healthz-style diagnostics read it.
+    const version = shortHash([cdnBase, ...files.map((f) => `${f.url}|${fileHashes.get(f.url)}|${f.tier}`)].join('\n'));
     const manifest = buildResourceManifest({ files, sizes: await measure(files), version, hashes: fileHashes });
     const body = Buffer.from(JSON.stringify(manifest));
     // Hash the complete response (including tiers and sizes), so unchanged rebuilds/restarts keep their validator.

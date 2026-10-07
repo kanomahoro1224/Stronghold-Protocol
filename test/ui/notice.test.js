@@ -89,7 +89,7 @@ describe('公告: the title-screen entry beside 玩法说明', () => {
 
 describe('公告: the panel', () => {
   test('it is the shared Modal — Esc / backdrop / its own 关闭 button close it — mounted once by main.js', () => {
-    assert.match(NOTICE_SRC, /\$\{Modal\} open=\$\{open\} onClose=\$\{closeNotice\}/, 'the dialog closes through the shared Modal');    assert.match(NOTICE_SRC, /onClick=\$\{closeNotice\}>关闭/, 'and its own button says 关闭 (not 知道了)');
+    assert.match(NOTICE_SRC, /\$\{Modal\} open=\$\{open\} onClose=\$\{closeNotice\}/, 'the dialog closes through the shared Modal');    assert.match(NOTICE_SRC, /onClick=\$\{closeNotice\}>\$\{t\('关闭'\)\}/, 'and its own button says 关闭 (not 知道了)');
     assert.match(MAIN_SRC, /import \{ NoticeHost \} from '\.\/ui\/notice\.js';/);
     assert.match(MAIN_SRC, /<\$\{NoticeHost\} \/>/);
     assert.equal(typeof NoticeHost, 'function');
@@ -221,9 +221,9 @@ describe('公告: the sectioned layout (label row, then its lines)', () => {
 
   test('the panel title comes from the data and the confirm button says 关闭', () => {
     assert.match(NOTICE_SRC, /title=\$\{notice\.title\}/);
-    assert.match(NOTICE_SRC, /onClick=\$\{closeNotice\}>关闭<\//);
+    assert.match(NOTICE_SRC, /onClick=\$\{closeNotice\}>\$\{t\('关闭'\)\}<\//);
     assert.doesNotMatch(NOTICE_SRC, /知道了/);
-    assert.match(NOTICE_SRC, /<\$\{Button\} variant="primary" icon="check" onClick=\$\{closeNotice\}>关闭<\//);
+    assert.match(NOTICE_SRC, /<\$\{Button\} variant="primary" icon="check" onClick=\$\{closeNotice\}>\$\{t\('关闭'\)\}<\//);
     assert.match(NOTICE_SRC, /\$\{notice\.sections\.map\(\(section, i\) => noticeSectionNode\(section, i\)\)\}/);
   });
 

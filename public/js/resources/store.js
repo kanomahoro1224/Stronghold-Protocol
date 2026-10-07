@@ -12,9 +12,10 @@
 // browser needs (~250 MiB of art). Everything is injected (`caches`, `fetcher`) so this module is unit-testable.
 
 import {
-  CACHE_NAME, CACHE_PREFIX, CONTENT_HASH_RE, FILE_TIMEOUT_MS, MAX_FILE_BYTES, TIER_ESSENTIAL, TIER_REST,
-  absoluteUrl, abortError, checkAbort, indexUrl, isGoneError, isQuotaError,
+  CACHE_NAME, CACHE_PREFIX, CONTENT_HASH_RE, FILE_TIMEOUT_MS, MAX_FILE_BYTES, RESOURCE_GROUPS, TIER_ESSENTIAL,
+  TIER_REST, absoluteUrl, abortError, checkAbort, indexUrl, isGoneError, isQuotaError, resourceGroup,
 } from './common.js';
+import { t } from '../../../shared/i18n.js';
 
 /** Files above this are downloaded one at a time (a 20 MiB Spine texture should not race three others). */
 const BIG_FILE_BYTES = 4 << 20;
@@ -66,6 +67,52 @@ export class ResourceStore {
   /** Cache key (absolute URL) of a manifest entry. */
   keyOf(url) {
     return absoluteUrl(url, this.origin) || String(url);
+  }
+
+  /**
+   * Import already-verified bytes (a ZIP package, `archive.js`) into this cache: the files a caller hands over were
+   * checked against the CURRENT manifest's content hashes, and every one of them is re-checked here before it is
+   * written, so a package can never install a version the server no longer serves. Callers own the download lock.
+   * @param {{ url: string, tier: number, size?: number, hash?: string }[]} files
+   * @param {{ read?: (file: any) => Promise<Response>, signal?: AbortSignal, onProgress?: (p: any) => void }} [opts]
+   */
+  async importFiles(files, { read, signal, onProgress } = {}) {
+    checkAbort(signal);
+    if (this.running) throw new Error('请先暂停资源下载');
+    const cache = await this.caches.open(this.cacheName);
+    const index = await this.#readIndex(cache);
+    const before = await this.status();
+    const allowed = new Set(this.files);
+    let imported = 0;
+    let processed = 0;
+    // Build category counters only when the controller actually publishes a UI update.
+    const getStatus = () => this.#tally(before.present, this.#goneSet(before.present, index));
+    try {
+      for (const file of files) {
+        checkAbort(signal);
+        const key = this.keyOf(file.url);
+        if (!allowed.has(file) || !this.eligible(file) || !CONTENT_HASH_RE.test(file.hash || '')) {
+          throw new Error('资源缺少可校验的当前指纹');
+        }
+        const existing = before.present.has(key) ? await cache.match(key) : null;
+        if (!existing || await digestOf(existing) !== file.hash) {
+          const response = await read(file);
+          if (await digestOf(response) !== file.hash) throw new Error(`资源校验失败：${file.url}`);
+          checkAbort(signal);
+          await cache.put(key, this.storable(response));
+          index.files[key] = file.hash;
+          delete index.gone[key]; // the file is here now: a 404 record of an older run must not outlive it
+          before.present.add(key);
+          imported++;
+          if (imported % INDEX_FLUSH_EVERY === 0) await this.#writeIndex(cache, index.files, this.manifest.version, index.gone);
+        }
+        onProgress?.({ imported, processed: ++processed, file, getStatus });
+      }
+    } finally {
+      // A cancelled import or a quota error keeps completed, verified files reusable on the next run.
+      await this.#writeIndex(cache, index.files, this.manifest.version, index.gone);
+    }
+    return { ...await this.status(), imported };
   }
 
   /**
@@ -187,7 +234,7 @@ export class ResourceStore {
       else signal.addEventListener?.('abort', onAbort, { once: true });
     }
     const timer = this.fileTimeoutMs ? setTimeout(() => {
-      const secs = this.fileTimeoutMs >= 1000 ? `（${Math.round(this.fileTimeoutMs / 1000)} 秒）` : '';
+      const secs = this.fileTimeoutMs >= 1000 ? t('（{0} 秒）', { 0: Math.round(this.fileTimeoutMs / 1000) }) : '';
       try { ctl.abort(new Error(`响应超时${secs}`)); } catch { /* already aborted */ }
     }, this.fileTimeoutMs) : null;
     try {
@@ -234,6 +281,11 @@ export class ResourceStore {
    * Counters for a set of cached URLs (shared by status() and clear(), which must not re-create a cache). `goneNow` are
    * the entries the origin answered 404/410 for: they are counted separately — never as cached — but they *do* settle
    * `complete`, because a manifest that lists a file nobody serves would otherwise never reach 100 %.
+   *
+   * `groups` is the same tally per resource category (common.js `resourceGroup`), each entry carrying the tier of the
+   * FILE it collected — a category the server splits across tiers (avatars essential, portraits optional) is listed in
+   * both sections, with the numbers of the section it is in. `id` is the category, `gid` the category *and* tier: the
+   * settings panel keys on `gid`, so one category can appear twice.
    */
   #tally(present, goneNow = new Set()) {
     const total = this.files.length;
@@ -244,16 +296,44 @@ export class ResourceStore {
     let skipped = 0;
     let tier1 = 0;
     let tier1Present = 0;
+    let tier1Gone = 0;
     let tier2 = 0;
     let tier2Present = 0;
+    let tier2Gone = 0;
+    let tier1Wanted = 0;
+    let tier2Wanted = 0;
+    /** @type {Map<string, any>} */
+    const groups = new Map();
     for (const f of this.files) {
-      const hit = present.has(this.keyOf(f.url));
-      if (f.tier === TIER_ESSENTIAL) { tier1++; if (hit) tier1Present++; } else { tier2++; if (hit) tier2Present++; }
+      const key = this.keyOf(f.url);
+      const hit = present.has(key);
+      const isGone = !hit && goneNow.has(key);
+      const essential = f.tier === TIER_ESSENTIAL;
+      if (essential) tier1++; else tier2++;
+      const id = resourceGroup(f);
+      const gid = `${f.tier}:${id}`;
+      let group = groups.get(gid);
+      if (!group) {
+        group = { gid, id, tier: f.tier, ...RESOURCE_GROUPS[id],
+          total: 0, wanted: 0, present: 0, gone: 0, bytes: 0, totalBytes: 0, unknownSize: 0 };
+        groups.set(gid, group);
+      }
+      group.total++;
       if (!this.eligible(f)) { skipped++; continue; }
+      group.wanted++;
+      if (Number.isSafeInteger(f.size)) group.totalBytes += f.size;
+      else group.unknownSize++;
+      if (essential) tier1Wanted++; else tier2Wanted++;
       if (hit) {
         count++;
-        if (Number.isSafeInteger(f.size)) { bytes += f.size; sized++; }
-      } else if (goneNow.has(this.keyOf(f.url))) gone++;
+        group.present++;
+        if (essential) tier1Present++; else tier2Present++;
+        if (Number.isSafeInteger(f.size)) { bytes += f.size; sized++; group.bytes += f.size; }
+      } else if (isGone) {
+        gone++;
+        group.gone++;
+        if (essential) tier1Gone++; else tier2Gone++;
+      }
     }
     const wanted = total - skipped;
     return {
@@ -270,8 +350,13 @@ export class ResourceStore {
       sizedTotal: Number.isSafeInteger(this.manifest.sized) ? this.manifest.sized : null,
       tier1,
       tier1Present,
+      tier1Gone,
       tier2,
       tier2Present,
+      tier2Gone,
+      tier1Wanted,
+      tier2Wanted,
+      groups: [...groups.values()].filter((g) => g.total > 0),
       complete: wanted > 0 && count + gone >= wanted,
     };
   }
@@ -319,6 +404,9 @@ export class ResourceStore {
       phase: 'download', count: done, total: start.total, wanted: start.wanted, skipped: start.skipped,
       bytes, totalBytes: start.totalBytes, sized, sizedTotal: start.sizedTotal,
       tier1: start.tier1, tier1Present: tier1Done, tier2: start.tier2, tier2Present: tier2Done,
+      tier1Wanted: start.tier1Wanted, tier2Wanted: start.tier2Wanted,
+      tier1Gone: start.tier1Gone, tier2Gone: start.tier2Gone,
+      groups: this.#tally(start.present, goneKeys).groups,
       complete: false, failed, failures: failures.slice(), current, adopted, downloaded, gone: start.gone + gone,
     });
     const emit = (current = null, force = false) => {
@@ -367,6 +455,7 @@ export class ResourceStore {
             if (++pendingFlush >= INDEX_FLUSH_EVERY) { pendingFlush = 0; await this.#writeIndex(cache, index.files, this.manifest.version, index.gone); }
           }
           done++;
+          start.present.add(key);
           if (file.tier === TIER_ESSENTIAL) tier1Done++; else tier2Done++;
           if (Number.isSafeInteger(file.size)) { bytes += file.size; sized++; }
         } catch (err) {
@@ -381,7 +470,7 @@ export class ResourceStore {
             // The origin says it does not have this file (HTTP 404/410): remember it against the manifest hash, so the
             // next run skips it instead of spending one request per entry per run (the live manifest listed 1 685).
             gone++;
-            if (file.hash) index.gone[key] = file.hash;
+            if (file.hash) { index.gone[key] = file.hash; goneKeys.add(key); }
           } else {
             failed++;
             if (failures.length < MAX_FAILURES) failures.push({ url: file.url, message: String(err?.message || err) });

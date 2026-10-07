@@ -651,10 +651,12 @@ describe('keyboard & settings', () => {
   test('sanitizeSettings', () => {
     assert.deepEqual(sanitizeSettings(null), { ...DEFAULT_SETTINGS });
     assert.deepEqual(sanitizeSettings({ bgm: 3, sfx: -1, voice: 2, muted: 'yes', damageNumbers: false, quality: 'ultra' }),
-      { bgm: 1, sfx: 0, voice: 1, muted: false, damageNumbers: false, quality: 'high', preload: false, keys: { ...DEFAULT_SETTINGS.keys } },
-      'a saved profile without `keys` (before 0.2.0) gets the default key map (test/ui/feedback5-hotkeys.test.js), and one without `preload` the preload default');
+      { bgm: 1, sfx: 0, voice: 1, muted: false, damageNumbers: false, quality: 'high', preload: false, preloadOptional: true, keys: { ...DEFAULT_SETTINGS.keys } },
+      'a saved profile without `keys` (before 0.2.0) gets the default key map (test/ui/feedback5-hotkeys.test.js), and one without `preload` / `preloadOptional` the preload defaults');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).voice, DEFAULT_SETTINGS.voice, 'a saved profile without `voice` gets the default');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).preload, DEFAULT_SETTINGS.preload, 'a saved profile without `preload` gets the default');
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).preloadOptional, DEFAULT_SETTINGS.preloadOptional, 'a saved profile without `preloadOptional` gets the default');
+    assert.equal(sanitizeSettings({ preloadOptional: 'no' }).preloadOptional, DEFAULT_SETTINGS.preloadOptional, 'a non-boolean falls back');
     assert.equal(sanitizeSettings({ bgm: 0.333 }).bgm, 0.33);
     assert.equal(sanitizeSettings({ quality: 'low' }).quality, 'low');
   });

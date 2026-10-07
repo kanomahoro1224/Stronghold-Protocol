@@ -79,10 +79,10 @@ describe('where the preload is reachable', () => {
     assert.match(panel, /onClose=\$\{\(\) => onChange\(false\)\}/, '关闭预载 turns the setting back off');
     assert.match(panel, /if \(!enabled && !st\.supported\) return null;/, 'no clutter on a plain-HTTP LAN');
     assert.match(panel, /disabled=\$\{!enabled && !st\.supported \? 'disabled' : null\}/, 'a browser that cannot cache can still turn it back off');
-    assert.match(panel, /onChange\(false\)\}>关闭预载<\/button>/, 'and the pill can always be closed');
+    assert.match(panel, /onChange\(false\)\}>\$\{t\('关闭预载'\)\}<\/button>/, 'and the pill can always be closed');
     // a failed registration must always be visible: the download still works without the worker, so a hidden warning
     // would look exactly like "the Service Worker never intercepts anything" (see the pill's worker line)
-    assert.equal(panel.match(/\$\{st\.worker \? html/g).length, 2, 'both faces show it');
+    assert.equal(panel.match(/\$\{st\.worker \? html/g).length, 3, 'all three faces show it (settings row, title pill, manager)');
     assert.equal((panel.match(/\$\{st\.worker && st\.message/g) || []).length, 0, 'never hidden behind a message');
     // the copy never promises offline play: the preload only means "served from the local cache"
     const index = read('public/js/resources/index.js');
@@ -93,8 +93,32 @@ describe('where the preload is reachable', () => {
     assert.match(panel, /startResources\(\)/, 'continue');
     assert.match(panel, /pauseResources\(\)/, 'pause');
     assert.match(panel, /clearResources\(\)/, 'clear');
-    // both faces render the shared progress bar and the same actions, so they can never drift apart
+    // the two compact faces render the shared actions, so they can never drift apart; the manager has its own action bar
+    // plus one progress bar per tier and one for a running ZIP import/export
     assert.equal(panel.match(/\$\{ResourceActions\}/g).length, 2);
-    assert.equal(panel.match(/\$\{ProgressBar\}/g).length, 2);
+    assert.equal(panel.match(/\$\{ProgressBar\}/g).length, 4);
+  });
+
+  test('both entry points open the shared resource manager, which is mounted once above every route', () => {
+    const panel = read('public/js/ui/resourcePanel.js');
+    // the settings row's 资源管理 button and the title pill's link — the two ways into the big modal
+    assert.equal(panel.match(/onClick=\$\{openResources\}/g).length, 2, 'settings row + title pill');
+    assert.equal(panel.match(/onClick=\$\{closeResources\}/g).length, 1, '关闭 closes it');
+    assert.match(panel, /onClose=\$\{closeResources\}/, 'so does the modal chrome (Esc / backdrop)');
+    // the manager itself: one section per tier, the ZIP actions and the selection checkbox
+    assert.match(panel, /title=\$\{t\('预载资源管理'\)\}/);
+    assert.match(panel, /<div class="resource-manager">/);
+    assert.match(panel, /<section class="resource-archive">/, 'the ZIP block is its own section');
+    assert.match(panel, /<\$\{ResourceTier\} st=\$\{st\} tier=\$\{1\} \/>/);
+    assert.match(panel, /<\$\{ResourceTier\} st=\$\{st\} tier=\$\{2\}/);
+    assert.match(panel, /t\('导入 ZIP'\)/);
+    assert.match(panel, /t\('导出 ZIP'\)/);
+    assert.match(panel, /t\('同时预载'\)/, 'the optional-tier selection lives in the manager');
+    // main.js mounts it once, above the router, wired to the same settings the other two faces write
+    const main = read('public/js/main.js');
+    assert.match(main, /import \{ ResourceHost \} from '\.\/ui\/resourcePanel\.js';/);
+    assert.match(main, /<\$\{ResourceManagerHost\} \/>/);
+    assert.match(main, /<\$\{ResourceHost\} enabled=\$\{settings\.preload\} optional=\$\{settings\.preloadOptional\}/);
+    assert.match(main, /syncResources\(!!s\.preload, !!s\.preloadOptional\)/, 'both switches reach the preload controller');
   });
 });

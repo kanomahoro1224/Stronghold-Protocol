@@ -6,15 +6,17 @@ import { DEFAULT_HOTKEYS, sanitizeHotkeys } from './shortcuts.js';
 
 // ---- settings ------------------------------------------------------------------------------------------------------
 
-/** keys: the in-match shortcuts' key map (ui/gameLogic/shortcuts.js; settings → 快捷键). */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, muted: false, damageNumbers: true, quality: 'high', keys: DEFAULT_HOTKEYS });
+/** keys: the in-match shortcuts' key map (ui/gameLogic/shortcuts.js; settings → 快捷键). preload: 资源预载开关 (fork line).
+ * preloadOptional: whether the optional tier (voices, SFX, music, tutorial pages) is part of that preload; a fork
+ * default, like the switch itself — one click still saves everything, and the manager's 同时预载 checkbox unchecks it. */
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, muted: false, damageNumbers: true, quality: 'high', preload: false, preloadOptional: true, keys: DEFAULT_HOTKEYS });
 const QUALITIES = ['high', 'medium', 'low'];
 
 /**
  * Sanitize persisted settings.
  * @param {any} raw
  * @returns {{ bgm: number, sfx: number, voice: number, muted: boolean, damageNumbers: boolean, quality: 'high'|'medium'|'low',
- *   keys: Record<'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
+ *   preload: boolean, preloadOptional: boolean, keys: Record<'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
  */
 export function sanitizeSettings(raw) {
   const r = isObj(raw) ? raw : {};
@@ -26,6 +28,8 @@ export function sanitizeSettings(raw) {
     muted: typeof r.muted === 'boolean' ? r.muted : DEFAULT_SETTINGS.muted,
     damageNumbers: typeof r.damageNumbers === 'boolean' ? r.damageNumbers : DEFAULT_SETTINGS.damageNumbers,
     quality: QUALITIES.includes(r.quality) ? r.quality : DEFAULT_SETTINGS.quality,
+    preload: typeof r.preload === 'boolean' ? r.preload : DEFAULT_SETTINGS.preload,
+    preloadOptional: typeof r.preloadOptional === 'boolean' ? r.preloadOptional : DEFAULT_SETTINGS.preloadOptional,
     keys: sanitizeHotkeys(r.keys),
   };
 }

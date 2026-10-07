@@ -27,6 +27,7 @@
 
 import { html, Icon, useTicker } from './components.js';
 import { useStore } from '../store.js';
+import { t, N_ } from '../../../shared/i18n.js';
 
 export const STATUS_SOURCE = '/runtime/status.json';
 const DISMISS_KEY = 'sp.statusBanner.dismissed';
@@ -34,9 +35,9 @@ const RETIRED_KEY = 'sp.statusBanner.retired';
 
 /** Badge label and icon per tone (the two the operator uses are 紧急 and 维护). */
 const TONES = {
-  emergency: { badge: '紧急', icon: 'info' },
-  maintenance: { badge: '维护', icon: 'hourglass' },
-  info: { badge: '公告', icon: 'info' },
+  emergency: { badge: N_('紧急'), icon: 'info' },
+  maintenance: { badge: N_('维护'), icon: 'hourglass' },
+  info: { badge: N_('公告'), icon: 'info' },
 };
 
 /** https only, and the label falls back to the host, so an operator typo can never inject a javascript: URL. */
@@ -105,7 +106,7 @@ export function StatusBanner() {
   const tone = TONES[status.tone];
   const close = () => writeSession(DISMISS_KEY, status.id);
   return html`<div class=${`status-banner status-banner--${status.tone}`} role="alert">
-    <span class="status-banner__badge">${tone.badge}</span>
+    <span class="status-banner__badge">${t(tone.badge)}</span>
     <${Icon} name=${tone.icon} />
     <span class="status-banner__text">${status.text}</span>
     ${status.link ? html`<a
@@ -115,6 +116,6 @@ export function StatusBanner() {
       rel="noopener noreferrer"
     >${status.link.label}</a>` : null}
     ${status.detail ? html`<span class="status-banner__sub">${status.detail}</span>` : null}
-    <button class="status-banner__close" type="button" aria-label="关闭公告" onClick=${close}>×</button>
+    <button class="status-banner__close" type="button" aria-label=${t('关闭公告')} onClick=${close}>×</button>
   </div>`;
 }

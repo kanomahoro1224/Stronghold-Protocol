@@ -18,6 +18,6 @@ test('the lobby tip carries the 分线 link and the 粥友群 number in one row'
   assert.match(row[1], /联机用分线/, 'the line label');
   assert.match(row[1], /href="https:\/\/game\.kafuno\.cn"/, 'the line link');
   assert.match(row[1], /粥友群/, 'the group label');
-  assert.match(row[1], /933064601/, 'the group number');
+  assert.match(row[1], /839971428/, 'the group number');
   assert.match(CSS, /\.lobby-tip__num\s*\{/, 'the number has its own style');
 });

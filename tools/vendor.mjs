@@ -40,6 +40,9 @@ export const VENDOR_FILES = Object.freeze([
   ['node_modules/htm/dist/htm.module.js', 'htm.module.js'],
   ['node_modules/three/build/three.core.js', 'three.core.js', true],
   ['node_modules/three/build/three.module.js', 'three.module.js', true],
+  // the asset preload's ZIP import/export (public/js/resources/archive.js, docs/ASSETS.md §Preload): the ESM build of
+  // zip.js, loaded lazily by that module, so an install without it loses the archive buttons and nothing else
+  ['node_modules/@zip.js/zip.js/index.min.js', 'zip.module.js', true],
 ]);
 
 export function vendor({ log = console.log, warn = console.warn } = {}) {

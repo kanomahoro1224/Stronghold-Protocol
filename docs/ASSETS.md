@@ -406,11 +406,38 @@ in Cache Storage, so a match loads from the machine instead of the network. The 
 
 | Piece | Where |
 | --- | --- |
-| Manifest (`/data/resource-manifest.json`) | `server/resources.js` `buildResourceManifest` / `createResourceIndex` |
+| Manifest (`/data/resource-manifest.json`) | `server/resources.js` `buildResourceManifest` / `createResourceIndex`, served by the static handler (`server/http/static.js`) |
 | Downloader | `public/js/resources/store.js` (4 small lanes + 1 big-file lane, files > 24 MiB skipped) |
 | Index of what is cached | Cache Storage entry `/__sp-resource-index__` (`{ version, manifest, files, gone }`) |
 | Pages / UI | `public/js/resources/index.js`, `public/js/ui/resourcePanel.js` |
 | Offline reads | `public/js/resources/service.js` (Service Worker) |
+| ZIP import/export | `public/js/resources/archive.js` + vendored `public/vendor/zip.module.js` (imported lazily, so zip.js stays out of first paint) |
+
+`/data/resource-manifest.json` is **generated**, never read from disk, and reaches the client with HTTP cache
+revalidation (`cache: 'no-cache'`): an unchanged manifest answers 304 and the browser supplies the cached JSON. Its ETag
+depends on the complete response content, so rebuilding the same manifest or restarting the server keeps the validator,
+while a changed manifest returns fresh JSON. The URL itself is never a preload entry (`isResourcePath`).
+
+### Tiers and the resource manager
+
+The entry — the title screen's 「预载资源」 pill or 设置 ▸ 预载资源 — opens the resource manager
+(`ui/resourcePanel.js`): a section per tier with its groups, file counts and sizes, the overall progress,
+开始预载 / 暂停下载, 「清理缓存」 and ZIP import/export. Opening it only checks the manifest and the cache; downloads
+start on 开始预载 or on a successful ZIP import. Closing the modal leaves the download running.
+
+Every entry carries a `hash` — the first 12 hex of the SHA-1 of the file's bytes, written by `tools/asset-hashes.mjs`
+(fetched assets) and `tools/local-extract/extract.py` (local-client art) — and a `tier`:
+
+- **tier 1 (`essential`, 必备资源)** — fonts, UI and icons, avatars (operators, tokens, enemies), items, bonds, bands,
+  skills, audio, and the local-client board art (`local.map/**`).
+- **tier 2 (`optional`, 可选资源)** — portraits and Spine models (skel/atlas/textures) of operators, tokens and enemies,
+  the rest of the local-client art, and the 玩法说明 pages.
+
+The 同时预载 checkbox opts the optional files in, persisted as `settings.preloadOptional` (default **true**: our
+「预载资源」 switch has always meant "download everything"). Unselected optional files still load normally on demand,
+and a run that covers tier 1 alone reads as complete *for the selected range*. Sizes are included for the files this
+install has on disk; an install without them reports progress in files instead of bytes. A file without a recorded hash
+falls back to a synthetic one derived from its source manifest (see `tools/asset-hashes.mjs` below).
 
 ### Requirement: every URL in the manifest must really be served
 
@@ -441,6 +468,47 @@ node tools/asset-hashes.mjs            # → data/asset-hashes.json (URL path �
 node tools/asset-hashes.mjs --check    # exit 1 when the file is stale; run before a deploy
 ```
 
+### How a run works
+
+The client (`public/js/resources/*`) downloads tier 1 first, then tier 2 only when it is selected: four lanes for small
+files and one for files above 4 MiB, skipping whatever is already cached. Two tabs of the same browser never download
+the same file twice: a Web Lock (`stronghold-resources-preload`, `ifAvailable`) makes one tab do the work while the
+others report what is already cached and re-check when the player returns to them; ZIP processing and 「清理缓存」 take
+the same lock. Downloads run in the page (plain `fetch` + `cache.put`, `cache: 'no-store'` so nothing is stored twice);
+`public/resource-sw.js` only reads that cache back.
+
+**Updating is incremental.** All the files live in one cache (`stronghold-resources-v1-all`) and each entry's hash is
+recorded in the index entry inside it, so a new manifest re-downloads the files whose hash changed and keeps the rest:
+adding artwork to an install that already preloaded costs the new files, not the whole set. A cache of the older layout
+(named after a version, no hashes) is **migrated instead of discarded**: the store digests the bytes it finds there
+(`crypto.subtle.digest('SHA-1', …)`), moves the entries that are still current into the new cache, drops the ones that
+are not, and only then fetches what is missing — the panel says 「正在整理已保存的资源（无需重新下载）」 while that runs.
+The worker prefers the current cache when a URL exists in both, so a stale copy can never shadow a fresh file.
+
+### ZIP import/export
+
+`public/js/resources/archive.js` (via the vendored `@zip.js/zip.js`, imported only when a package is handled) writes and
+reads a standalone package format, so a preload can be shared with someone else instead of being downloaded twice:
+
+- **Export** packs the files that are currently cached (a partial preload is fine) plus `stronghold-resources.json`,
+  which records each stable resource path, its size and both fingerprints (12-hex SHA-1 and SHA-256). Entries are stored
+  uncompressed (`level: 0`) because the assets are already compressed.
+- **Import** accepts packages from this feature, including ones exported from an older resource version. Before touching
+  the live cache it checks the ZIP structure and CRC, the file count, the paths, the actual decompressed sizes (not just
+  the central directory) and both digests of every file. Only a file whose SHA-1 matches the hash in the **current**
+  server manifest is reused — changed, removed and synthetic-hash entries are skipped — and the selected tiers are then
+  completed with incremental downloads. Because reuse is keyed by resource *path* and content digest, a site or CDN
+  prefix change does not invalidate a package; validated bytes are stored under the current manifest's URLs. Code, game
+  data (`/data/`, `/sim/`) and the package's own cache-index record are never imported.
+- Limits: 24 MiB per resource file, 50 000 resource files, 32 MiB package manifest, 2 GiB package (compressed and
+  decompressed, enforced while streaming). Import processes one file at a time in two passes, so it needs no second
+  staging cache. «取消处理» and a storage-quota failure both keep the files that were already verified.
+- If a same-version package imports far fewer files than it exported, check the server's hash table: run
+  `node tools/asset-hashes.mjs` after fetching/updating the assets, then reload the receiving browser to pick up the
+  refreshed manifest. A missing `data/asset-hashes.json` leaves entries with synthetic hashes, and those cannot
+  authorize a ZIP import. Packages already exported record real content digests, so they need no re-export as long as
+  their bytes still match.
+
 ### Failure states the panel shows
 
 - **`saved`** — the manifest's bytes are cached and their digest matches.
@@ -451,7 +519,13 @@ node tools/asset-hashes.mjs --check    # exit 1 when the file is stale; run befo
 - **`failed`** — a transient error (network, CORS/opaque, 5xx) or a per-file timeout (`FILE_TIMEOUT_MS`, 30 s): retried
   on the next run. Without the timeout one stalled socket pinned a download lane forever, which is what a player saw as
   「预载卡在 76%」.
-- **`skipped`** — bigger than `MAX_FILE_BYTES` (24 MiB) or no size in the manifest; never fetched.
+- **`skipped`** — bigger than `MAX_FILE_BYTES` (24 MiB) or no size in the manifest; never fetched. The panel counts
+  them separately (「{skipped} 个文件超过单文件缓存上限，使用时按需加载。」) so they cannot be mistaken for a stalled run.
+- **ZIP phases** — 正在校验 / 正在导入 / 正在导出 with a percentage (`{0}资源包：{percent}%`); a package that fails
+  structure, size or digest checks is rejected before anything is written, and 取消失败/空间不足 keep the files that
+  already passed.
+- **another tab** — the Web Lock reports 「另一个标签页正在处理资源，请暂停后重试」 instead of downloading the same
+  file twice; 清理缓存 says 「另一个标签页正在处理资源，请暂停后再清理。」 for the same reason.
 
 ## Licensing and credits
 

@@ -46,7 +46,8 @@ import { LobbyScreen, rememberRoom, parseRoomParam } from './screens/lobby.js';
 import { RoomScreen } from './screens/room.js';
 import { GameScreen } from './screens/game.js';
 import { installAudio } from './audio.js';
-import { settingsStore } from './ui/settings.js';
+import { settingsStore, useSettings, updateSettings } from './ui/settings.js';
+import { ResourceHost } from './ui/resourcePanel.js';
 import { GuideHost } from './ui/guide.js';
 import { NoticeHost } from './ui/notice.js';
 import { installDeviceSupport } from './ui/device.js';
@@ -301,6 +302,17 @@ function ScreenCrashed({ error, reset }) {
   </div>`;
 }
 
+/**
+ * The resource manager (docs/ASSETS.md「Preload」): mounted once, above every route, so the settings row and the title
+ * screen's pill both open the same dialog — including inside a match, where the manager is the only way to the ZIP
+ * import/export.
+ */
+function ResourceManagerHost() {
+  const settings = useSettings();
+  return html`<${ResourceHost} enabled=${settings.preload} optional=${settings.preloadOptional}
+    onChange=${(preload) => updateSettings({ preload })} onOptional=${(preloadOptional) => updateSettings({ preloadOptional })} />`;
+}
+
 function App() {
   const route = useStore(selectRoute);
   useLang(); // a language switch re-renders the whole tree in place
@@ -316,6 +328,7 @@ function App() {
     <${GuideHost} />
     <${NoticeHost} />
     <${LoadoutHost} />
+    <${ResourceManagerHost} />
   </div>`;
 }
 
@@ -418,13 +431,14 @@ boot().catch((err) => {
 
 /**
  * Optional asset preload (docs/ASSETS.md "Preload"): off by default, loaded after the first paint so a player
- * who never enables it downloads nothing. The settings row and the title screen pill write the switch; this
- * mirrors it into public/js/resources/index.js (idempotent: the settings store also fires for volume changes).
+ * who never enables it downloads nothing. The settings row, the title screen pill and the resource manager write the
+ * switch and the optional-tier selection; this mirrors both into public/js/resources/index.js (idempotent: the settings
+ * store also fires for volume changes).
  */
 function installResourcePreload() {
   import('./resources/index.js')
     .then((r) => {
-      const apply = (s) => { r.syncResources(!!s.preload).catch((err) => console.warn('[resources] sync failed', err)); };
+      const apply = (s) => { r.syncResources(!!s.preload, !!s.preloadOptional).catch((err) => console.warn('[resources] sync failed', err)); };
       apply(settingsStore.get());
       settingsStore.subscribe(apply);
     })

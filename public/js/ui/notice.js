@@ -35,6 +35,7 @@
 import { html, Modal, Button } from './components.js';
 import { createStore, useStore } from '../store.js';
 import { SponsorQr } from './sponsor.js';
+import { t, N_ } from '../../../shared/i18n.js';
 
 /** Where the notice lives: a static file of the /data mount — no server route, no new endpoint. */
 export const NOTICE_URL = '/data/notice.json';
@@ -60,11 +61,11 @@ export const NOTICE_MAX_HREF = 300;
 
 /** Built-in content: shown when data/notice.json is missing, unreachable, invalid — or simply not edited yet. */
 export const NOTICE_FALLBACK = Object.freeze({
-  title: '公告',
+  title: N_('公告'),
   body: Object.freeze([
-    '欢迎游玩 卫戍协议：盟约（非官方同人复刻）。',
-    '本服务器为公益服务器，可能会不定期重启更新版本，由此造成的游戏中断敬请谅解。',
-    '暂无更多公告内容。',
+    N_('欢迎游玩 卫戍协议：盟约（非官方同人复刻）。'),
+    N_('本服务器为公益服务器，可能会不定期重启更新版本，由此造成的游戏中断敬请谅解。'),
+    N_('暂无更多公告内容。'),
   ]),
   updatedAt: '',
 });
@@ -86,10 +87,11 @@ function clamp(text, max) {
  * legacy flat `body` (callers may keep or mutate the array).
  */
 export function fallbackNotice() {
+  const body = NOTICE_FALLBACK.body.map((line) => t(line));
   return {
-    title: NOTICE_FALLBACK.title,
-    sections: [{ label: '', lines: [...NOTICE_FALLBACK.body] }],
-    body: [...NOTICE_FALLBACK.body],
+    title: t(NOTICE_FALLBACK.title),
+    sections: [{ label: '', lines: [...body] }],
+    body,
     updatedAt: '',
     fallback: true,
   };
@@ -239,7 +241,7 @@ export function normalizeNotice(raw) {
     if (flat.length) sections = [{ label: '', lines: flat }];
   }
 
-  const title = clamp(raw.title, NOTICE_MAX_TITLE) || NOTICE_FALLBACK.title;
+  const title = clamp(raw.title, NOTICE_MAX_TITLE) || t(NOTICE_FALLBACK.title);
   const updatedAt = clamp(raw.updatedAt, NOTICE_MAX_UPDATED);
   if (!hasText) return { ...fallbackNotice(), title, updatedAt };
   return { title, sections, body: sections.flatMap((s) => s.lines), updatedAt, fallback: false };
@@ -356,23 +358,23 @@ export const openNotice = noticeClient.open;
 export const closeNotice = noticeClient.close;
 
 /** Standard 公告 trigger button — GuideButton's twin (same size / variant / label idiom). */
-export function NoticeButton({ class: cls, size = 'sm', variant = 'ghost', label = '公告', square = false, onClick = openNotice }) {
+export function NoticeButton({ class: cls, size = 'sm', variant = 'ghost', label = t('公告'), square = false, onClick = openNotice }) {
   return html`<${Button} variant=${variant} size=${size} icon="info" square=${square} class=${cx('notice-btn', cls)}
-    onClick=${onClick} title="公告" aria-label="公告">${square ? null : label}<//>`;
+    onClick=${onClick} title=${t('公告')} aria-label=${t('公告')}>${square ? null : label}<//>`;
 }
 
 /** The panel (mounted once near the root): the shared Modal supplies the close affordances. Two columns — the notice
  *  text on the left, the sponsorship QR on the right (ui/sponsor.js, .notice__layout in css/screens/title.css). */
 export function NoticeHost() {
   const { open, status, notice } = useStore((s) => s, Object.is, noticeStore);
-  return html`<${Modal} open=${open} onClose=${closeNotice} title=${notice.title} micro="NOTICE // 公告" width="min(12.4rem, 94vw)"
-    actions=${html`<${Button} variant="primary" icon="check" onClick=${closeNotice}>关闭<//>`}>
+  return html`<${Modal} open=${open} onClose=${closeNotice} title=${notice.title} micro=${t('NOTICE // 公告')} width="min(12.4rem, 94vw)"
+    actions=${html`<${Button} variant="primary" icon="check" onClick=${closeNotice}>${t('关闭')}<//>`}>
     <div class="notice__layout">
       <div class="notice__body">
-        ${status === 'loading' ? html`<p class="notice__hint">正在获取公告…</p>` : null}
-        ${status === 'failed' ? html`<p class="notice__hint">公告暂时无法加载，以下为内置说明。</p>` : null}
+        ${status === 'loading' ? html`<p class="notice__hint">${t('正在获取公告…')}</p>` : null}
+        ${status === 'failed' ? html`<p class="notice__hint">${t('公告暂时无法加载，以下为内置说明。')}</p>` : null}
         ${notice.sections.map((section, i) => noticeSectionNode(section, i))}
-        ${notice.updatedAt ? html`<p class="notice__updated num">更新于 ${notice.updatedAt}</p>` : null}
+        ${notice.updatedAt ? html`<p class="notice__updated num">${t('更新于 {updatedAt}', { updatedAt: notice.updatedAt })}</p>` : null}
       </div>
       <aside class="notice__side"><${SponsorQr} /></aside>
     </div>

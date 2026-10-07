@@ -107,9 +107,11 @@ const MODE_CARDS = [
   {
     // 同盟匹配 (user request): this card creates the same alliance as 同盟模拟 — the difference is what the room does
     // with 开始匹配, which puts the alliance in the public pool (server/lobby.js roomMatchmake) instead of starting.
-    id: 'match', name: '同盟匹配', en: 'ALLIANCE MATCH', icon: 'search',
-    desc: `创建同盟邀请好友，或发起匹配与其他博士组队，凑齐 ${MAX_SEATS} 人即刻开始。`,
-    points: [`1–${MAX_SEATS} 名博士 · 可匹配真人`, '发起匹配后满员自动开始 · 无需准备'],
+    id: 'match', name: N_('同盟匹配'), en: 'ALLIANCE MATCH', icon: 'search',
+    desc: N_('创建同盟邀请好友，或发起匹配与其他博士组队，凑齐 {MAX_SEATS} 人即刻开始。'),
+    params: { MAX_SEATS },
+    points: [N_('1–{MAX_SEATS} 名博士 · 可匹配真人'), N_('发起匹配后满员自动开始 · 无需准备')],
+    pointParams: { MAX_SEATS },
   },
 ];
 
@@ -305,27 +307,27 @@ function MatchPanel({ q, start = null, busy = null, onCancel }) {
   const clock = queueClock(queueWaited(q, start));
   const max = q.max || MAX_SEATS;
   const size = Math.min(Math.max(0, Number(q.size) || 0), max);
-  return html`<${Panel} class="match-panel" tone="mint" title="正在搜寻队友" micro="SEARCHING FOR DOCTORS"
+  return html`<${Panel} class="match-panel" tone="mint" title=${t('正在搜寻队友')} micro="SEARCHING FOR DOCTORS"
       actions=${html`<span class="match-panel__clock num">${clock}</span>`}>
     <div class="match-panel__status">
       <${Spinner} size="lg" label="SEARCHING" />
       <div class="match-panel__meta">
-        <span class="match-panel__count num">${size}<span class="t-dim">/${max}</span> 名博士</span>
-        <${MicroLabel}>${DIFFICULTY_NAMES[q.difficulty] || q.difficulty} · 快速搜寻<//>
+        <span class="match-panel__count num">${size}<span class="t-dim">/${max}</span> ${t('名博士')}</span>
+        <${MicroLabel}>${DIFFICULTY_NAMES[q.difficulty] || q.difficulty} ${t('· 快速搜寻')}<//>
       </div>
     </div>
     <${ProgressBar} value=${size} max=${max} segments=${max} tone="mint" />
     <p class="match-panel__note">
       ${q.solo
-        ? '暂时只有你在搜寻，会一直为你匹配其他博士（可随时取消）；也可以取消后用「同盟模拟」和 AI 队友立刻开局。'
-        : `正在和其他博士组队：凑齐 ${max} 人立即开始；人数不够会一直匹配下去，不用反复点。`}
+        ? t('暂时只有你在搜寻，会一直为你匹配其他博士（可随时取消）；也可以取消后用「同盟模拟」和 AI 队友立刻开局。')
+        : t('正在和其他博士组队：凑齐 {max} 人立即开始；人数不够会一直匹配下去，不用反复点。', { max })}
     </p>
     <div class="match-panel__actions">
-      <${Button} variant="ghost" size="lg" icon="chevronLeft" loading=${busy === 'cancel'} disabled=${!!busy} onClick=${onCancel}>取消搜寻<//>
+      <${Button} variant="ghost" size="lg" icon="chevronLeft" loading=${busy === 'cancel'} disabled=${!!busy} onClick=${onCancel}>${t('取消搜寻')}<//>
     </div>
     <ul class="match-panel__facts">
-      <li>匹配成功后直接进入模拟，无需准备</li>
-      <li>同盟密钥在房间内仍然可见，可继续邀请好友</li>
+      <li>${t('匹配成功后直接进入模拟，无需准备')}</li>
+      <li>${t('同盟密钥在房间内仍然可见，可继续邀请好友')}</li>
     </ul>
   <//>`;
 }
@@ -436,7 +438,7 @@ export function LobbyScreen() {
   const joinQueue = async (d) => {
     if (!alive.current) return;
     const back = () => { joinRef.current = null; if (alive.current) setPending(false); };
-    if (store.get().connection.status !== 'online') { back(); toast('尚未连接到服务器，请稍候', 'warn'); return; }
+    if (store.get().connection.status !== 'online') { back(); toast(t('尚未连接到服务器，请稍候'), 'warn'); return; }
     try {
       await net.request('queue.join', { difficulty: d });
     } catch (err) { back(); toastError(err); }
@@ -492,7 +494,7 @@ export function LobbyScreen() {
         return; // the server answered; its `queue.state {active:false}` confirms and clears `exiting`
       } catch (err) {
         if (err?.code !== 'TIMEOUT') throw err;
-        toast(c.tries === 1 ? '取消搜寻：连接好像断了，正在重连…' : `取消搜寻：还没成功，正在重试（${c.tries}/${CANCEL_TRIES}）…`, 'warn');
+        toast(c.tries === 1 ? t('取消搜寻：连接好像断了，正在重连…') : t('取消搜寻：还没成功，正在重试（{tries}/{CANCEL_TRIES}）…', { tries: c.tries, CANCEL_TRIES }), 'warn');
       }
       if (!alive.current) return;
       net.reconnectNow();
@@ -592,7 +594,7 @@ export function LobbyScreen() {
           >game.kafuno.cn</a>
           <span class="lobby-tip__sep" aria-hidden="true">·</span>
           <span class="lobby-tip__text">${t('粥友群：')}</span>
-          <b class="lobby-tip__num" title=${t('粥友群：933064601')}>933064601</b>
+          <b class="lobby-tip__num" title=${t('粥友群：839971428')}>839971428</b>
         </div>
         ${showPanel
           ? html`<${MatchPanel} q=${panelQ} start=${panelStart} busy=${busy} onCancel=${cancelSearch} />`
