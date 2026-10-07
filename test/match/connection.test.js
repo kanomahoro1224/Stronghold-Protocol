@@ -1,7 +1,7 @@
 // Platform interface: start/handle/onDisconnect/onReconnect/onLeave/dispose, autoplay, bot takeover, views.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PHASE, ERR, CHAT_MAX_LEN } from '../../shared/constants.js';
+import { PHASE, ERR, CHAT_MAX_LEN, DROP_TAKEOVER_MS } from '../../shared/constants.js';
 import { Match, parseBotRehearsal } from '../../server/match/Match.js';
 import { StubMatch } from '../../server/match/StubMatch.js';
 import { DATA, makeMatch, checkInvariants, give, chessOfTier } from './harness.js';
@@ -84,13 +84,18 @@ test('m.public is throttled to ≤ 10/s; m.private is only resent when it change
   h.m.dispose();
 });
 
-test('disconnect: the seat is taken over at once; reconnect resends everything', () => {
+test('disconnect: the seat is taken over after the reconnect grace; reconnect resends everything', () => {
   const h = makeMatch({ mode: 'coop', humans: 2, seed: 63, fake: true, script: () => ({ duration: 4 }) }).start();
   const m = h.m;
   h.m.onDisconnect('p_1');
   assert.equal(m.publicView().players.find((p) => p.playerId === 'p_1').connected, false);
-  // the auto-play policy runs on the spot: p_1 confirms its own briefing (no deadline, no bot scheduled first)
-  assert.equal(h.ps('p_1').infoReady, true, 'the dropped seat confirms the briefing itself');
+  // NOT on the spot any more (operator request, 2026-10-07): the seat waits out DROP_TAKEOVER_MS for its player, so a
+  // phase that is already running resolves on its OWN deadline instead (the grace is longer than the info timer here)
+  assert.equal(h.ps('p_1').infoReady, false, 'the briefing is not confirmed for them while the grace runs');
+  assert.equal(h.ps('p_1').botControlled, false);
+  h.sched.advance(DROP_TAKEOVER_MS + 1);
+  h.sched.runNext(); // the harness fires timers with runNext(); advance only moves the clock
+  assert.equal(h.ps('p_1').botControlled, true, 'once the grace is over the engine owns the seat again');
   m.handle('p_0', { t: 'g.infoReady' });
   // p_1 never picks its band: the engine plays that turn too, and both picks are its own
   h.drive(() => m.phase === PHASE.PREP && m.round === 1);
@@ -390,8 +395,11 @@ test('m.public follows player-state changes (shop level, board count, bonds) wit
 // neither left nor autoplay — and every interactive gate keys on PlayerState.botControlled, which used to know
 // bots / left / 托管 only. The seat then never acted and each phase waited out its OWN timer instead: measured
 // on this seed, one drop stretched the match to 1.65–1.84 M ms of virtual time (~11x the 155 k baseline) and the
-// players sat through a full info/band/sp/prep timer every round. Match.onDisconnect promises the auto-play
-// policy (class header), so it must take the seat over AT ONCE while keeping the reconnect path intact.
+// players sat through a full info/band/sp/prep timer every round. Match.onDisconnect therefore promises the
+// auto-play policy (class header) — but since 2026-10-07 it is a GRACE, not an instant (operator request): the
+// seat waits DROP_TAKEOVER_MS for its player and only then goes to the engine, so a socket blip or a reload no
+// longer hands a live seat to the bot. The first two tests pin the grace itself; the loop below pins the policy
+// it still has to satisfy — a match with a drop must finish, and close to the no-drop baseline.
 
 /** Drive the connected humans only: a dropped seat has to be carried by the engine alone. */
 function driveConnected(h, { dropAt = null, dropIn = null } = {}) {
@@ -418,7 +426,51 @@ function driveConnected(h, { dropAt = null, dropIn = null } = {}) {
   return { dropped, ended: !!m.ended };
 }
 
-test('a dropped human is engine-played at once, so a match with a drop runs like one without', () => {
+test('a dropped seat is NOT engine-played at once: it waits DROP_TAKEOVER_MS, and a return inside it wins it back', () => {
+  const h = makeMatch({ mode: 'coop', humans: 2, bots: 0, seed: 11, fake: true }).start();
+  const m = h.m;
+  const ps = h.ps('p_1');
+  assert.equal(ps.autoPlayOnDrop, true, 'somebody else is waiting, so this seat must not hold them up forever');
+  assert.equal(ps.dropGraceMs, DROP_TAKEOVER_MS, 'and the grace is the operator\'s minute');
+
+  m.onDisconnect('p_1');
+  assert.equal(ps.connected, false);
+  assert.equal(ps.botControlled, false, 'the instant a socket dies is NOT enough: the player gets the grace');
+  assert.notEqual(ps.dropTimer, null, 'the takeover is armed on the match timer (so dispose cancels it)');
+
+  // …the player comes back inside the grace: the seat is theirs and nothing is left armed
+  m.onReconnect('p_1');
+  assert.equal(ps.botControlled, false);
+  assert.equal(ps.dropTimer, null, 'a reconnect cancels the pending takeover');
+  h.sched.advance(DROP_TAKEOVER_MS * 2);
+  assert.equal(ps.connected, true);
+  assert.equal(ps.botControlled, false, 'the cancelled takeover never fires');
+  m.dispose();
+
+  // …and with no return, the grace really does hand the seat over
+  const h2 = makeMatch({ mode: 'coop', humans: 2, bots: 0, seed: 11, fake: true }).start();
+  const ps2 = h2.ps('p_1');
+  h2.m.onDisconnect('p_1');
+  assert.equal(ps2.botControlled, false);
+  h2.sched.advance(DROP_TAKEOVER_MS + 1);
+  assert.equal(ps2.botControlled, true, 'after the grace the engine owns the seat');
+  assert.equal(ps2.left, false, 'a drop is never a leave: the seat stays for the reconnect window');
+  h2.m.onReconnect('p_1');
+  assert.equal(ps2.botControlled, false, 'and a later reconnect still takes it back');
+  h2.m.dispose();
+});
+
+test('a solo run never auto-plays a drop — no grace involved', () => {
+  const h = makeMatch({ mode: 'solo', humans: 1, bots: 0, seed: 11, fake: true }).start();
+  const ps = h.ps('p_0');
+  assert.equal(ps.autoPlayOnDrop, false);
+  h.m.onDisconnect('p_0');
+  h.sched.advance(DROP_TAKEOVER_MS * 3);
+  assert.equal(ps.botControlled, false, 'the official reconnect promise: the run waits for its player');
+  h.m.dispose();
+});
+
+test('a dropped human is engine-played after the grace, so a match with a drop runs like one without', () => {
   const base = makeMatch({ mode: 'coop', humans: 2, bots: 0, seed: 11, fake: true }).start();
   driveConnected(base);
   assert.ok(base.ended, 'the baseline match finishes');
@@ -431,11 +483,11 @@ test('a dropped human is engine-played at once, so a match with a drop runs like
     driveConnected(h, { dropAt: at, dropIn: 'p_1' });
     const ps = h.ps('p_1');
     assert.ok(h.ended, `a drop at ${at} must not stop the match (stuck in ${m.phase} R${m.round})`);
-    assert.equal(ps.botControlled, true, `the dropped seat is engine-played (a drop at ${at})`);
+    assert.equal(ps.botControlled, true, `the dropped seat is engine-played after the grace (a drop at ${at})`);
     assert.equal(ps.left, false, 'a drop never counts as a leave: the seat stays for the reconnect window');
     assert.ok(
-      h.ended.durationMs <= baseline * 1.5,
-      `a drop at ${at} stretched the match to ${h.ended.durationMs} ms vs the ${baseline} ms baseline — the seat was not taken over at once`,
+      h.ended.durationMs <= baseline + DROP_TAKEOVER_MS + 30_000,
+      `a drop at ${at} cost ${h.ended.durationMs - baseline} ms over the ${baseline} ms baseline — one grace, not a stalled phase`,
     );
     m.onReconnect('p_1');
     assert.equal(ps.botControlled, false, 'a reconnect hands the seat back to its player');

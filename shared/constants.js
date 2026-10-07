@@ -15,6 +15,12 @@ export const MAX_SEATS = 4;
 export const MAX_SPECTATORS = 2;
 export const ROOM_CODE_LEN = 4;
 export const NAME_MAX_LEN = 12;
+/**
+ * Reconnect grace before the engine takes over a dropped seat (server/match/PlayerState.botControlled +
+ * Match.onDisconnect): one minute, so a socket blip, a tab reload or a lift ride does not hand a live co-op seat to the
+ * bot. Only a match where somebody else is waiting uses it — a solo run waits for its player outright.
+ */
+export const DROP_TAKEOVER_MS = 60_000;
 
 export const DIFFICULTIES = ['FUNNY', 'NORMAL', 'HARD', 'ABYSS'];
 export const DIFFICULTY_NAMES = { FUNNY: '标准模拟', NORMAL: '险境模拟', HARD: '绝境模拟', ABYSS: '终极模拟' };

@@ -107,6 +107,19 @@ export class PlayerState {
      * once at construction, from `!soloUntimed`.
      */
     this.autoPlayOnDrop = false;
+    /**
+     * Drop grace (operator request): a dropped seat waits this long for its player before the engine takes it over.
+     * Match stamps `droppedAt` in onDisconnect and arms the takeover, so until the grace runs out `botControlled` stays
+     * false and every interactive gate (auto-infoReady, both drafts, the bot prep) waits for its own deadline exactly
+     * as it does for a connected player — a socket blip or a reload no longer hands a live seat to the bot. 0 (the
+     * default) is the old "at once" policy, which a solo run keeps anyway: it never auto-plays.
+     */
+    this.droppedAt = 0;
+    this.dropGraceMs = 0;
+    /** The pending takeover timer (Match.onDisconnect arms it, onReconnect cancels it), or null. */
+    this.dropTimer = null;
+    /** The clock `botControlled` reads; Match points it at its scheduler so virtual-time tests stay deterministic. */
+    this.nowMs = () => Date.now();
     this.left = false;
     this.autoplay = false;
     this.alive = true;
@@ -187,7 +200,14 @@ export class PlayerState {
    * applies this policy on the spot; a reconnect flips it back, and the scheduled bot jobs then abort on their valid()
    * guard. A SOLO run keeps `autoPlayOnDrop` false: nobody is waiting on it, so it waits for its player instead.
    */
-  get botControlled() { return this.isBot || this.left || this.autoplay || (this.autoPlayOnDrop && !this.connected); }
+  get botControlled() {
+    if (this.isBot || this.left || this.autoplay) return true;
+    if (!this.autoPlayOnDrop || this.connected) return false;
+    // …and only after the reconnect grace: `droppedAt === 0` means no drop was ever stamped (a seat built offline),
+    // which keeps the historical "at once" behaviour for it.
+    if (this.droppedAt === 0 || this.dropGraceMs <= 0) return true;
+    return this.nowMs() - this.droppedAt >= this.dropGraceMs;
+  }
 
   get deployCap() { return Math.max(1, this.gd.deployCap + this.deployCapBonus, this.deployCapMin); }
   get deployCount() { let n = 0; for (const p of this.board.values()) if (p.kind === 'chess') n++; return n; }

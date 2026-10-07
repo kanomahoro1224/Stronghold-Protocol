@@ -132,7 +132,7 @@
 //     human is left at all the match ends ('abandoned'); when nobody alive is left it ends as 'eliminated'.
 
 import { C2S, unitStatsEntry } from '../../shared/protocol.js';
-import { PHASE, ERR, EMOTES, EMOTE_COOLDOWN_MS, CHAT_MAX_LEN, GEO, modeIdFor, layerGainRoom } from '../../shared/constants.js';
+import { PHASE, ERR, EMOTES, EMOTE_COOLDOWN_MS, CHAT_MAX_LEN, GEO, modeIdFor, layerGainRoom, DROP_TAKEOVER_MS } from '../../shared/constants.js';
 import { Battle } from '../sim/Battle.js';
 import { DataSource } from '../sim/simdata.js';
 import { createRng, deriveSeed } from '../sim/rng.js';
@@ -380,9 +380,17 @@ export class Match {
      */
     this.loneHuman = this.order.filter((p) => !p.isBot).length === 1;
     // The drop policy of THIS match (PlayerState.botControlled): where another human is waiting, a dropped seat is
-    // engine-played at once so the others are not held up (Match.onDisconnect); a solo run WAITS for its player, which
-    // is the official reconnect promise (soloReconnectTime) and the one thing `soloUntimed` exists to express.
-    for (const ps of this.order) ps.autoPlayOnDrop = !this.soloUntimed;
+    // engine-played — but not the instant the socket dies: it waits DROP_TAKEOVER_MS for its player first (operator
+    // request, 2026-10-07), so a network blip or a reload can come back to its own seat. A solo run WAITS for its
+    // player outright, which is the official reconnect promise (soloReconnectTime) and the one thing `soloUntimed`
+    // exists to express — it never auto-plays, so it needs no grace.
+    for (const ps of this.order) {
+      ps.autoPlayOnDrop = !this.soloUntimed;
+      if (ps.autoPlayOnDrop) {
+        ps.dropGraceMs = DROP_TAKEOVER_MS;
+        ps.nowMs = () => this.sched.now();
+      }
+    }
 
     // per-match setup (DESIGN §6.5)
     const setup = setupMatchWaves(this.gd, this.rngSetup);
@@ -572,15 +580,34 @@ export class Match {
       ps.connected = false;
       // a paused solo battle resumes (the server takes the field over; nobody is left to resume it)
       this._resume();
-      if (this.clientCombat) this._authorityLost(ps, 'disconnect');
-      // The auto-play policy this hook promises (class header, line ~45): where OTHER humans are waiting, the seat is
-      // engine-controlled from here (PlayerState.botControlled covers !connected for such a match), so take its current
-      // turn AT ONCE — the info check, a draft turn and the prep all read `botControlled`, and without this they simply
-      // wait out their own timer each. A solo run (soloUntimed) does NOT do this on purpose: nobody is waiting on it and
-      // the run must wait for its player, so auto-playing it would advance their own game behind their back.
-      if (ps.autoPlayOnDrop) this.kickBot(ps);
+      // The auto-play policy this hook promises (class header, line ~45): where OTHER humans are waiting, the seat ends
+      // up engine-controlled so a stalled seat cannot hold everyone up. That is now a GRACE, not an instant: a socket
+      // blip or a reload used to hand the seat (and, in a client-combat match, the field) to the bot within the same
+      // tick. `botControlled` reads `droppedAt`, so for DROP_TAKEOVER_MS every interactive gate — the info check, both
+      // drafts, the prep that readies the seat — waits for its own deadline exactly as it does for a connected player,
+      // and the two immediate actions below are deferred to the end of the grace with everything else.
+      ps.droppedAt = this.sched.now();
+      const grace = ps.autoPlayOnDrop ? ps.dropGraceMs : 0;
+      if (grace > 0) {
+        this.cancel(ps.dropTimer);
+        ps.dropTimer = this.later(grace, () => { ps.dropTimer = null; this._dropTakeover(ps, true); });
+      } else {
+        this._dropTakeover(ps, false);
+      }
       this.markPublic();
     });
+  }
+
+  /**
+   * The engine owns this seat now: the end of the reconnect grace, or immediately when there is no grace (a solo run
+   * never gets here — `autoPlayOnDrop` is false — and a leave is Match.onLeave's business). A player who came back
+   * inside the grace cancels the timer, and this bails again in case the callback wins the race with the reconnect.
+   */
+  _dropTakeover(ps, late) {
+    if (this.disposed || ps.connected || ps.left) return;
+    if (this.clientCombat) this._authorityLost(ps, 'disconnect');
+    if (ps.autoPlayOnDrop) this.kickBot(ps);
+    if (late) this.markPublic();
   }
 
   onReconnect(playerId) {
@@ -589,6 +616,11 @@ export class Match {
     this.guard(() => {
       const was = ps.connected;
       ps.connected = true;
+      // back inside the grace: the seat is theirs again and the pending takeover is dropped (nothing to undo — the
+      // gates never left the connected path, and a bot job armed before a previous drop aborts on its own guard).
+      ps.droppedAt = 0;
+      this.cancel(ps.dropTimer);
+      ps.dropTimer = null;
       this._resync(ps);
       if (!was) this.markPublic();
     });
