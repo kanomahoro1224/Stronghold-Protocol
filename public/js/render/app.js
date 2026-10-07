@@ -764,7 +764,13 @@ export async function createFieldView(host, options = {}) {
       }
       v._home = w;
       v.dimmed = false;
-      if (info.kind === 'item' && v.setIcon) v.setIcon(info.icon); // an icon the manifest named late (onAssets)
+      // Re-resolve the plate icon on every sync (not only once at battleView): scoutItemInfo() reads data.item(), which
+      // returns null until items.json/assets are ready (data.js `lookup`: `status !== 'ready'` → null), and the raw
+      // `info.icon` on the infos entry is always undefined — replaying it left the plate on its '?' placeholder for the
+      // whole match, for exactly those hand items whose view was built before the data landed (no image was ever asked
+      // for, which is why the asset itself looked fine everywhere else). ItemView.setIcon ignores a null and swaps the
+      // plate as soon as a real URL shows up.
+      if (info.kind === 'item' && v.setIcon) v.setIcon(scoutItemInfo(info).icon);
       if (v.setCount) v.setCount(e.piece.kind === 'token' ? e.piece.count : 0);
       if (v.setItems) v.setItems(Array.isArray(e.piece.items) ? e.piece.items.map((it) => { const r = data.item(it?.id); return assets.itemIcon ? assets.itemIcon(r ? { trapId: r.trapId, iconId: r.iconId } : it?.id) : null; }) : []);
       v._showFacing = e.area === 'board';

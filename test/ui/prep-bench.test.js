@@ -20,9 +20,10 @@ globalThis.fetch = async (url) => {
     return { ok: false, status: 404, json: async () => ({}) };
   }
 };
-const { data } = await import('../../public/js/data.js');
+const { data, getItem } = await import('../../public/js/data.js');
 await data.loadAll('bonds', 'chess', 'items', 'assets');
 const { resolveDetail } = await import('../../public/js/ui/detailPanel.js');
+const { itemIconUrl } = await import('../../public/js/ui/assetUrls.js');
 
 describe('the scouted prep board renders the hand like the own bench', () => {
   test('the game screen frames it with the prep camera in its shop-folded form (source)', () => {
@@ -39,6 +40,21 @@ describe('the scouted prep board renders the hand like the own bench', () => {
     assert.match(app, /info\.kind === 'item' \? new ItemView\(ctx, scoutItemInfo\(info\)\)/);
     assert.match(app, /battleMeta\?\.prep && Array\.isArray\(info\.items\) && info\.items\.length/);
     assert.match(app, /function scoutItemInfo\(info\)/);
+  });
+
+  // 线上实测（2026-10，「有的装备显示的是个问号」，棋盘底座）:scoutItemInfo() 只解析一次图标，而 data.item() 在
+  // items.json/assets 还没 ready 时返回 null（data.js `lookup`:`status !== 'ready'` → null），于是退化成拿
+  // chess_item_* 原 id 去查清单——清单键只有 trap_*，必然落空 → icon=null。旧代码每次同步又把那个缓存的 null
+  // 原样回传，底座就永远停在 '?'：图片从未被请求，所以两台主机与对象存储上的 59 个图标全都完好。
+  test('an item plate re-resolves its icon after the data landed late (source + lookup contract)', () => {
+    const man = JSON.parse(read('data/assets.json'));
+    const rec = getItem('chess_item_1_01_e_a');
+    assert.ok(rec && rec.trapId && rec.iconId, 'the game-data record');
+    assert.equal(itemIconUrl(man, 'chess_item_1_01_e_a'), null, 'a raw chess_item id is not a manifest key');
+    assert.equal(itemIconUrl(man, { trapId: rec.trapId, iconId: rec.iconId }), man.items[rec.trapId]);
+    const app = read('public/js/render/app.js');
+    assert.match(app, /v\.setIcon\(scoutItemInfo\(info\)\.icon\)/, 'the per-sync recovery recomputes the icon');
+    assert.ok(!/v\.setIcon\(info\.icon\)/.test(app), 'the cached null is not replayed');
   });
 
   test('ItemView syncs battle samples: a hand item rides the scouted field without breaking syncBattle (render layer: source)', () => {
