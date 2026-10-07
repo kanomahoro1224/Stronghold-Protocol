@@ -17,6 +17,10 @@ export const CONTENT_HASH_RE = /^[0-9a-f]{12}$/;
 export const RESOURCES_FORMAT = 1;
 /** Never store a single file bigger than this (mirrors server/resources.js). */
 export const MAX_FILE_BYTES = 24 * 1024 * 1024;
+/** A file that answers nothing within this long counts as failed instead of pinning a lane. Without a per-file deadline
+ * only the run's own abort signal ends a request, so one stalled socket freezes one of the small lanes — or, with a
+ * single big-file lane, the whole tail of the run — and the panel sits at the same percentage forever. */
+export const FILE_TIMEOUT_MS = 30000;
 /** Essential: fonts, UI, icons, avatars, audio — what a screen needs in its first second. */
 export const TIER_ESSENTIAL = 1;
 /** The rest: portraits, Spine models, local-client board art — big, fetched in the background. */
@@ -157,6 +161,15 @@ export function isQuotaError(err) {
   if (!err) return false;
   if (err.name === 'QuotaExceededError') return true;
   return /quota|disk|storage.*(?:full|exceed)/i.test(String(err.message || ''));
+}
+
+/**
+ * Whether a per-file failure means the origin does not have the file at all — a 404/410 is a property of *this*
+ * manifest, not of the network, so the store records the entry as gone instead of re-asking on every run. The record is
+ * keyed by the manifest hash, so a redeploy that adds the file (a new hash) asks for it again by itself.
+ */
+export function isGoneError(err) {
+  return /\bHTTP (?:404|410)\b/.test(String(err?.message || err));
 }
 
 /** An AbortError for a caller-supplied reason (used to stop a run without a thrown DOMException). */

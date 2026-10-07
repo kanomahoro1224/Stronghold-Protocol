@@ -12,7 +12,8 @@
 // browser needs (~250 MiB of art). Everything is injected (`caches`, `fetcher`) so this module is unit-testable.
 
 import {
-  CACHE_NAME, CACHE_PREFIX, CONTENT_HASH_RE, MAX_FILE_BYTES, TIER_ESSENTIAL, TIER_REST, absoluteUrl, indexUrl, checkAbort, isQuotaError,
+  CACHE_NAME, CACHE_PREFIX, CONTENT_HASH_RE, FILE_TIMEOUT_MS, MAX_FILE_BYTES, TIER_ESSENTIAL, TIER_REST,
+  absoluteUrl, abortError, checkAbort, indexUrl, isGoneError, isQuotaError,
 } from './common.js';
 
 /** Files above this are downloaded one at a time (a 20 MiB Spine texture should not race three others). */
@@ -44,9 +45,9 @@ export class ResourceStore {
   /**
    * @param {{ files: { url: string, tier: number, size?: number, hash?: string }[], version: string, totalBytes?: number|null }} manifest
    * @param {{ caches?: any, fetcher?: typeof fetch, origin?: string, smallLanes?: number, bigLanes?: number,
-   *           now?: () => number }} [opts]
+   *           fileTimeoutMs?: number, now?: () => number }} [opts]
    */
-  constructor(manifest, { caches = globalThis.caches, fetcher = globalThis.fetch?.bind(globalThis), origin, smallLanes = 4, bigLanes = 1, now = () => Date.now() } = {}) {
+  constructor(manifest, { caches = globalThis.caches, fetcher = globalThis.fetch?.bind(globalThis), origin, smallLanes = 4, bigLanes = 1, fileTimeoutMs = FILE_TIMEOUT_MS, now = () => Date.now() } = {}) {
     this.manifest = manifest;
     this.files = Array.isArray(manifest.files) ? manifest.files : [];
     this.caches = caches;
@@ -54,6 +55,8 @@ export class ResourceStore {
     this.origin = origin || globalThis.location?.origin || 'http://localhost';
     this.smallLanes = Math.max(1, smallLanes);
     this.bigLanes = Math.max(1, bigLanes);
+    /** Per-file deadline (0 disables it — tests that script a fetcher by hand want no timers). */
+    this.fileTimeoutMs = Number.isFinite(fileTimeoutMs) && fileTimeoutMs > 0 ? fileTimeoutMs : 0;
     this.now = now;
     this.cacheName = CACHE_NAME;
     /** @type {Promise<any> | null} */
@@ -66,8 +69,9 @@ export class ResourceStore {
   }
 
   /**
-   * The hashes of what this cache holds: `<absolute url>` → hash. A missing or unreadable index means "nothing is
-   * verified", i.e. every entry is fetched again — what the first run of this version and a cleared cache need.
+   * The hashes of what this cache holds: `<absolute url>` → hash, plus `<absolute url>` → hash for the entries the
+   * origin answered 404/410 for (`gone`). A missing or unreadable index means "nothing is verified", i.e. every entry is
+   * fetched again — what the first run of this version and a cleared cache need.
    * @param {any} cache
    */
   async #readIndex(cache) {
@@ -77,12 +81,17 @@ export class ResourceStore {
       if (res) doc = await res.json();
     } catch { doc = null; }
     const files = doc && typeof doc === 'object' && doc.files && typeof doc.files === 'object' ? doc.files : null;
-    return { manifest: typeof doc?.manifest === 'string' ? doc.manifest : '', files: files ? { ...files } : {} };
+    const gone = doc && typeof doc === 'object' && doc.gone && typeof doc.gone === 'object' ? doc.gone : null;
+    return {
+      manifest: typeof doc?.manifest === 'string' ? doc.manifest : '',
+      files: files ? { ...files } : {},
+      gone: gone ? { ...gone } : {},
+    };
   }
 
   /** Write the index entry (the only synthetic entry of the cache; the worker never answers it: not /assets|/fonts). */
-  async #writeIndex(cache, files, manifest) {
-    const body = JSON.stringify({ version: 1, manifest: String(manifest || ''), files });
+  async #writeIndex(cache, files, manifest, gone = {}) {
+    const body = JSON.stringify({ version: 2, manifest: String(manifest || ''), files, gone });
     await cache.put(indexUrl(this.origin), new Response(body, { headers: { 'Content-Type': 'application/json' } }));
   }
 
@@ -126,7 +135,8 @@ export class ResourceStore {
     const cached = new Set((await cache.keys()).map((k) => k.url));
     const index = await this.#readIndex(cache);
     const fresh = this.#fresh(cached, index);
-    return { ...this.#tally(fresh), present: fresh };
+    const gone = this.#goneSet(fresh, index);
+    return { ...this.#tally(fresh, gone), present: fresh };
   }
 
   /** The subset of `cached` whose recorded hash equals the manifest's (an entry without a hash counts as current). */
@@ -141,10 +151,51 @@ export class ResourceStore {
     return fresh;
   }
 
+  /**
+   * The entries this browser asked for and the origin said it does not have (404/410). They are remembered *with* the
+   * manifest hash they were asked under: a redeploy that adds the file ships a new hash, the record stops matching and
+   * the file is requested again — while a manifest that still lists a file nobody serves stops costing a request per
+   * run (the deployed manifest once listed 1 685 such entries, 1 680 of them voice lines).
+   */
+  #goneSet(fresh, index) {
+    const gone = new Set();
+    for (const f of this.files) {
+      const key = this.keyOf(f.url);
+      if (fresh.has(key) || !f.hash) continue;
+      if (index.gone[key] === f.hash) gone.add(key);
+    }
+    return gone;
+  }
+
   /** Caches of earlier builds this app wrote: their entries carry no hash record and are verified before being kept. */
   async #olderCaches() {
     const names = (await this.caches.keys()) || [];
     return names.filter((n) => n.startsWith(CACHE_PREFIX) && n !== this.cacheName);
+  }
+
+  /**
+   * Run `fn(innerSignal)` under both the caller's signal and a per-file deadline. Either one aborts the request, so a
+   * socket that answers nothing costs one failed file instead of a frozen lane (`fileTimeoutMs`, common.js). The
+   * deadline covers the body too: aborting the fetch breaks the stream `cache.put` is reading, so a stalled download
+   * cannot hang inside the cache write either.
+   */
+  async #withDeadline(signal, fn) {
+    const ctl = new AbortController();
+    const onAbort = () => { try { ctl.abort(signal.reason instanceof Error ? signal.reason : abortError('aborted')); } catch { /* already aborted */ } };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener?.('abort', onAbort, { once: true });
+    }
+    const timer = this.fileTimeoutMs ? setTimeout(() => {
+      const secs = this.fileTimeoutMs >= 1000 ? `（${Math.round(this.fileTimeoutMs / 1000)} 秒）` : '';
+      try { ctl.abort(new Error(`响应超时${secs}`)); } catch { /* already aborted */ }
+    }, this.fileTimeoutMs) : null;
+    try {
+      return await fn(ctl.signal);
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+      try { signal?.removeEventListener?.('abort', onAbort); } catch { /* a signal stub without the method */ }
+    }
   }
 
   /** Fetch a file and hand back a storable response (an opaque or empty or failed answer throws). */
@@ -179,10 +230,15 @@ export class ResourceStore {
     return false;
   }
 
-  /** Counters for a set of cached URLs (shared by status() and clear(), which must not re-create a cache). */
-  #tally(present) {
+  /**
+   * Counters for a set of cached URLs (shared by status() and clear(), which must not re-create a cache). `goneNow` are
+   * the entries the origin answered 404/410 for: they are counted separately — never as cached — but they *do* settle
+   * `complete`, because a manifest that lists a file nobody serves would otherwise never reach 100 %.
+   */
+  #tally(present, goneNow = new Set()) {
     const total = this.files.length;
     let count = 0;
+    let gone = 0;
     let bytes = 0;
     let sized = 0;
     let skipped = 0;
@@ -197,13 +253,14 @@ export class ResourceStore {
       if (hit) {
         count++;
         if (Number.isSafeInteger(f.size)) { bytes += f.size; sized++; }
-      }
+      } else if (goneNow.has(this.keyOf(f.url))) gone++;
     }
     const wanted = total - skipped;
     return {
       version: this.manifest.version,
       cacheName: this.cacheName,
       count,
+      gone,
       total,
       wanted,
       skipped,
@@ -215,7 +272,7 @@ export class ResourceStore {
       tier1Present,
       tier2,
       tier2Present,
-      complete: wanted > 0 && count >= wanted,
+      complete: wanted > 0 && count + gone >= wanted,
     };
   }
 
@@ -237,11 +294,17 @@ export class ResourceStore {
     const index = await this.#readIndex(cache);
     const start = await this.status();
     checkAbort(signal);
-    const work = this.files.filter((f) => wanted.has(f.tier) && this.eligible(f) && !start.present.has(this.keyOf(f.url)));
+    // Entries the origin answered 404/410 for (recorded against this manifest's hash) are left alone: asking again would
+    // cost one request per entry per run and cannot succeed while the manifest keeps listing a file nobody serves.
+    const goneKeys = this.#goneSet(start.present, index);
+    const work = this.files.filter((f) => wanted.has(f.tier) && this.eligible(f)
+      && !start.present.has(this.keyOf(f.url)) && !goneKeys.has(this.keyOf(f.url)));
     let done = start.count;
     let bytes = start.bytes;
     let sized = start.sized;
     let failed = 0;
+    /** Entries this run asked for and the origin 404'd: remembered in the index so the next run skips them. */
+    let gone = 0;
     let tier1Done = start.tier1Present;
     let tier2Done = start.tier2Present;
     let pendingFlush = 0;
@@ -256,7 +319,7 @@ export class ResourceStore {
       phase: 'download', count: done, total: start.total, wanted: start.wanted, skipped: start.skipped,
       bytes, totalBytes: start.totalBytes, sized, sizedTotal: start.sizedTotal,
       tier1: start.tier1, tier1Present: tier1Done, tier2: start.tier2, tier2Present: tier2Done,
-      complete: false, failed, failures: failures.slice(), current, adopted, downloaded,
+      complete: false, failed, failures: failures.slice(), current, adopted, downloaded, gone: start.gone + gone,
     });
     const emit = (current = null, force = false) => {
       if (!onProgress) return;
@@ -279,25 +342,29 @@ export class ResourceStore {
         try {
           if (await this.#adopt(file, cache, older)) adopted++;
           else {
-            let res = await this.#fetchStorable(key, signal);
-            // `cache: 'no-store'` bypasses the HTTP cache, not Cache Storage: a Service Worker of an older build may
-            // answer this fetch out of its own cache (and a stale one at that). Verify the bytes against the manifest
-            // hash and, when they disagree, ask again on a URL no cache entry can match — the worker matches full URLs.
-            // If the second answer still disagrees the asset hashes are stale (tools/asset-hashes.mjs --check catches
-            // that before a deploy): keep the bytes rather than failing the file, and record the manifest's hash.
-            if (file.hash && CONTENT_HASH_RE.test(file.hash)) {
-              const seen = await digestOf(res);
-              if (seen && seen !== file.hash) {
-                res = await this.#fetchStorable(`${key}${key.includes('?') ? '&' : '?'}sp=${file.hash}`, signal);
+            // Everything network-touching of this file runs under the per-file deadline, including the cache write.
+            await this.#withDeadline(signal, async (inner) => {
+              let res = await this.#fetchStorable(key, inner);
+              // `cache: 'no-store'` bypasses the HTTP cache, not Cache Storage: a Service Worker of an older build may
+              // answer this fetch out of its own cache (and a stale one at that). Verify the bytes against the manifest
+              // hash and, when they disagree, ask again on a URL no cache entry can match — the worker matches full URLs.
+              // If the second answer still disagrees the asset hashes are stale (tools/asset-hashes.mjs --check catches
+              // that before a deploy): keep the bytes rather than failing the file, and record the manifest's hash.
+              if (file.hash && CONTENT_HASH_RE.test(file.hash)) {
+                const seen = await digestOf(res);
+                if (seen && seen !== file.hash) {
+                  res = await this.#fetchStorable(`${key}${key.includes('?') ? '&' : '?'}sp=${file.hash}`, inner);
+                }
               }
-            }
-            await cache.put(key, this.storable(res));
+              await cache.put(key, this.storable(res));
+            });
             downloaded++;
           }
           // The file is current only once the index says so: a run stopped before its next flush re-fetches this one.
           if (file.hash) {
             index.files[key] = file.hash;
-            if (++pendingFlush >= INDEX_FLUSH_EVERY) { pendingFlush = 0; await this.#writeIndex(cache, index.files, this.manifest.version); }
+            delete index.gone[key]; // it answered this time (a redeploy may have added it): drop the 404 record
+            if (++pendingFlush >= INDEX_FLUSH_EVERY) { pendingFlush = 0; await this.#writeIndex(cache, index.files, this.manifest.version, index.gone); }
           }
           done++;
           if (file.tier === TIER_ESSENTIAL) tier1Done++; else tier2Done++;
@@ -310,8 +377,15 @@ export class ResourceStore {
             quota.cause = err;
             throw quota;
           }
-          failed++;
-          if (failures.length < MAX_FAILURES) failures.push({ url: file.url, message: String(err?.message || err) });
+          if (isGoneError(err)) {
+            // The origin says it does not have this file (HTTP 404/410): remember it against the manifest hash, so the
+            // next run skips it instead of spending one request per entry per run (the live manifest listed 1 685).
+            gone++;
+            if (file.hash) index.gone[key] = file.hash;
+          } else {
+            failed++;
+            if (failures.length < MAX_FAILURES) failures.push({ url: file.url, message: String(err?.message || err) });
+          }
         }
         emit(file.url);
       };
@@ -327,8 +401,9 @@ export class ResourceStore {
         checkAbort(signal);
       } finally {
         // Flush on every exit — an abort or a quota failure included: the files stored so far must count as current
-        // next time. A failing write only costs re-downloading them.
-        try { await this.#writeIndex(cache, index.files, this.manifest.version); } catch { /* out of storage: the run is already failing */ }
+        // next time (and the 404 records must survive, or the next run pays for the same missing entries again). A
+        // failing write only costs re-downloading them.
+        try { await this.#writeIndex(cache, index.files, this.manifest.version, index.gone); } catch { /* out of storage: the run is already failing */ }
       }
     } else {
       checkAbort(signal);
@@ -371,8 +446,8 @@ export class ResourceStore {
     if (!doomed.length) return 0;
     await Promise.all(doomed.map((k) => cache.delete(k)));
     const index = await this.#readIndex(cache);
-    for (const k of doomed) delete index.files[k.url];
-    await this.#writeIndex(cache, index.files, this.manifest.version);
+    for (const k of doomed) { delete index.files[k.url]; delete index.gone[k.url]; }
+    await this.#writeIndex(cache, index.files, this.manifest.version, index.gone);
     return doomed.length;
   }
 

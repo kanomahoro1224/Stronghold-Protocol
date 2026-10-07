@@ -35,6 +35,8 @@ describe('preload numbers', () => {
     const withBytes = state({ total: 3966, wanted: 3966, done: 812, tier1Total: 456, tier1Done: 456, totalBytes: 259726913, sizedTotal: 3966, bytes: 50000000 });
     assert.equal(detailText(withBytes), '必需 456/456 · 全部 812/3966 · 47.7 MiB / 248 MiB');
     assert.equal(detailText(state({ total: 10, done: 1, tier1Total: 0 })), '全部 1/10', 'no essential tier ⇒ no 必需 line');
+    // entries the origin does not serve are settled: the line reads 全部 10/10 without 10 files being cached
+    assert.equal(detailText(state({ total: 10, done: 8, gone: 2, tier1Total: 0 })), '全部 10/10');
   });
 
   test('percent: by bytes when every file is sized, by file count otherwise, clamped', () => {
@@ -45,6 +47,10 @@ describe('preload numbers', () => {
     assert.equal(percent(state({ total: 100, wanted: 100, done: 0, totalBytes: 200, sizedTotal: 100, bytes: 50 })), 25);
     assert.equal(percent(state({ total: 100, wanted: 100, done: 0, totalBytes: 200, sizedTotal: 50, bytes: 50 })), 0, 'a partly sized manifest falls back to files');
     assert.equal(percent(state({ total: 4, wanted: 4, done: 9 })), 100, 'clamped');
+    // a manifest with entries nobody serves still reaches the end (store.js counts them as `gone` for `complete`)
+    assert.equal(percent(state({ total: 100, wanted: 100, done: 90, gone: 10, complete: true })), 100);
+    assert.equal(percent(state({ total: 100, wanted: 100, done: 80, gone: 10, totalBytes: 200, sizedTotal: 100, bytes: 160 })), 90, 'files, not bytes, once entries are missing');
+    assert.equal(percent(state({ total: 100, wanted: 100, done: 90, gone: 10, totalBytes: 200, sizedTotal: 100, bytes: 180 })), 100, 'all settled ⇒ done');
   });
 });
 

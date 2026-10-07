@@ -76,7 +76,7 @@ function fetcherFor({ bodies = {}, fail = [], opaque = [], gzip = [], onCall } =
   return { fetch, calls };
 }
 
-const store = (m, extra = {}) => new ResourceStore(m, { caches: extra.caches ?? new MemoryCaches(), fetcher: extra.fetch, origin: ORIGIN, smallLanes: extra.smallLanes ?? 4, bigLanes: extra.bigLanes ?? 1, now: extra.now });
+const store = (m, extra = {}) => new ResourceStore(m, { caches: extra.caches ?? new MemoryCaches(), fetcher: extra.fetch, origin: ORIGIN, smallLanes: extra.smallLanes ?? 4, bigLanes: extra.bigLanes ?? 1, fileTimeoutMs: extra.fileTimeoutMs, now: extra.now });
 
 describe('ResourceStore', () => {
   test('status reports what is cached, in files and bytes', async () => {
@@ -157,12 +157,61 @@ describe('ResourceStore', () => {
     const { fetch } = fetcherFor({ fail: [`${ORIGIN}/assets/a.png`], opaque: [`${ORIGIN}/assets/b.png`] });
     const s = store(m, { fetch });
     const res = await s.download();
-    assert.equal(res.failed, 2);
+    // …/a.png is a 404: that is a property of the manifest (see the `gone` test below), not a failure to retry.
+    assert.equal(res.failed, 1);
+    assert.equal(res.gone, 1);
     assert.equal(res.count, 1);
-    assert.equal(res.complete, false);
-    assert.deepEqual(res.failures.map((f) => f.url), ['/assets/a.png', '/assets/b.png'], 'the manifest keeps the original URL');
-    assert.match(res.failures[0].message, /404/);
-    assert.match(res.failures[1].message, /CORS/);
+    assert.equal(res.complete, false, 'the opaque failure still keeps the preload incomplete');
+    assert.deepEqual(res.failures.map((f) => f.url), ['/assets/b.png'], 'the manifest keeps the original URL');
+    assert.match(res.failures[0].message, /CORS/);
+  });
+
+  test('an entry the origin 404s is remembered as gone: not a failure, and not asked for again', async () => {
+    // The deployed manifest listed 1 685 entries nobody serves (1 680 voice lines + 5 battle BGM tracks): every run
+    // spent one request per entry and the panel read 「1685 个文件未完成（下次继续时重试）」 on every start.
+    const VOICE = `${ORIGIN}/assets/audio/voice/cn_019.mp3`;
+    const m = manifest([{ url: '/assets/audio/voice/cn_019.mp3', tier: 1, size: 8 }, { url: '/assets/ui/a.png', tier: 1, size: 8 }]);
+    const caches = new MemoryCaches();
+    const first = fetcherFor({ fail: [VOICE] });
+    const res = await store(m, { caches, fetch: first.fetch }).download();
+    assert.equal(res.failed, 0, 'a 404 is not a failure to retry');
+    assert.equal(res.gone, 1);
+    assert.deepEqual([res.count, res.total, res.complete], [1, 2, true], 'what the origin does not have cannot keep the preload incomplete');
+    const doc = await (await caches.open(CACHE_NAME)).match(indexUrl(ORIGIN)).then((r) => r.json());
+    assert.deepEqual(doc.gone, { [VOICE]: 'h0' }, 'the record is keyed by the manifest hash it was asked under');
+
+    // a second run does not ask again — neither for the cached file nor for the gone one
+    const second = fetcherFor({ fail: [VOICE] });
+    const res2 = await store(m, { caches, fetch: second.fetch }).download();
+    assert.deepEqual(second.calls, [], 'nothing left to ask for');
+    assert.deepEqual([res2.count, res2.gone, res2.complete], [1, 1, true]);
+
+    // a redeploy that ships the file changes its manifest hash ⇒ the entry is requested again by itself
+    const m2 = manifest([{ url: '/assets/audio/voice/cn_019.mp3', tier: 1, size: 8, hash: 'a-new-digest' }, { url: '/assets/ui/a.png', tier: 1, size: 8 }]);
+    const third = fetcherFor();
+    const res3 = await store(m2, { caches, fetch: third.fetch }).download();
+    assert.deepEqual(third.calls, [VOICE], 'a new hash means try again');
+    assert.deepEqual([res3.gone, res3.count, res3.complete], [0, 2, true]);
+  });
+
+  test('a socket that never answers fails that file instead of freezing the lane', async () => {
+    const m = manifest([{ url: '/assets/a.png', tier: 1, size: 8 }, { url: '/assets/b.png', tier: 1, size: 8 }]);
+    const caches = new MemoryCaches();
+    // '/assets/a.png' hangs forever: without the per-file deadline the single small lane would never finish the run.
+    const fetch = (url, opts = {}) => {
+      if (url.endsWith('/assets/a.png')) {
+        return new Promise((_resolve, reject) => {
+          opts.signal?.addEventListener('abort', () => reject(opts.signal.reason ?? new Error('aborted')), { once: true });
+        });
+      }
+      return Promise.resolve(new Response('x'.repeat(8), { status: 200, headers: { 'Content-Type': 'image/png' } }));
+    };
+    const s = new ResourceStore(m, { caches, fetcher: fetch, origin: ORIGIN, fileTimeoutMs: 40, smallLanes: 1 });
+    const res = await s.download();
+    assert.equal(res.failed, 1);
+    assert.match(res.failures[0].message, /超时/);
+    assert.deepEqual([res.count, res.complete], [1, false], 'a timeout is transient: the next run tries again');
+    assert.equal(await (await caches.open(CACHE_NAME)).match(`${ORIGIN}/assets/b.png`).then((r) => r.text()), 'x'.repeat(8), 'the other file still landed');
   });
 
   test('an abort stops the run and keeps what was already stored', async () => {

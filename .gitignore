@@ -10,6 +10,9 @@ public/fonts/
 # tools/local-extract/extract.py → public/assets/local/** and this per-machine manifest
 # (optional: the client and the tests work without it; docs/DEPLOY.md §6 lists what falls back)
 data/local-assets.json
+# tools/asset-hashes.mjs → per-file digests of the fetched tree; regenerate it wherever the assets live
+# (without it server/resources.js falls back to a synthetic hash, so one manifest change re-downloads everything)
+data/asset-hashes.json
 # download caches, upstream tables, ledgers, reports, setup state
 .cache/
 

@@ -353,6 +353,60 @@ The 2026-09-27 verification pass also checked:
 - **Browser:** headless Chrome loads and animates all 529 Spine models with the vendored PixiJS 7.4.2 and pixi-spine 4.0.6, with no console errors. Chrome's font sanitizer also accepts the three WOFF2 files.
 - **Official data:** 771 provenance checks against the official data (`activity_table`, `skill_table`, `models_data.json`) all match: avatars, portraits, E2 art, bond, band and item icons, and enemy skeleton files.
 
+## Preload (offline cache)
+
+The optional 「预载资源」 switch (`public/js/ui/resourcePanel.js`) stores every file of `/data/resource-manifest.json`
+in Cache Storage, so a match loads from the machine instead of the network. The pieces:
+
+| Piece | Where |
+| --- | --- |
+| Manifest (`/data/resource-manifest.json`) | `server/resources.js` `buildResourceManifest` / `createResourceIndex` |
+| Downloader | `public/js/resources/store.js` (4 small lanes + 1 big-file lane, files > 24 MiB skipped) |
+| Index of what is cached | Cache Storage entry `/__sp-resource-index__` (`{ version, manifest, files, gone }`) |
+| Pages / UI | `public/js/resources/index.js`, `public/js/ui/resourcePanel.js` |
+| Offline reads | `public/js/resources/service.js` (Service Worker) |
+
+### Requirement: every URL in the manifest must really be served
+
+`collectResourceFiles` only emits a file it found on disk, so a manifest entry is a promise. The client checks it once
+per entry per run, and a URL that answers 404 costs a request **for as long as the entry stays in the manifest**:
+
+- **Build side.** The manifest is regenerated from `data/assets.json` + `data/local-assets.json`; a rebuild that runs
+  where the asset tree is incomplete produces a *smaller* manifest, never a wrong one.
+- **CDN side.** Where the rewrite points (`server/resources.js` `localPathFor`, nginx `location ^~ /assets/`,
+  `/media/`, `/fonts/`) every entry must exist **at that exact path**. The deployment of 2026-10-07 served a manifest
+  of 7 171 files while the R2 prefix tree held 5 486 of them: `assets/audio/voice/**` (1 680 files, 44 MB) and five
+  battle BGM tracks were missing, because the mirroring job copies a *local* `public/` tree and that checkout has no
+  voice branch. `/media/voice/**` was missing for the same reason (in-game voice was silent).
+
+Verify after any asset/CDN change: fetch every manifest URL through the public domain and require 200 —
+`.p2tmp/preload-verify.mjs` (HEAD, follows the nginx 302 to R2) and `.p2tmp/preload-sweep.mjs` (URL-by-URL list).
+
+### `tools/asset-hashes.mjs`
+
+Without `data/asset-hashes.json`, `resolveHashes` falls back to a synthetic `syn-<source stamp>|<url>` per file. That
+fallback is keyed to the whole source manifest, so regenerating `data/assets.json` invalidates **every** web asset and
+the preload re-downloads the full cache (~380 MiB) instead of the files that changed; a synthetic hash is also not a
+content digest, so `store.js` cannot verify cached bytes nor adopt them from an older cache layout. Run it where the
+assets are:
+
+```sh
+node tools/asset-hashes.mjs            # → data/asset-hashes.json (URL path → 12-hex SHA-1)
+node tools/asset-hashes.mjs --check    # exit 1 when the file is stale; run before a deploy
+```
+
+### Failure states the panel shows
+
+- **`saved`** — the manifest's bytes are cached and their digest matches.
+- **`gone`** — the origin answered **404/410**. This is a property of the manifest, not of the network, so the URL is
+  recorded in the index *with the manifest hash it was asked under* and is not requested again; it counts towards
+  `complete` (otherwise a manifest listing a file nobody serves could never reach 100 %), and a redeploy that adds the
+  file (a new hash) retries it by itself. The panel reads 「N 个文件源站没有（已跳过）」.
+- **`failed`** — a transient error (network, CORS/opaque, 5xx) or a per-file timeout (`FILE_TIMEOUT_MS`, 30 s): retried
+  on the next run. Without the timeout one stalled socket pinned a download lane forever, which is what a player saw as
+  「预载卡在 76%」.
+- **`skipped`** — bigger than `MAX_FILE_BYTES` (24 MiB) or no size in the manifest; never fetched.
+
 ## Licensing and credits
 
 The project's code is GPL-3.0-or-later (`LICENSE`); none of the items below is covered by it. Details: `NOTICE.md` (scope, non-commercial terms) and `THIRD-PARTY-NOTICES.md` (libraries, fonts, licence texts).

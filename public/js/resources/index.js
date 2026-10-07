@@ -31,6 +31,8 @@ const state = {
   sizedTotal: 0,
   skipped: 0,
   failed: 0,
+  /** Entries the origin answered 404/410 for: skipped for good, never counted as saved (store.js `gone`). */
+  gone: 0,
   complete: false,
   message: '',
   error: false,
@@ -80,6 +82,7 @@ const counters = (s) => ({
   sized: s.sized,
   sizedTotal: s.sizedTotal,
   skipped: s.skipped,
+  gone: s.gone ?? 0,
   complete: s.complete,
   // migration (kept bytes) vs network (fetched bytes): 0 unless a run is/was in flight
   adopted: s.adopted ?? 0,
@@ -240,8 +243,8 @@ async function start() {
       phase: 'ready',
       error: false,
       message: after.complete
-        ? `资源已全部预载完成（${formatBytes(after.bytes)}）。`
-        : `已保存 ${after.count}/${after.total} 个文件；未完成的会在下次开启时重试。`,
+        ? `资源已全部预载完成（${formatBytes(after.bytes)}）。${after.gone ? `另有 ${after.gone} 个文件源站没有，已跳过。` : ''}`
+        : `已保存 ${after.count}/${after.total} 个文件；${after.gone ? `${after.gone} 个文件源站没有（已跳过）；` : ''}未完成的会在下次开启时重试。`,
     });
     if (after.complete) void store.prune();
   } catch (err) {

@@ -20,12 +20,12 @@ export function byteText(st) {
   return st.sizedTotal ? `${formatBytes(done)} / ${formatBytes(total)}` : formatBytes(total);
 }
 
-/** `必需 120/456 · 全部 800/3959 · 1.2 GiB / 2.4 GiB` */
+/** `必需 120/456 · 全部 800/3959 · 1.2 GiB / 2.4 GiB` — `全部` counts the entries the origin 404'd as settled. */
 export function detailText(st) {
   if (!st.total) return '';
   return [
     st.tier1Total ? `必需 ${st.tier1Done}/${st.tier1Total}` : '',
-    `全部 ${st.done}/${st.total}`,
+    `全部 ${st.done + (st.gone || 0)}/${st.total}`,
     byteText(st),
   ].filter(Boolean).join(' · ');
 }
@@ -33,8 +33,12 @@ export function detailText(st) {
 /** Percent cached: by bytes when every file has a size, by file count otherwise (0..100, for the progress bar). */
 export function percent(st) {
   if (!st.total) return 0;
-  const byBytes = st.totalBytes > 0 && st.sizedTotal === st.total;
-  const pct = byBytes ? (st.bytes / st.totalBytes) * 100 : (st.done / Math.max(1, st.wanted || st.total)) * 100;
+  // Every settleable entry is settled: store.js counts the 404s (`gone`) towards `complete`, so the bar must not stick
+  // just below the end forever. A partly sized manifest — or one with missing files — is measured in files.
+  if (st.complete) return 100;
+  const gone = st.gone || 0;
+  const byBytes = gone === 0 && st.totalBytes > 0 && st.sizedTotal === st.total;
+  const pct = byBytes ? (st.bytes / st.totalBytes) * 100 : ((st.done + gone) / Math.max(1, st.wanted || st.total)) * 100;
   return Math.max(0, Math.min(100, Math.round(pct)));
 }
 
@@ -77,6 +81,7 @@ export function ResourceRow({ enabled, onChange }) {
           </div>
           ${st.supported ? html`<${ResourceActions} st=${st} />` : null}
           ${st.worker ? html`<p class="set-hint set-res__warn">${st.worker}</p>` : null}
+          ${st.gone ? html`<p class="set-hint">${st.gone} 个文件源站没有（已跳过，不影响使用）</p>` : null}
           ${st.failed ? html`<p class="set-hint set-res__warn">${st.failed} 个文件未完成（下次继续时重试）</p>` : null}
         </div>`
       : html`<p class="set-hint">开启后会把对局需要的素材（字体、界面、立绘、小人、音效）保存到本机缓存，进入战斗不再等待下载；关闭时一切照旧按需加载。需要 HTTPS。</p>`}
@@ -114,6 +119,7 @@ export function ResourceLauncher({ enabled, onChange }) {
           <p class="res-pill__text">${st.message || detail || '正在准备…'}</p>
           ${st.message && detail ? html`<p class="res-pill__text is-dim">${detail}</p>` : null}
           ${st.worker ? html`<p class="res-pill__text is-warn">${st.worker}</p>` : null}
+          ${st.gone ? html`<p class="res-pill__text is-dim">${st.gone} 个文件源站没有（已跳过）</p>` : null}
           ${st.supported
             ? html`<${ResourceActions} st=${st} onClose=${() => onChange(false)} />`
             : html`<div class="res-actions"><button type="button" class="res-link" onClick=${() => onChange(false)}>关闭预载</button></div>`}
