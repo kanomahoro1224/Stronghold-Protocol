@@ -53,10 +53,10 @@ describe('赞助: the QR in the 公告 panel', () => {
     assert.match(NOTICE_SRC, /<div class="notice__layout">/);
     assert.match(NOTICE_SRC, /class="notice__body"[\s\S]*?<aside class="notice__side"><\$\{SponsorQr\} \/><\/aside>/,
       'the QR is the layout\'s second column, after the text');
-    assert.match(NOTICE_SRC, /width="min\(9\.6rem, 94vw\)"/, 'a wider dialog that still fits a phone');
+    assert.match(NOTICE_SRC, /width="min\(11\.2rem, 94vw\)"/, 'a wider dialog that still fits a phone');
     const css = read('public/css/screens/title.css');
     assert.match(css, /\.notice__layout \{ display: flex;/);
-    assert.match(css, /\.notice__side \{ flex: 0 0 3\.5rem;/);
+    assert.match(css, /\.notice__side \{ flex: 0 0 4\.7rem;/, 'the QR column the operator asked to enlarge');
     assert.match(css, /@media \(max-width: 760px\) \{\s*\.notice__layout \{ flex-direction: column; \}/);
     assert.match(css, /\.sponsor__qr \{[\s\S]*?width: 100%/);
   });
@@ -65,8 +65,6 @@ describe('赞助: the QR in the 公告 panel', () => {
     assert.ok(!read('public/js/screens/title.js').includes('花鹿云心'), 'the footer sponsor line is gone');
     assert.ok(!read('public/js/screens/title.js').includes('title-foot__link'), 'and its link');
     assert.ok(!read('data/notice.json').includes('花鹿云心'), 'the notice section was removed too');
-    // 维护提醒 was dropped with it, but the operator asked for a real one back on 2026-10-07 (12:00 flash update), so
-    // the label is expected again — only the OUTDATED reminder text must stay gone.
-    assert.ok(!read('data/notice.json').includes('本次维护'), 'the outdated maintenance reminder text');
+    assert.ok(!read('data/notice.json').includes('维护提醒'), 'and the maintenance reminder section with it');
   });
 });
