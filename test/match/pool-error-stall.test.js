@@ -32,6 +32,7 @@ function takeover() {
   const f = m.fields.find((x) => x.fieldId === 'n:p_1');
   assert.ok(f, 'p_1 has a field');
   m.onDisconnect('p_1');
+  m.takeOverNow('p_1'); // the grace elapsed (no battle time burnt), so the server owns the seat
   assert.equal(f.mode, 'server', 'the dropped seat is simulated by the server');
   assert.equal(f.result, null, 'the sliced takeover has not produced a result yet');
   return { h, m, f };

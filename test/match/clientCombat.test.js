@@ -171,7 +171,8 @@ test('takeover: an authority that disconnects mid-combat loses its field; the se
   assert.equal(f.mode, 'client');
   h.sched.advance(3000);
   m.onDisconnect('p_1');
-  assert.equal(f.mode, 'server', 'server takeover on disconnect');
+  m.takeOverNow('p_1'); // the grace elapsed (no battle time burnt), so the server owns the field
+  assert.equal(f.mode, 'server', 'server takeover after the drop grace');
   assert.ok(f.result && f.resultSource === 'server');
   assert.equal(m.verifyStats.takeovers, 1);
   m.onReconnect('p_1');
@@ -317,12 +318,14 @@ test('Final Assault: the authority leaves → its partner\'s replica takes over;
   const acked = f.bossAcked;
   assert.ok(acked > 0);
   m.onDisconnect('p_0');
+  m.takeOverNow('p_0'); // the drop grace, then the partner is promoted
   assert.equal(f.authority, 'p_1', 'the partner takes over');
   assert.equal(h.lastTo('p_1', 'b.start').authoritative, true);
   h.sched.advance(2000);
   assert.ok(f.bossAcked > acked, 'the new authority keeps reporting cumulative damage');
   const before = m.bossPool.hp;
   m.onDisconnect('p_1');
+  m.takeOverNow('p_1');
   assert.equal(f.mode, 'server');
   const afterHp = m.bossPool.hp;
   assert.ok(Math.abs(afterHp - before) < 1e-6, 'the re-simulation does not double count reported damage');
@@ -502,6 +505,7 @@ test('Final Assault: an early boss b.result (forced at t≈0) does not end the p
   assert.ok(m.verifyStats.rejected >= 1);
   // the demoted client never gets the field back: the partner leaving hands it to the server
   m.onDisconnect('p_1');
+  m.takeOverNow('p_1'); // the grace, then the server takes the field
   assert.equal(f.mode, 'server');
   assert.equal(f.authority, null);
   m.dispose();
@@ -563,6 +567,7 @@ test('Final Assault run on the server (nobody connected at its start): a human w
   h.drive(() => m.phase === PHASE.PREP && m.round === m.gd.bossRound);
   m.onDisconnect('p_0');
   m.onDisconnect('p_1');
+  m.takeOverNow('p_0'); m.takeOverNow('p_1'); // both drops, both graces elapsed, then the server owns the field
   h.run(() => m.phase === PHASE.FINAL_ASSAULT);
   h.sched.advance(2000);
   const f = fields(h)[0];

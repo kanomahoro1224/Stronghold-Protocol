@@ -610,6 +610,19 @@ export class Match {
     if (late) this.markPublic();
   }
 
+  /**
+   * End a drop's grace right now (the timer's own callback, callable): tests use it to get the takeover without
+   * burning DROP_TAKEOVER_MS of battle time, and an operator could force a takeover the same way. A connected seat is
+   * left alone by _dropTakeover, so calling it early is harmless.
+   */
+  takeOverNow(playerId) {
+    const ps = this.players.get(playerId);
+    if (!ps) return;
+    this.cancel(ps.dropTimer);
+    ps.dropTimer = null;
+    this._dropTakeover(ps, true);
+  }
+
   onReconnect(playerId) {
     const ps = this.players.get(playerId);
     if (!ps || ps.isBot || ps.left || this.disposed) return;
