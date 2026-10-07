@@ -40,6 +40,11 @@
 // left as they are; fonts are not rebuilt — the manifest keeps its current
 // `fonts`).
 //
+// Voice: a run without --voice-lang(s) plans cn plus every language the current
+// data/assets.json already carries in audio.voiceAlt, so `npm run assets` and
+// tools/setup.mjs keep a dual-track table instead of rebuilding the manifest
+// without it (which the shrink guard refuses to write). The flag overrides.
+//
 // Usage: node tools/fetch-assets.mjs [--concurrency=16] [--force] [--offline]
 //                                    [--dry-run] [--refresh-index] [--prune]
 //                                    [--allow-shrink] [--add-only] [--local-spines] [--help]
@@ -101,6 +106,10 @@ const HELP = `Usage: node tools/fetch-assets.mjs [options]
                     downloaded here like any other asset (docs/ASSETS.md "干员战斗语音").
   --voice-all       plan every official voice slot, including the prep-only lines no battle plays
                     (干员报到 / 编入队伍 / 任命队长; 360 files / 19.3 MB more per run — off by default)
+  (no --voice-lang / --voice-langs)
+                    plan cn plus every language the current data/assets.json already carries in audio.voiceAlt, so a
+                    routine run keeps an alt table rather than rebuilding a manifest without it (which the shrink
+                    guard refuses to write). Pass --voice-lang=cn to plan the primary table alone.
   --prune           delete files under public/assets that the manifest no longer references
                     (public/assets/local/** of tools/local-extract is never deleted); implies --allow-shrink
   --allow-shrink    write data/assets.json even when it loses entries the current one has
@@ -119,10 +128,10 @@ failures. Only explicitly enabled GitHub downloads use the third-party proxy.`;
 /**
  * Parse CLI flags.
  * @param {string[]} argv
- * @returns {{concurrency:number, force:boolean, offline:boolean, dryRun:boolean, refreshIndex:boolean, prune:boolean, allowShrink:boolean, addOnly:boolean, localSpines:boolean, voiceLang:string, voiceLangs:string[], voiceAll:boolean, help:boolean, source:string}}
+ * @returns {{concurrency:number, force:boolean, offline:boolean, dryRun:boolean, refreshIndex:boolean, prune:boolean, allowShrink:boolean, addOnly:boolean, localSpines:boolean, voiceLang:string, voiceLangs:string[], voiceLangsGiven:boolean, voiceAll:boolean, help:boolean, source:string}}
  */
 export function parseArgs(argv) {
-  const o = { concurrency: 16, force: false, offline: false, dryRun: false, refreshIndex: false, prune: false, allowShrink: false, addOnly: false, localSpines: false, voiceLang: 'cn', voiceLangs: ['cn'], voiceAll: false, help: false, source: process.env.SP_ASSET_SOURCE || 'direct' };
+  const o = { concurrency: 16, force: false, offline: false, dryRun: false, refreshIndex: false, prune: false, allowShrink: false, addOnly: false, localSpines: false, voiceLang: 'cn', voiceLangs: ['cn'], voiceLangsGiven: false, voiceAll: false, help: false, source: process.env.SP_ASSET_SOURCE || 'direct' };
   for (const a of argv) {
     const [k, v] = a.split('=');
     if (k === '--concurrency') o.concurrency = Math.max(1, Math.min(64, parseInt(v, 10) || 16));
@@ -135,13 +144,14 @@ export function parseArgs(argv) {
     else if (k === '--allow-shrink') o.allowShrink = true;
     else if (k === '--add-only') o.addOnly = true;
     else if (k === '--local-spines') o.localSpines = true;
-    else if (k === '--voice-lang') { if (!VOICE_DIRS[v]) throw new Error(`unknown --voice-lang ${v} (cn | jp | en | kr)`); o.voiceLangs = [v]; }
+    else if (k === '--voice-lang') { if (!VOICE_DIRS[v]) throw new Error(`unknown --voice-lang ${v} (cn | jp | en | kr)`); o.voiceLangs = [v]; o.voiceLangsGiven = true; }
     // one run, several dumps: the first language is the primary table (audio.voice), the others audio.voiceAlt[<lang>]
     else if (k === '--voice-langs') {
       const langs = String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
       if (!langs.length) throw new Error(`--voice-langs needs one or more languages (cn | jp | en | kr)\n${HELP}`);
       for (const l of langs) if (!VOICE_DIRS[l]) throw new Error(`unknown --voice-langs ${l} (cn | jp | en | kr)`);
       o.voiceLangs = [...new Set(langs)];
+      o.voiceLangsGiven = true;
     }
     else if (k === '--voice-all') o.voiceAll = true;
     else if (k === '--help' || k === '-h') o.help = true;
@@ -151,6 +161,21 @@ export function parseArgs(argv) {
   if (o.addOnly && (o.prune || o.force)) throw new Error(`--add-only never deletes or rewrites files: not with --prune / --force\n${HELP}`);
   if (!o.help) validateSource(o.source);
   return o;
+}
+
+/**
+ * The voice dumps a run should plan when no `--voice-lang(s)` was given: the primary table plus every alternate the
+ * current data/assets.json already carries (`audio.voiceAlt[<lang>]`, written by `--voice-langs=cn,jp`). Without this a
+ * routine run — `npm run assets`, tools/setup.mjs — rebuilt the manifest without the alt table and the shrink guard
+ * refused to write it, so the one command every install uses to finish a download broke as soon as a JP table existed.
+ * An explicit flag stays authoritative: `--voice-lang=cn` still plans the primary table alone.
+ * @param {string[]} explicit the parsed `voiceLangs` (never empty; `['cn']` by default)
+ * @param {unknown} manifest the current data/assets.json, or null when there is none / it is unreadable
+ * @returns {string[]} the languages to plan, the first one being the primary `audio.voice` table
+ */
+export function inheritedVoiceLangs(explicit, manifest) {
+  const alts = Object.keys(manifest?.audio?.voiceAlt || {}).filter((l) => VOICE_DIRS[l]);
+  return [...new Set([...explicit, ...alts])];
 }
 
 export function resolveProxyPrefix(source, offline = false, value = process.env.SP_GITHUB_PROXY) {
@@ -332,6 +357,16 @@ async function main() {
     readJson('docs/research/05-enemies.json'),
     readJson('docs/research/05-maps.json'),
   ]);
+  // Voice: an explicit --voice-lang(s) wins; otherwise plan every dump the current manifest already carries, so a
+  // routine run keeps `audio.voiceAlt.jp` instead of rebuilding a manifest without it (the shrink guard would refuse).
+  if (!opts.voiceLangsGiven) {
+    const langs = inheritedVoiceLangs(opts.voiceLangs, await readJson('data/assets.json').catch(() => null));
+    if (langs.length !== opts.voiceLangs.length) {
+      log(`[voice] data/assets.json already carries ${langs.slice(1).join(', ')}: planning ${langs.join(',')} too (--voice-lang overrides)`);
+      opts.voiceLangs = langs;
+      opts.voiceLang = langs[0];
+    }
+  }
   const proxyPrefix = resolveProxyPrefix(opts.source, opts.offline);
   const source = await selectDownloadSource({ mode: opts.source, offline: opts.offline, proxyPrefix, log });
   const mirrorPolicy = new MirrorPolicy({ source, proxyPrefix, log });

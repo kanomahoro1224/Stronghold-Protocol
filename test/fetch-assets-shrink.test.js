@@ -97,3 +97,29 @@ test('fetch-assets still runs as a script: --help lists --allow-shrink', () => {
   assert.match(r.stdout, /--allow-shrink/);
   assert.match(r.stdout, /--prune .*\n.*implies --allow-shrink/);
 });
+
+test('a run without --voice-lang(s) plans every dump the manifest already carries, so a JP table cannot shrink it (干员战斗语音)', async () => {
+  // audio.voiceAlt.jp comes from `--voice-langs=cn,jp`. A routine run — `npm run assets`, tools/setup.mjs, a deploy —
+  // passes no voice flag, so it used to plan cn alone, rebuild the manifest without the JP table and be refused by the
+  // shrink guard above: finishing a download became impossible until someone remembered the flag (the alt table is the
+  // feature, so the guard was right and the default was wrong).
+  const { inheritedVoiceLangs, parseArgs } = await import('../tools/fetch-assets.mjs');
+  const withJp = { audio: { voice: { c1: {} }, voiceAlt: { jp: { c1: {} } } } };
+  assert.deepEqual(inheritedVoiceLangs(['cn'], withJp), ['cn', 'jp'], 'cn stays the primary table and jp rides along');
+  assert.deepEqual(inheritedVoiceLangs(['cn'], { audio: { voiceAlt: { kr: {}, jp: {} } } }), ['cn', 'kr', 'jp'], 'alt order follows the manifest');
+  assert.deepEqual(inheritedVoiceLangs(['cn'], null), ['cn'], 'no manifest: unchanged');
+  assert.deepEqual(inheritedVoiceLangs(['cn'], 42), ['cn'], 'an unreadable manifest: unchanged');
+  assert.deepEqual(inheritedVoiceLangs(['cn'], { audio: { voice: {} } }), ['cn'], 'no alt table: unchanged');
+  assert.deepEqual(inheritedVoiceLangs(['cn'], { audio: { voiceAlt: { xx: {} } } }), ['cn'], 'a language the dumps do not carry is ignored');
+  assert.deepEqual(inheritedVoiceLangs(['cn', 'jp'], withJp), ['cn', 'jp'], 'already listed: no duplicate');
+  // An explicit flag stays authoritative — `--voice-lang=cn` is how you deliberately plan the primary table alone.
+  assert.equal(parseArgs([]).voiceLangsGiven, false, 'no flag: inherit from the manifest');
+  assert.equal(parseArgs(['--voice-lang=cn']).voiceLangsGiven, true);
+  assert.equal(parseArgs(['--voice-langs=cn,jp']).voiceLangsGiven, true);
+  // The wiring: main() only consults the manifest when no voice flag was given.
+  const src = readFileSync(join(ROOT, 'tools', 'fetch-assets.mjs'), 'utf8');
+  assert.match(src, /if \(!opts\.voiceLangsGiven\)/, 'main() checks whether a voice flag was given');
+  assert.match(src, /const langs = inheritedVoiceLangs\(opts\.voiceLangs, await readJson\('data\/assets\.json'\)/,
+    'and extends the planned languages with what the manifest already has');
+  assert.match(src, /--voice-lang \/ --voice-langs\)/, '--help documents the default');
+});

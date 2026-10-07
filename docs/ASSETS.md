@@ -112,11 +112,13 @@ that slot plays in CN (`public/js/audio.js voiceLines`). The alternate audio its
 fetched on the server by that command at deploy time, into the same `public/assets/audio/voice/<lang>/` tree, which the
 existing `/voice/` preload group and the `/assets/**` path rule already serve — no server or client deploy change.
 
-**Use that command on every server that carries the JP dub.** Once `audio.voiceAlt.jp` is in the manifest, a plain
-`node tools/fetch-assets.mjs` (`npm run assets`, `tools/setup.mjs`) plans the CN table alone and would drop it — so the
-shrink guard refuses the write, the run names every `audio.voiceAlt.**` entry it would lose and exits 1, and the
-committed manifest (and the JP files) stay as they are. That is the guard doing its job, not a broken deploy: re-run
-with `--voice-langs=cn,jp`, or pass `--allow-shrink` when the alternate track is meant to go away.
+**Use that command on every server that carries the JP dub — and note that a plain run now keeps the track by itself.** Without
+`--voice-lang(s)`, `tools/fetch-assets.mjs` plans `cn` **plus every language the current `data/assets.json` already carries
+in `audio.voiceAlt`** (`inheritedVoiceLangs`), so `npm run assets` and `tools/setup.mjs` cannot rebuild a manifest without
+the alternate table. Before that they planned `cn` alone, the shrink guard refused the write (naming every
+`audio.voiceAlt.**` entry it would lose) and exited 1 — the guard doing its job, on the one command every install uses to
+finish a download. An explicit `--voice-lang=cn` still plans the primary table alone, and `--allow-shrink` is what you pass
+when the alternate track is meant to go away.
 
 The `stem` of a Spine model is the upstream file name. Two examples: `char_107_liskam` has the stem `char_107_liskarm`, and `enemy_9032_aclionk` uses `enemy_1559_vtlionk`. The skel and atlas of a model always share one stem. pixi-spine locates the atlas by swapping the extension, so this matters.
 
