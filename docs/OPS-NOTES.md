@@ -137,13 +137,23 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **部署不会碰它**：官方 `deploy-214.sh` / `deploy-t44.sh` 的备份都带 `--exclude=./state`，部署包里也没有 `state/` ⇒ 记录文件**原地不动**（2026-10-08 实测：`.214` 966 个 / 18 MB，t44 44 个 / 652 KB，且当时都在持续写）。`data/` 里也**没有**运行时文件（只有静态内容 + 运营手改的 `notice.json`）⇒ 不存在"部署覆盖玩家数据"。
 
-**但跨版本恢复不了**（2026-10-08 实测）：闸门 = **build + engine 哈希**，两台都设了 `SP_STATE_IGNORE_BUILD` ⇒ build 不校验，**engine 才是决定项**：
+**闸门到底比什么**（看 `server/state/resume.js` `checkRecord` + `server/http/state.js` `runBootScan`）：只有 **`rulesHash`** 是真闸门；**`build` 那半可以被 `SP_STATE_IGNORE_BUILD` 跳过**（两台都开着 ⇒ 部署改了 build tag 也不会中断对局）；**`engineHash` 是"只展示、不做闸门"的**（源码注释写明：拿它拒记录会让"每次代码部署都中断对局"，与这个功能的初衷相反，所以只在 `/healthz.state.scan.gate.engine` 里给运维看）。`rulesHash` = `data/*.json`（去掉美术/文案清单）+ `shared/constants.js` 的内容哈希。
 
-| | `.214`（0.1.3） | t44（0.1.4） | 待部署（0.2.1 合并线） |
+**2026-10-08 实测（0.1.3 / 0.1.4 → 0.2.1 合并线）**：两边记录的 `rulesHash` 与部署后的新值**不同** ⇒ 不干预的话，旧对局在升级后一律 `refused(reason=rules)`，玩家重连后回大厅/开新局 —— 这就是维护 tips 里「对局可能中断，请做好规划」的由来。（记录 `version` 两边都是 2，与部署后一致；记录文件被拒后**不会被删**，`purgeRefused` 只清"永久不可恢复"的那类。）
+
+| | `.214`（0.1.3） | t44（0.1.4） | 部署后（0.2.1） |
 |---|---|---|---|
-| engineHash 前 12 位 | `4a6cd96d9372` | `252f321d617b` | **`510e8c15ca99`** |
+| `rulesHash`（记录里盖的章 / 新值） | `24b212ce2034cd8f…` | `07dba3abeed60d1e…` | `cdde5166f0a2d545…` |
+| `engineHash` 前 12 位（仅展示） | `4a6cd96d9372` | `252f321d617b` | `510e8c15ca99` |
 
-⇒ 升级后 boot scan 会把旧记录判成 `refused`（`reasons` 里出现 engine），**进行中的对局会中断**，玩家重连后回大厅 / 开新局 —— 这就是维护 tips 里「对局可能中断，请做好规划」的由来。**新版本自己写的记录**恢复正常可恢复（同 build 同 engine 的内部重启没问题：`.214` 上次重启 resumed 了 16 局）。
+**强制恢复（当运维坚持"升级也要接回旧对局"时）**：`/opt/stronghold-deploy/force-resume.sh`（`.tools/force-resume.sh`，两台已部署）——
+1. 等 0.2.1 真正落地（`APP_VERSION` + 部署标记 + `/healthz`，最多 15 分钟；部署失败/回滚就什么都不做，退出码 0）；
+2. **先把整个 `state/` 备份**到 `backups/state-<TS>.tar.gz`（可回滚）；
+3. 把每个记录的 `rulesHash` 改写成新值（`build` 顺手对齐；`inMatch === false` 的房间记录不动，与 `checkRecord` 的判据一致）；
+4. 若真有改写就 `systemctl restart stronghold` **一次**（约 5 秒；必须在玩家的 10 分钟重连窗口内完成），然后复查 `/healthz.state.scan`（`loaded` / `resumedCount` / `reasons`）与日志里的 `[lobby] … failed to resume`；
+5. 没有任何记录需要改写时**不重启**（规则没变的情况下等于空跑）。
+⚠️ 代价：这是**把旧局面重放进新引擎**——上游用 `rulesHash` 挡住它正是因为"引擎状态会被拿来对着它没见过的输入重建"，恢复回来的局**可能状态错乱或报错**（第 4 步的日志会显示）。本次由用户明确要求才这么做。
+
 
 **怎么查**：`curl -s 127.0.0.1:3000/healthz` 的 `state` 段（`scan.reasons`、`resumedCount`、`persist.written/errors` / `lastError`），日志 `journalctl -u stronghold | grep '\[state\]'`。
 
