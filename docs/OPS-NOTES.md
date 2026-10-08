@@ -177,6 +177,22 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **另一处观察**：`download()` 的"优先使用本机预打补丁的包"分支**没生效** ✗（两台 12:00 日志都是「⚠ 包内没有规则章补丁 → 解包后由 `patch_state_gate` 补上」），兜底的"解包后补丁"那层按预期接管 ✓。**教训：任何"预先准备好"的优化都必须配一层"事后校验/兜底"** ✓，判定条件本身也还要再查。
 
+## 8. 预载"卡住"（2026-10-08 修）
+
+**症状**：设置里资源预载停在 `必需 5616/7190 · 全部 9040/11221 · 433 MiB / 433 MiB`，进度条满格但数目永远到不了头，看着像卡死 ✓。
+
+**根因**：服务端清单（`/data/resource-manifest.json`）里的条目**只有能 stat 到本地文件的才有 `size`** ✓；`.214` 实测 `count=11221, tier1=7190, sized=9042`，即 **2179 个条目没有 size**（`assets/audio` 1179、`spine` 428、`char` 284、`skill` 205、`module` 37、`token` 35、`prof` 10、`ui` 1 —— 上游 `data/assets.json` 引用、本机没抓的文件 ✓）。客户端对没有 size 的条目判 `eligible=false` → **跳过、永不下载** ✓，可面板的**分母**用的是 `total`/`tier1Total`（含这 2179 个 ✗）→ 于是"该下的 9042 个全下完了 ✓ 字节 433/433 ✓，数字却说还差 2181" ✗ = 看起来卡住 ✓。
+
+**修法**（`public/js/ui/resourcePanel.js` `detailText` + `public/js/resources/store.js`）：
+1. 分母改为 `wanted`/`tier1Wanted`（**只有源站真有的条目才算目标** ✓）；`wanted === 0`（本机一个都量不到大小，例如 t44）就**不显示数目行** ✓，不撒谎 ✓。
+2. `#adopt`（从旧缓存迁移那步，原本**没有**超时 ✗）加 `#withTimeout` 护栏 ✓：任何一步卡住都不再能把一条下载道钉死 ✓（否则整轮永不结束 ✓、面板永远停在「正在后台预载…」+ 最后一次推送的计数 ✓）。
+3. 测试同步更新 ✓（`test/resources/panel.test.js` ✓ 51 项资源测试全绿 ✓）；`docs/ASSETS.md` 的 failure-states 段已写明语义 ✓。
+
+**上线方式**：纯客户端文件 ✓ → 直接替换 `/opt/Stronghold-Protocol/public/js/...` 即可 ✓（**不用重启** ✓），静态头是 `Cache-Control: no-cache` ✓ 玩家**刷新即生效** ✓，原文件留 `.orig-<TS>` ✓。已把部署脚本的 `SHA` 从 `c631cdbd…` 升到含此修复的 `cc995f3e5f5fc9c1a157dff5a4574c1288050690` ✓（否则下次部署会把修复冲掉 ✗）。
+
+**同批发现的另一件事**：**t44 的清单 `sized=0`** ✗ —— 它的 `public/` 里没有 `assets/` 目录 ✓，`/assets/...` 由 app 回 **302 跳转**（138 B ✓，资源在 R2 镜像 ✓）→ 服务端清单只能 stat 本地文件 ✓ 于是一个 size 都量不到 ✓ ⇒ **t44 上预载缓存不了任何东西**（全部条目被判 skipped ✓）。要真正修好得让清单能拿到大小（把 assets 落到本机 ✓ 或按 R2 元数据出 size ✓），属于资源托管方式的问题 ✓ 待定。
+
+
 
 
 **怎么查**：`curl -s 127.0.0.1:3000/healthz` 的 `state` 段（`scan.reasons`、`resumedCount`、`persist.written/errors` / `lastError`），日志 `journalctl -u stronghold | grep '\[state\]'`。
