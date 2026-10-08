@@ -10,17 +10,21 @@ import { VOICE_LANGS } from '../../audio.js';
 /** keys: the in-match shortcuts' key map (ui/gameLogic/shortcuts.js; settings → 快捷键). preload: 资源预载开关 (fork line).
  * preloadOptional: whether the optional tier (voices, SFX, music, tutorial pages) is part of that preload; a fork
  * default, like the switch itself — one click still saves everything, and the manager's 同时预载 checkbox unchecks it.
+ * preloadLanes: 下载并发 — how many files the preload fetches at once (the manager's 下载并发 select). 16 is the default:
+ * the client used to run four small lanes and one big-file lane, which is what made a full 613 MiB preload crawl on a
+ * thin link; the big-file lanes follow at `store.js bigLanesFor` = a quarter of this (16 → 4).
  * voiceLang: 配音语言 of the operator battle voice (audio.js VOICE_LANGS: 'cn' | 'jp') — 'cn' reads `audio.voice`,
  * 'jp' reads `audio.voiceAlt.jp` with a per-slot fallback to `audio.voice`, so a profile that picks a language a
  * deployment does not carry still hears the CN lines. */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, muted: false, damageNumbers: true, quality: 'high', preload: false, preloadOptional: true, voiceLang: 'cn', keys: DEFAULT_HOTKEYS });
+export const PRELOAD_LANES = Object.freeze([4, 8, 12, 16]);
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, muted: false, damageNumbers: true, quality: 'high', preload: false, preloadOptional: true, preloadLanes: 16, voiceLang: 'cn', keys: DEFAULT_HOTKEYS });
 const QUALITIES = ['high', 'medium', 'low'];
 
 /**
  * Sanitize persisted settings.
  * @param {any} raw
  * @returns {{ bgm: number, sfx: number, voice: number, muted: boolean, damageNumbers: boolean, quality: 'high'|'medium'|'low',
- *   preload: boolean, preloadOptional: boolean, voiceLang: 'cn'|'jp',
+ *   preload: boolean, preloadOptional: boolean, preloadLanes: number, voiceLang: 'cn'|'jp',
  *   keys: Record<'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
  */
 export function sanitizeSettings(raw) {
@@ -35,6 +39,9 @@ export function sanitizeSettings(raw) {
     quality: QUALITIES.includes(r.quality) ? r.quality : DEFAULT_SETTINGS.quality,
     preload: typeof r.preload === 'boolean' ? r.preload : DEFAULT_SETTINGS.preload,
     preloadOptional: typeof r.preloadOptional === 'boolean' ? r.preloadOptional : DEFAULT_SETTINGS.preloadOptional,
+    // 下载并发: an old profile (or a hand-edited one) may hold the count as a string — accept any offered value, and let
+    // anything else (absent, 0, 20, 'many') fall back to the default instead of reaching the store's lane pool
+    preloadLanes: PRELOAD_LANES.includes(Number(r.preloadLanes)) ? Number(r.preloadLanes) : DEFAULT_SETTINGS.preloadLanes,
     // 配音语言: any value the client does not know (a profile from a newer release, a hand-edited one) plays CN
     voiceLang: VOICE_LANGS.includes(r.voiceLang) ? r.voiceLang : DEFAULT_SETTINGS.voiceLang,
     keys: sanitizeHotkeys(r.keys),

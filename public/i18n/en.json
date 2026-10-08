@@ -1284,5 +1284,7 @@
   "本机数据 · 仅记录本浏览器中你参与的对局": "Local data · only matches you took part in, in this browser",
   "检测到更新版本的统计数据，请先升级客户端再查看，以免覆盖数据。": "Stats data from a newer version detected — upgrade the client before viewing, or the data could be overwritten.",
   "还没有记录 —— 完成一局对局后，这里会开始积累。": "No records yet — finish a match and the page starts filling in.",
-  "未知": "Unknown"
+  "未知": "Unknown",
+  "下载并发": "Download concurrency",
+  "同时下载几个文件；越高越快，也越占带宽。": "How many files download at once; higher is faster but uses more bandwidth."
 }

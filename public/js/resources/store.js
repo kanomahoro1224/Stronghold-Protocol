@@ -17,8 +17,24 @@ import {
 } from './common.js';
 import { t } from '../../../shared/i18n.js';
 
-/** Files above this are downloaded one at a time (a 20 MiB Spine texture should not race three others). */
+/** Files above this go to the big-file lanes: a 20 MiB Spine texture should not race sixteen small ones. */
 const BIG_FILE_BYTES = 4 << 20;
+/** Default lanes for files up to BIG_FILE_BYTES — the settings 下载并发 select; the fallback when no caller passes one. */
+export const DEFAULT_SMALL_LANES = 16;
+/** The big-file lanes that go with DEFAULT_SMALL_LANES — the 4:1 ratio the defaults were picked with. */
+export const DEFAULT_BIG_LANES = 4;
+/**
+ * The big-file lane count that belongs to `smallLanes`: a quarter of it, never less than one (16 → 4, 8 → 2, 4 → 1).
+ * One lane per big file was the old rule and it made a 190 MiB Spine queue take as long as its slowest single file;
+ * a quarter keeps a couple of them moving without letting four 20 MiB textures starve the small lanes. Exported so the
+ * settings panel and the controller derive it exactly like the store does.
+ * @param {number} smallLanes
+ * @returns {number}
+ */
+export function bigLanesFor(smallLanes) {
+  const small = Math.max(1, Math.trunc(Number(smallLanes) || DEFAULT_SMALL_LANES));
+  return Math.max(1, Math.round(small / 4));
+}
 /** Failures kept for the UI (the count is always exact). */
 const MAX_FAILURES = 10;
 /** Successful files between two index writes (a flush is one put of a few KiB; 64 keeps an abort at ~1 % loss). */
@@ -46,9 +62,9 @@ export class ResourceStore {
   /**
    * @param {{ files: { url: string, tier: number, size?: number, hash?: string }[], version: string, totalBytes?: number|null }} manifest
    * @param {{ caches?: any, fetcher?: typeof fetch, origin?: string, smallLanes?: number, bigLanes?: number,
-   *           fileTimeoutMs?: number, now?: () => number }} [opts]
+   *           fileTimeoutMs?: number, now?: () => number }} [opts] `bigLanes` defaults to `bigLanesFor(smallLanes)`
    */
-  constructor(manifest, { caches = globalThis.caches, fetcher = globalThis.fetch?.bind(globalThis), origin, smallLanes = 4, bigLanes = 1, fileTimeoutMs = FILE_TIMEOUT_MS, now = () => Date.now() } = {}) {
+  constructor(manifest, { caches = globalThis.caches, fetcher = globalThis.fetch?.bind(globalThis), origin, smallLanes = DEFAULT_SMALL_LANES, bigLanes = bigLanesFor(smallLanes), fileTimeoutMs = FILE_TIMEOUT_MS, now = () => Date.now() } = {}) {
     this.manifest = manifest;
     this.files = Array.isArray(manifest.files) ? manifest.files : [];
     this.caches = caches;

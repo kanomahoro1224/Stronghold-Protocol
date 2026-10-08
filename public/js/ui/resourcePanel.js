@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
 import { html, Button, MicroLabel, Modal, ProgressBar } from './components.js';
 import { createStore, useStore } from '../store.js';
+import { PRELOAD_LANES } from './gameLogic.js';
 import { formatBytes } from '../resources/common.js';
 import { clearResources, exportResources, importResources, inspectResources, pauseResources,
   resourceState, startResources, subscribeResources, syncResources } from '../resources/index.js';
@@ -201,9 +202,10 @@ export function ResourceLauncher({ enabled, onChange }) {
  * The resource manager. Mounted once in main.js, above all screens including the settings modal (its own switch and the
  * pill only open it). 清理缓存, 暂停下载, 关闭预载 and the ZIP import/export live here; closing it leaves a running
  * download running.
- * @param {{ enabled: boolean, optional: boolean, onChange: (v: boolean) => void, onOptional: (v: boolean) => void }} props
+ * @param {{ enabled: boolean, optional: boolean, onChange: (v: boolean) => void, onOptional: (v: boolean) => void,
+ *   lanes?: number, onLanes?: (v: number) => void }} props
  */
-export function ResourceHost({ enabled, optional, onChange, onOptional }) {
+export function ResourceHost({ enabled, optional, onChange, onOptional, lanes = 16, onLanes }) {
   const { open } = useStore((s) => s, Object.is, resourceUi);
   const st = useResources();
   const fileInput = useRef(null);
@@ -239,6 +241,14 @@ export function ResourceHost({ enabled, optional, onChange, onOptional }) {
       <div class="resource-manager__tiers">
         <${ResourceTier} st=${st} tier=${1} />
         <${ResourceTier} st=${st} tier=${2} optional=${optional} onOptional=${onOptional} disabled=${archiveBusy} />
+      </div>
+      <div class="resource-lanes">
+        <label for="resource-lanes">${t('下载并发')}</label>
+        <select id="resource-lanes" value=${String(lanes)} disabled=${archiveBusy}
+          onChange=${(e) => onLanes?.(Number(e.currentTarget.value))}>
+          ${PRELOAD_LANES.map((n) => html`<option value=${String(n)}>${n}</option>`)}
+        </select>
+        <span>${t('同时下载几个文件；越高越快，也越占带宽。')}</span>
       </div>
       <p class=${`resource-manager__status${st.error ? ' is-error' : ''}`} role="status" aria-live="polite">
         ${st.message || (enabled ? t('预载已开启') : t('选择下载范围，然后开始预载；也可以直接导入资源包。'))}</p>

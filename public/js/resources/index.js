@@ -11,7 +11,7 @@
 // persisted settings at boot and on every settings change.
 
 import { CACHE_PREFIX, MANIFEST_URL, SW_URL, TIER_ESSENTIAL, TIER_REST, checkAbort, formatBytes, resourceGroup, validateManifest } from './common.js';
-import { ResourceStore } from './store.js';
+import { bigLanesFor, DEFAULT_SMALL_LANES, ResourceStore } from './store.js';
 import { t } from '../../../shared/i18n.js';
 
 /** @type {any} */
@@ -62,6 +62,19 @@ let archiveController = null;
  * is what the switch did before the optional tier could be deselected. main.js always passes the persisted setting.
  */
 let optional = true;
+/**
+ * 下载并发: how many files one run fetches at once (the settings store's `preloadLanes`, DEFAULT_SETTINGS.preloadLanes).
+ * The store is built once per page — `resourceContext()` caches it — so main.js mirrors the setting onto it here instead
+ * of forcing a second store (which would mean a second manifest fetch and a second progress timeline). The lane counts
+ * are plain fields the store reads at the start of every run, so changing them mid-page is safe.
+ */
+let lanes = DEFAULT_SMALL_LANES;
+/** Point a store at the current lane count; safe at any time, a no-op without a store. */
+function applyLanes(store) {
+  if (!store) return;
+  store.smallLanes = Math.max(1, Math.trunc(Number(lanes)) || DEFAULT_SMALL_LANES);
+  store.bigLanes = bigLanesFor(store.smallLanes);
+}
 let syncRevision = 0;
 
 /** Subscribe to preload state changes (returns the unsubscribe function). */
@@ -159,7 +172,9 @@ export function resourceContext() {
       return { error: String(err?.message || err) };
     }
     if (!manifest.files.length) return { manifest, empty: true };
-    return { manifest, store: new ResourceStore(manifest) };
+    const store = new ResourceStore(manifest);
+    applyLanes(store);
+    return { manifest, store };
   })();
   return contextPromise;
 }
@@ -189,9 +204,11 @@ async function dropWorker() {
  * Turn the preload on or off (idempotent: the settings store fires on every volume change).
  * @param {boolean} enabled
  * @param {boolean} [includeOptional] whether the optional tier is selected (the settings store's `preloadOptional`)
+ * @param {number} [smallLanes] 下载并发 — the settings store's `preloadLanes` (unknown values keep the current count)
  */
-export async function syncResources(enabled, includeOptional = optional) {
+export async function syncResources(enabled, includeOptional = optional, smallLanes = lanes) {
   enabled = !!enabled;
+  lanes = Math.max(1, Math.trunc(Number(smallLanes)) || DEFAULT_SMALL_LANES);
   const changed = optional !== !!includeOptional;
   if (enabled === current && !changed) { set({ enabled }); return; }
   const revision = ++syncRevision;
@@ -266,6 +283,7 @@ async function startDownload(signal) {
     return;
   }
   const store = ctx.store;
+  applyLanes(store); // a cached store predates this run: pick up a 下载并发 change made since it was built
   set({ supported: true, version: store.manifest.version });
   // registering an already-registered worker is a cheap no-op, so every start can retry a failed one. A failure here
   // does NOT stop the download (the page fills Cache Storage itself) — it only means nothing can be served offline.

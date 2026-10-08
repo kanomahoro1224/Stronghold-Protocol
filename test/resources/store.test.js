@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CACHE_NAME, CACHE_PREFIX, cacheName, indexUrl, rangeResponse } from '../../public/js/resources/common.js';
-import { ResourceStore } from '../../public/js/resources/store.js';
+import { bigLanesFor, DEFAULT_BIG_LANES, DEFAULT_SMALL_LANES, ResourceStore } from '../../public/js/resources/store.js';
 import { handleResourceRequest } from '../../public/js/resources/service.js';
 
 /** Minimal Cache Storage (Cache API surface the store uses: open/keys/delete + cache.put/match/keys). */
@@ -77,6 +77,31 @@ function fetcherFor({ bodies = {}, fail = [], opaque = [], gzip = [], onCall } =
 }
 
 const store = (m, extra = {}) => new ResourceStore(m, { caches: extra.caches ?? new MemoryCaches(), fetcher: extra.fetch, origin: ORIGIN, smallLanes: extra.smallLanes ?? 4, bigLanes: extra.bigLanes ?? 1, fileTimeoutMs: extra.fileTimeoutMs, now: extra.now });
+
+// 下载并发 (settings.preloadLanes → resources/index.js `applyLanes` → these fields): 16 small lanes by default, and a
+// quarter of that many big-file lanes (16 → 4) instead of the old fixed single big lane.
+describe('lanes', () => {
+  test('bigLanesFor: a quarter of the small lanes, never below one', () => {
+    assert.deepEqual([DEFAULT_SMALL_LANES, DEFAULT_BIG_LANES], [16, 4], 'the defaults the setting ships with');
+    assert.equal(bigLanesFor(16), 4);
+    assert.equal(bigLanesFor(12), 3);
+    assert.equal(bigLanesFor(8), 2);
+    assert.equal(bigLanesFor(4), 1);
+    assert.equal(bigLanesFor(1), 1, 'round(0.25) is 0 → clamped to one');
+    assert.equal(bigLanesFor(0), DEFAULT_BIG_LANES, '0 is not a lane count: the default small count applies');
+    assert.equal(bigLanesFor(undefined), DEFAULT_BIG_LANES);
+    assert.equal(bigLanesFor(DEFAULT_SMALL_LANES), DEFAULT_BIG_LANES);
+  });
+  test('the constructor defaults to 16/4 and derives the big lanes when only the small ones are given', () => {
+    const mk = (opts) => new ResourceStore(manifest([]), { caches: new MemoryCaches(), origin: ORIGIN, ...opts });
+    const dflt = mk();
+    assert.deepEqual([dflt.smallLanes, dflt.bigLanes], [16, 4]);
+    const eight = mk({ smallLanes: 8 });
+    assert.deepEqual([eight.smallLanes, eight.bigLanes], [8, 2], 'the settings select only names the small lanes');
+    const pinned = mk({ smallLanes: 4, bigLanes: 1 });
+    assert.deepEqual([pinned.smallLanes, pinned.bigLanes], [4, 1], 'an explicit pair still wins');
+  });
+});
 
 describe('ResourceStore', () => {
   test('status reports what is cached, in files and bytes', async () => {

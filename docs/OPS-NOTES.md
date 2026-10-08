@@ -290,3 +290,18 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **t44 最终验收** ✓：`public/assets` **12123 文件 / 643M**（与 `.214` 一致 ✓）；清单 `count=12115 / tier1=8084 / sized=12115 / 0 unsized / 612.8 MiB` ✓；`stronghold` 服务全程未重启 ✓（仍启动于 04:03:00 UTC ✓）。
 
+## §11 客户端设置项「下载并发」（小 lanes 4→16 / 大 lanes 1→4）
+
+**改了什么** ✓：预载并发由 **4 小 + 1 大** 提到 **16 小 + 4 大** ✓，并做成资源管理器里的设置项 **「下载并发」（4 / 8 / 12 / 16，默认 16）** ✓，持久化为 `settings.preloadLanes` ✓。
+链路（缺一环就不生效 ✗）：`ui/gameLogic/settings.js`（`PRELOAD_LANES` + `DEFAULT_SETTINGS.preloadLanes` + `sanitizeSettings` 白名单 ✓）→ `main.js`（`ResourceManagerHost` 传 `lanes`/`onLanes` ✓ + `installResourcePreload` 里 `syncResources(…, s.preloadLanes)` ✓）→ `resources/index.js`（模块态 `lanes` + `applyLanes(store)` ✓，在 `resourceContext()`、`startDownload()`、`syncResources()` 三处落地 ✓）→ `resources/store.js`（`DEFAULT_SMALL_LANES = 16`、`DEFAULT_BIG_LANES = 4`、`bigLanesFor()` = 小 lanes 的 1/4，至少 1 ✓）。
+**为什么不重建 store** ✓：`resourceContext()` 的 promise 是缓存的 ✓（一页只建一次 ✓，重建等于再拉一次清单 + 多一条进度线 ✗），而 `store.smallLanes/bigLanes` 是**每轮 `drain()` 现读的普通字段** ✓ ⇒ 直接赋值即可 ✓。
+
+坑（按"再踩一次会误判"排序）：
+1. **`node --test <目录>` 在 Node 24 被当成模块路径** ✗✗：报 `Cannot find module 'F:\…\test\resources'` ✓，汇总里于是出现 2 个 "fail" ✓ ⇒ 那是**假警报** ✗，不是用例失败 ✓。跑整目录请显式列文件 ✓；`node --test` 不带参数才是递归全量 ✓（仓库 **549** 个 `*.test.js` ✓，含真实对局集成测试 ✓，所以"全量几分钟"是正常的 ✓）。
+2. **`tools/i18n.mjs seed` 会静默漏包** ✗：同一份种子喂 4 个包，`en`/`ko` 各加 2 条 ✓，`ja`/`zh-TW` 报 `0 added` 且**确实没写进去** ✗。改用 `template <code>` 也不行 ✗ —— 它会把另一个包里的**陈旧 msgid** 一并补成空串 ✓（本次 24 条 ✓ 全是代码已不再使用的 ✓）⇒ **正确做法**：`JSON.parse` → 追加 → `JSON.stringify(json, null, 2) + '\n'`，**照 `writeCatalog`（`tools/i18n.mjs:585`）的序列化原样写回** ✓，diff 才只有插入的那几行 ✓；落盘后 `node tools/i18n.mjs check --all` 验收 ✓（本次 4 包 **1235/1235 = 100%、0 missing、0 errors** ✓）。
+3. **PowerShell 控制台看 UTF-8 中文全是乱码** ✗：`Get-Content` / `Select-String` 都不可信 ✓（`-Pattern '中文'` 直接匹配不到 ✓，害我一度以为 i18n 没写进去 ✓）⇒ 看文件内容一律用 read / grep 工具 ✓，别用 PowerShell 文本 cmdlet 下结论 ✓。
+4. **PowerShell 双引号里的 `$(…)` 在本地展开** ✗：`exec root "… hostname=$(hostname) …"` 打出来的是本机名 ✓（远端其余数据是对的 ✓，极易看错 ✓）⇒ 远端命令避免 `$()` ✓，或写成脚本 `put` 上去跑 ✓（与 §10.1 第 4 条同源 ✓）。
+5. **客户端静态文件改了不用重启** ✓：`Cache-Control: no-cache` + ETag ✓、入口 `src="/js/main.js"` **无版本号** ✓ ⇒ 刷新即生效 ✓。本次 12 个文件用 `putbin`（二进制安全 + sha256 校验 ✓）上传 ✓ → 远端 `sha256sum` **逐个与本地一致** ✓ → 线上字节校验 `mark=1`（`.214` 的 `:3000`、t44 的 `:8080` / `:80`、公网 `game.xiaolubao.com:443`、公网 `t44.kafuno.cn:34046` ✓），两台 `stronghold` 全程未重启 ✓（仍 04:01:02 / 04:03:00 UTC ✓）。
+
+**验收** ✓：`test/resources`（7 文件）+ `test/ui/gameLogic` + `test/i18n` + `test/client-static` + `test/docs-consistency` + `test/docs-paths` = **386/386 通过 / 0 失败** ✓（另加本轮定向 140/140 ✓）；i18n `check --all` 4 包 100% ✓；两台机器 12 文件 sha256 一致且线上生效 ✓。
+

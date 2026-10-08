@@ -1205,10 +1205,14 @@
 .resource-archive .res-actions { margin-top: .14rem; }
 .resource-archive .pbar { margin-top: .14rem; }
 .resource-manager__maintenance { display: flex; align-items: center; gap: .15rem; flex-wrap: wrap; color: var(--text-dim); font-size: .14rem; }
+.resource-lanes { display: flex; align-items: center; gap: .12rem; flex-wrap: wrap; font-size: .14rem; color: var(--text-md); }
+.resource-lanes label { color: var(--text-hi); }
+.resource-lanes select { height: .34rem; min-width: 1.1rem; padding: 0 .1rem; background: #0a0d0c; border: 1px solid var(--line-2); color: var(--text-hi); font-size: .15rem; cursor: pointer; }
 @media (max-width: 720px) {
   .resource-manager__tiers { grid-template-columns: minmax(0, 1fr); }
   .resource-modal .modal__head, .resource-modal .modal__body, .resource-modal .modal__actions { padding-left: .16rem; padding-right: .16rem; }
 }
 @media (pointer: coarse) {
   .resource-choice, .resource-modal .btn, .resource-manager__maintenance .res-link { min-height: 44px; }
+  .resource-lanes select { min-height: 44px; }
 }

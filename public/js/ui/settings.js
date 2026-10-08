@@ -21,7 +21,7 @@ import { copyText } from './clipboard.js';
 
 const cx = (...p) => p.flat().filter(Boolean).join(' ');
 
-/** Settings store: { bgm, sfx, voice, muted, damageNumbers, quality, preload, preloadOptional, voiceLang, keys }. */
+/** Settings store: { bgm, sfx, voice, muted, damageNumbers, quality, preload, preloadOptional, preloadLanes, voiceLang, keys }. */
 export const settingsStore = createStore(sanitizeSettings(loadPref('settings', null)));
 
 settingsStore.subscribe((s) => {

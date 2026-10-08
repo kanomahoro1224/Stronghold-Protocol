@@ -124,11 +124,15 @@ describe('where the preload is reachable', () => {
     assert.match(panel, /t\('导入 ZIP'\)/);
     assert.match(panel, /t\('导出 ZIP'\)/);
     assert.match(panel, /t\('同时预载'\)/, 'the optional-tier selection lives in the manager');
+    assert.match(panel, /t\('下载并发'\)/, 'the 下载并发 setting lives in the manager beside 同时预载');
+    assert.match(panel, /<select id="resource-lanes"/, 'a select over the offered lane counts, not a free number input');
+    assert.match(panel, /PRELOAD_LANES\.map/, 'the options come from the settings list, never a hand-copied array');
     // main.js mounts it once, above the router, wired to the same settings the other two faces write
     const main = read('public/js/main.js');
     assert.match(main, /import \{ ResourceHost \} from '\.\/ui\/resourcePanel\.js';/);
     assert.match(main, /<\$\{ResourceManagerHost\} \/>/);
-    assert.match(main, /<\$\{ResourceHost\} enabled=\$\{settings\.preload\} optional=\$\{settings\.preloadOptional\}/);
-    assert.match(main, /syncResources\(!!s\.preload, !!s\.preloadOptional\)/, 'both switches reach the preload controller');
+    assert.match(main, /<\$\{ResourceHost\} enabled=\$\{settings\.preload\} optional=\$\{settings\.preloadOptional\} lanes=\$\{settings\.preloadLanes\}/);
+    assert.match(main, /onLanes=\$\{\(preloadLanes\) => updateSettings\(\{ preloadLanes \}\)\}/, 'the select persists like the other two');
+    assert.match(main, /syncResources\(!!s\.preload, !!s\.preloadOptional, s\.preloadLanes\)/, 'all three switches reach the preload controller');
   });
 });

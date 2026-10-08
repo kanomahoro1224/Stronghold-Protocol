@@ -441,7 +441,7 @@ in Cache Storage, so a match loads from the machine instead of the network. The 
 | Piece | Where |
 | --- | --- |
 | Manifest (`/data/resource-manifest.json`) | `server/resources.js` `buildResourceManifest` / `createResourceIndex`, served by the static handler (`server/http/static.js`) |
-| Downloader | `public/js/resources/store.js` (4 small lanes + 1 big-file lane, files > 24 MiB skipped) |
+| Downloader | `public/js/resources/store.js` (16 small lanes + 4 big-file lanes by default — the manager's 下载并发; files > 24 MiB skipped) |
 | Index of what is cached | Cache Storage entry `/__sp-resource-index__` (`{ version, manifest, files, gone }`) |
 | Pages / UI | `public/js/resources/index.js`, `public/js/ui/resourcePanel.js` |
 | Offline reads | `public/js/resources/service.js` (Service Worker) |
@@ -504,8 +504,10 @@ node tools/asset-hashes.mjs --check    # exit 1 when the file is stale; run befo
 
 ### How a run works
 
-The client (`public/js/resources/*`) downloads tier 1 first, then tier 2 only when it is selected: four lanes for small
-files and one for files above 4 MiB, skipping whatever is already cached. Two tabs of the same browser never download
+The client (`public/js/resources/*`) downloads tier 1 first, then tier 2 only when it is selected: 16 lanes for small
+files and 4 for files above 4 MiB, and the manager's 下载并发 select (4 / 8 / 12 / 16) writes `settings.preloadLanes`
+— the small-lane count, with the big-file lanes at a quarter of it (`store.js bigLanesFor`, so 16 → 4) — skipping
+whatever is already cached. Two tabs of the same browser never download
 the same file twice: a Web Lock (`stronghold-resources-preload`, `ifAvailable`) makes one tab do the work while the
 others report what is already cached and re-check when the player returns to them; ZIP processing and 「清理缓存」 take
 the same lock. Downloads run in the page (plain `fetch` + `cache.put`, `cache: 'no-store'` so nothing is stored twice);

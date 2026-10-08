@@ -12,7 +12,7 @@ import {
   battleOverSfx, ownRoundLoss, uniteResultBox, battleResultBox, roundResultBox, RESULT_BOX_MS,
   bondMembers, memberHeadCount, bannedPerBond, priceTone, mergeProgress, shopBlockReason, deploySets, indexPieces, placementContext, canPlace,
   boardTargets, dropIntent, normalizeDraft, normalizeSp, groupEnemies, factionTypes, snapHud, bossFrac, attackInterval, fmtNum,
-  rangeGridBox, shortcutFor, sanitizeSettings, DEFAULT_SETTINGS, normalizeResult, cycleField, fieldLabel, homeFieldId,
+  rangeGridBox, shortcutFor, sanitizeSettings, DEFAULT_SETTINGS, PRELOAD_LANES, normalizeResult, cycleField, fieldLabel, homeFieldId,
   activeBubbles, activeChatBubbles, sortedPlayers, tileKey, prepCapsuleLabel, prepCamera, dropFailureReason, terrainInfo,
 } from '../../public/js/ui/gameLogic.js';
 import { pairPlayers } from '../../server/match/finalAssault.js';
@@ -652,12 +652,22 @@ describe('keyboard & settings', () => {
   test('sanitizeSettings', () => {
     assert.deepEqual(sanitizeSettings(null), { ...DEFAULT_SETTINGS });
     assert.deepEqual(sanitizeSettings({ bgm: 3, sfx: -1, voice: 2, muted: 'yes', damageNumbers: false, quality: 'ultra' }),
-      { bgm: 1, sfx: 0, voice: 1, muted: false, damageNumbers: false, quality: 'high', preload: false, preloadOptional: true, voiceLang: 'cn', keys: { ...DEFAULT_SETTINGS.keys } },
+      { bgm: 1, sfx: 0, voice: 1, muted: false, damageNumbers: false, quality: 'high', preload: false, preloadOptional: true, preloadLanes: 16, voiceLang: 'cn', keys: { ...DEFAULT_SETTINGS.keys } },
       'a saved profile without `keys` (before 0.2.0) gets the default key map (test/ui/feedback5-hotkeys.test.js), and one without `preload` / `preloadOptional` the preload defaults');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).voice, DEFAULT_SETTINGS.voice, 'a saved profile without `voice` gets the default');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).preload, DEFAULT_SETTINGS.preload, 'a saved profile without `preload` gets the default');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).preloadOptional, DEFAULT_SETTINGS.preloadOptional, 'a saved profile without `preloadOptional` gets the default');
     assert.equal(sanitizeSettings({ preloadOptional: 'no' }).preloadOptional, DEFAULT_SETTINGS.preloadOptional, 'a non-boolean falls back');
+    // 下载并发 (store.js lanes, the manager's select): one of the offered counts, anything else the default
+    assert.deepEqual(PRELOAD_LANES, [4, 8, 12, 16]);
+    assert.equal(DEFAULT_SETTINGS.preloadLanes, 16);
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).preloadLanes, DEFAULT_SETTINGS.preloadLanes, 'a saved profile without `preloadLanes` gets the default');
+    assert.equal(sanitizeSettings({ preloadLanes: 8 }).preloadLanes, 8);
+    assert.equal(sanitizeSettings({ preloadLanes: 16 }).preloadLanes, 16);
+    assert.equal(sanitizeSettings({ preloadLanes: '12' }).preloadLanes, 12, 'a <select> hands over strings');
+    for (const bad of [0, 20, -4, 'many', null, true, {}, []]) {
+      assert.equal(sanitizeSettings({ preloadLanes: bad }).preloadLanes, 16, `preloadLanes=${JSON.stringify(bad)}`);
+    }
     // 配音语言 (audio.js VOICE_LANGS): an absent, unknown or mistyped value plays CN — never a silent voice channel
     assert.equal(DEFAULT_SETTINGS.voiceLang, 'cn');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).voiceLang, 'cn', 'a saved profile without `voiceLang` gets the default');
