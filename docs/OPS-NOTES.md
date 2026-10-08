@@ -188,12 +188,13 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 2. `#adopt`（从旧缓存迁移那步，原本**没有**超时 ✗）加 `#withTimeout` 护栏 ✓：任何一步卡住都不再能把一条下载道钉死 ✓（否则整轮永不结束 ✓、面板永远停在「正在后台预载…」+ 最后一次推送的计数 ✓）。
 3. 测试同步更新 ✓（`test/resources/panel.test.js` ✓ 51 项资源测试全绿 ✓）；`docs/ASSETS.md` 的 failure-states 段已写明语义 ✓。
 
-**上线方式**：纯客户端文件 ✓ → 直接替换 `/opt/Stronghold-Protocol/public/js/...` 即可 ✓（**不用重启** ✓），静态头是 `Cache-Control: no-cache` ✓ 玩家**刷新即生效** ✓，原文件留 `.orig-<TS>` ✓。已把部署脚本的 `SHA` 从 `c631cdbd…` 升到含此修复的 `cc995f3e5f5fc9c1a157dff5a4574c1288050690` ✓（否则下次部署会把修复冲掉 ✗）。
+**上线方式**：纯客户端文件（`public/js/**` + `public/i18n/*.json`）✓ → 直接替换 `/opt/Stronghold-Protocol/` 下对应文件即可 ✓（**不用重启** ✓），静态头是 `Cache-Control: no-cache` ✓ 玩家**刷新即生效** ✓，原文件留 `.orig-<TS>` ✓。部署脚本的 `SHA` 已从 `c631cdbd…` 升到含这些修复的合并线提交 ✓（见 `/opt/stronghold-deploy/deploy-v021.sh` 顶部的 `SP_SHA` 默认值 ✓，可用 `SP_SHA=<sha>` 覆盖 ✓）—— 不升的话下次部署会把热替换的修复冲掉 ✗。
 
-**同批发现的另一件事**：**t44 的清单 `sized=0`** ✗ —— 它的 `public/` 里没有 `assets/` 目录 ✓，`/assets/...` 由 app 回 **302 跳转**（138 B ✓，资源在 R2 镜像 ✓）→ 服务端清单只能 stat 本地文件 ✓ 于是一个 size 都量不到 ✓ ⇒ **t44 上预载缓存不了任何东西**（全部条目被判 skipped ✓）。要真正修好得让清单能拿到大小（把 assets 落到本机 ✓ 或按 R2 元数据出 size ✓），属于资源托管方式的问题 ✓ 待定。
-
-
-
+**同批：预载的"需要 HTTPS"提示与措辞（2026-10-08 晚）**
+- `unsupportedReason()` 去掉了自己设的 `isSecureContext` 门槛 ✓（「需要 HTTPS（或 localhost）才能预载资源」这句已删 ✓），改成只问浏览器能力：`!caches` 才是硬停 ✓，提示为「预载需要缓存存储：HTTP 页面不提供，改用 HTTPS 打开即可。」✓。**原因**：Cache Storage 是 secure-context API ✓（MDN 明文 "available only in secure contexts" ✓，非安全来源直接 `SecurityError` ✓），HTTP 页面上浏览器**根本没有** `caches` ✓ —— 所以光删提示并不会让预载在 HTTP 上跑起来 ✓，只是不再把锅扣在"我们的门槛"上 ✓。
+- 管理器里「{skipped} 个文件超过单文件缓存上限」这句**是错的** ✗：线上那 2179 个是**清单没给大小**（= 源站没有 ✓），不是超过 24 MiB ✓ → 改成「{skipped} 个文件源站没有提供（清单里没有它们的大小），已跳过，使用时按需加载。」✓。三处 msgid（这句 + 上面那句 + 设置页提示里多余的「需要 HTTPS。」✓）在 en/ja/ko/zh-TW 四个语言包同步替换 ✓，`node tools/i18n.mjs check --all --strict` 四包 **1233 msgids 全译、0 缺失 0 错误** ✓。
+- **t44 的域名与证书现状**（决定了玩家看到哪句话 ✓）：vhost `server_name game.kafuno.cn t44.sjcmc.cn _;` ✓，本机证书 SAN **只有 `game.kafuno.cn`** ✓ → `https://game.kafuno.cn`（DNS 在 **Cloudflare** 后面 ✓）证书有效 ✓ = secure context ✓ = **预载可用** ✓；而 `t44.sjcmc.cn` 上 HTTPS **证书不匹配** ✗（`ssl_verify_result=20` ✓），HTTP 又是非安全来源 ✗ → 用 `http://t44.sjcmc.cn:34046` 的玩家必然看到那句提示 ✓。**要给玩家就用 `https://game.kafuno.cn`** ✓（另一条路是把 `t44.sjcmc.cn` 加进证书 ✓ 或给 HTTP 口做 301 跳转 ✓）。
+- **同批发现的另一件事：t44 的清单 `sized=0`** ✗ —— 它的 `public/` 里没有 `assets/` 目录 ✓，`/assets/...` 由 app 回 **302 跳转**（138 B ✓，资源在 R2 镜像 ✓）→ 服务端清单只能 stat 本地文件 ✓ 于是一个 size 都量不到 ✓ ⇒ **t44 上预载缓存不了任何东西**（全部条目被判 skipped ✓）。要真正修好得让清单能拿到大小（把 assets 落到本机 ✓ 或按 R2 元数据出 size ✓），属于资源托管方式的问题 ✓ 待定。
 
 **怎么查**：`curl -s 127.0.0.1:3000/healthz` 的 `state` 段（`scan.reasons`、`resumedCount`、`persist.written/errors` / `lastError`），日志 `journalctl -u stronghold | grep '\[state\]'`。
 

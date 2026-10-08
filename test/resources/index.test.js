@@ -32,8 +32,10 @@ const FILES = [
 ];
 const MANIFEST = { format: 1, version: 'testversion', count: FILES.length, tier1: 2, sized: FILES.length, totalBytes: 22, files: FILES };
 
-/** Install stubs and return the recorder of what the module did. */
-function stubEnv({ manifest = MANIFEST, fail = false, secure = true } = {}) {
+/** Install stubs and return the recorder of what the module did.
+ *  A real browser hands Cache Storage and Service Worker only to a secure context, so `secure: false` models that by
+ *  leaving the APIs off (`apis` forces them on, for the test that proves the controller adds no gate of its own). */
+function stubEnv({ manifest = MANIFEST, fail = false, secure = true, apis = secure } = {}) {
   const calls = { fetch: [], fetchOptions: [], registered: [], unregistered: 0, released: [] };
   const globals = ['fetch', 'caches', 'navigator', 'isSecureContext', 'location'];
   const saved = Object.fromEntries(globals.map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
@@ -46,14 +48,15 @@ function stubEnv({ manifest = MANIFEST, fail = false, secure = true } = {}) {
   const caches = new MemoryCaches();
   Object.defineProperty(globalThis, 'isSecureContext', { value: secure, configurable: true, writable: true });
   Object.defineProperty(globalThis, 'location', { value: { origin: ORIGIN }, configurable: true, writable: true });
-  Object.defineProperty(globalThis, 'caches', { value: caches, configurable: true, writable: true });
+  if (apis) Object.defineProperty(globalThis, 'caches', { value: caches, configurable: true, writable: true });
+  else delete globalThis.caches;
   Object.defineProperty(globalThis, 'navigator', {
-    value: {
+    value: apis ? {
       serviceWorker: {
         async register(url, opts) { calls.registered.push([url, opts]); return { scope: '/' }; },
         async getRegistrations() { return [{ active: { scriptURL: ORIGIN + SW_URL }, async unregister() { calls.unregistered++; } }]; },
       },
-    },
+    } : {},
     configurable: true, writable: true,
   });
   Object.defineProperty(globalThis, 'fetch', {
@@ -200,5 +203,21 @@ test('a browser without Cache Storage is reported instead of downloading', async
   assert.equal(st.phase, 'error');
   assert.match(st.message, /HTTPS|Cache Storage|Service Worker/);
   assert.deepEqual(env.calls.fetch, [], 'nothing is downloaded');
+  await mod.syncResources(false);
+});
+
+test('no HTTPS gate of our own: a context that still has the APIs is allowed to preload', async (t) => {
+  // Cache Storage is secure-context-only, so `secure: false` normally means no `caches` either — but the controller must
+  // ask the browser instead of the scheme (`isSecureContext` can be false in an embedded frame on a perfectly good HTTPS
+  // deployment, and that used to block the preload there).
+  const env = stubEnv({ secure: false, apis: true });
+  t.after(env.restore);
+  const mod = await import('../../public/js/resources/index.js?insecure-but-capable');
+  assert.equal(mod.unsupportedReason(), '', 'the browser capability decides');
+  await mod.syncResources(true);
+  const st = mod.resourceState();
+  assert.equal(st.supported, true);
+  assert.deepEqual(st.error, false);
+  assert.ok(env.calls.fetch.some((u) => String(u).includes('/assets/')), 'it really downloads');
   await mod.syncResources(false);
 });

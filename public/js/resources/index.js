@@ -119,10 +119,18 @@ const counters = (s) => ({
 const selectionComplete = (s) => ((s.tier1Present ?? 0) + (s.tier1Gone ?? 0)) >= (s.tier1Wanted ?? s.tier1)
   && (!optional || ((s.tier2Present ?? 0) + (s.tier2Gone ?? 0)) >= (s.tier2Wanted ?? s.tier2));
 
-/** Why this browser cannot keep the resources (empty ⇒ it can). */
+/**
+ * Why this browser cannot keep the resources (empty ⇒ it can).
+ *
+ * There is deliberately **no** `isSecureContext` gate here: the preload does not care about the scheme, it cares about
+ * the browser handing it Cache Storage. Cache Storage is a secure-context API, so a plain-HTTP page has no `caches` at
+ * all (MDN: "available only in secure contexts"; `CacheStorage` rejects with a SecurityError on untrusted origins) — the
+ * check that follows is the browser's own, not a requirement this app invents, and the message says what to do about it.
+ * Removing the gate is what lets an HTTPS deployment work even when `isSecureContext` is false for an unrelated reason
+ * (an embedded frame, a policy) as long as the API is really there.
+ */
 export function unsupportedReason() {
-  if (!globalThis.isSecureContext) return t('需要 HTTPS（或 localhost）才能预载资源');
-  if (!globalThis.caches) return t('当前浏览器不支持 Cache Storage');
+  if (!globalThis.caches) return t('预载需要缓存存储：HTTP 页面不提供，改用 HTTPS 打开即可。');
   if (!globalThis.navigator?.serviceWorker) return t('当前浏览器不支持 Service Worker');
   return '';
 }

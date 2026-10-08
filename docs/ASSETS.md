@@ -571,6 +571,13 @@ reads a standalone package format, so a preload can be shared with someone else 
   already passed.
 - **another tab** — the Web Lock reports 「另一个标签页正在处理资源，请暂停后重试」 instead of downloading the same
   file twice; 清理缓存 says 「另一个标签页正在处理资源，请暂停后再清理。」 for the same reason.
+- **HTTP vs HTTPS** — Cache Storage is a secure-context API (MDN: *"available only in secure contexts"*; `CacheStorage`
+  rejects with a `SecurityError` on untrusted origins) and `navigator.serviceWorker` is absent there too, so a plain-HTTP
+  page cannot preload **anything**, whatever this code does. The controller therefore no longer gates on
+  `isSecureContext` (it used to answer 「需要 HTTPS（或 localhost）才能预载资源」): it asks the browser instead, `!caches`
+  is the only hard stop, and the message names the cure (「预载需要缓存存储：HTTP 页面不提供，改用 HTTPS 打开即可。」).
+  A deployment whose player-facing entry is plain HTTP needs a real certificate (or a TLS front such as Cloudflare) for
+  the preload to be usable at all — the scheme is the browser's requirement, not this app's.
 
 ## Licensing and credits
 

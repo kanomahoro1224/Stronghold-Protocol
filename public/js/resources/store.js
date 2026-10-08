@@ -250,13 +250,14 @@ export class ResourceStore {
    * for the one step that has no deadline of its own — adopting a file out of an older cache (`#adopt` reads Cache
    * Storage, which can stall on a broken profile). Without it a single stalled file freezes its lane for good: the run
    * never settles, the panel stays on 「正在后台预载…」 with the counters of the last emit, and no progress is ever
-   * published again. On timeout the file is counted as failed and the lane moves on.
+   * published again. On timeout the file is counted as failed and the lane moves on. (The label stays ASCII: the i18n
+   * scan rejects an unwrapped Chinese literal, and this error never reaches a player — `#download` only counts it.)
    */
   #withTimeout(promise, ms, what) {
     if (!ms) return promise;
     let timer = null;
     const guard = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${what}超时（${Math.round(ms / 1000)} 秒）`)), ms);
+      timer = setTimeout(() => reject(new Error(`${what}: timed out after ${Math.round(ms / 1000)}s`)), ms);
     });
     return Promise.race([promise, guard]).finally(() => { if (timer !== null) clearTimeout(timer); });
   }
@@ -444,7 +445,7 @@ export class ResourceStore {
         checkAbort(signal);
         const key = this.keyOf(file.url);
         try {
-          if (await this.#withTimeout(this.#adopt(file, cache, older), this.fileTimeoutMs, '整理已保存的资源')) adopted++;
+          if (await this.#withTimeout(this.#adopt(file, cache, older), this.fileTimeoutMs, 'adopt')) adopted++;
           else {
             // Everything network-touching of this file runs under the per-file deadline, including the cache write.
             await this.#withDeadline(signal, async (inner) => {

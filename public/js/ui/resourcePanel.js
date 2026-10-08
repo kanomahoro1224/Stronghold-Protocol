@@ -153,7 +153,7 @@ export function ResourceRow({ enabled, onChange }) {
           ${st.gone ? html`<p class="set-hint">${t('{gone} 个文件源站没有（已跳过，不影响使用）', { gone: st.gone })}</p>` : null}
           ${st.failed ? html`<p class="set-hint set-res__warn">${t('{failed} 个文件未完成（下次继续时重试）', { failed: st.failed })}</p>` : null}
         </div>`
-      : html`<p class="set-hint">${t('开启后会把对局需要的素材（字体、界面、立绘、小人、音效）保存到本机缓存，进入战斗不再等待下载；关闭时一切照旧按需加载。需要 HTTPS。')}</p>`}
+      : html`<p class="set-hint">${t('开启后会把对局需要的素材（字体、界面、立绘、小人、音效）保存到本机缓存，进入战斗不再等待下载；关闭时一切照旧按需加载。')}</p>`}
   </div>`;
 }
 
@@ -245,7 +245,7 @@ export function ResourceHost({ enabled, optional, onChange, onOptional }) {
       ${st.worker ? html`<p class="resource-manager__warn">${st.worker}</p>` : null}
       ${st.failed ? html`<p class="resource-manager__warn">${t('{failed} 个文件下载失败，继续下载时重试。', { failed: st.failed })}</p>` : null}
       ${st.gone ? html`<p class="resource-manager__warn">${t('{gone} 个文件源站没有（已跳过，不影响使用）', { gone: st.gone })}</p>` : null}
-      ${st.skipped ? html`<p class="resource-manager__warn">${t('{skipped} 个文件超过单文件缓存上限，使用时按需加载。', { skipped: st.skipped })}</p>` : null}
+      ${st.skipped ? html`<p class="resource-manager__warn">${t('{skipped} 个文件源站没有提供（清单里没有它们的大小），已跳过，使用时按需加载。', { skipped: st.skipped })}</p>` : null}
       <section class="resource-archive">
         <h3>${t('ZIP 资源包')}</h3>
         <p>${t('可将已缓存的资源导出为 ZIP 分享给他人，也可以导入他人分享的资源包。支持导入旧版本资源包；导入会校验完整性，只复用当前版本仍有效的文件，并增量下载缺少的资源。')}</p>
