@@ -237,3 +237,34 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 - ⚠️ **落盘不会改变玩家侧的交付路径** ✓：t44 的 nginx（`/etc/nginx/snippets/t44-locations.conf` ✓）把 `/assets/**`、`/media/**`、`/fonts/**` 一律 **302 到 R2** ✓（实测 ✓，`?r2v=2` ✓）⇒ 本地文件**只用来让清单量到 `size`** ✓，家里那条上行不会被玩家拖 ✓✓。`.214` 同理：nginx 302 到 R2 ✓，只有直连 app `:3000` 才会拿本地文件 ✓（所以 `.214` 磁盘上的 476 MB 与玩家下载量无关 ✓）。
 - 📌 排查技巧：`pkill -f <脚本名>` 会**连自己这条 SSH 命令一起杀掉** ✗（命令行里含同样的字符串 ✓）→ 用 `pkill -f '名字[-]分段'` ✓，且把重启逻辑放进**独立脚本**执行 ✓。
 
+---
+
+## §10 资源缺口：0.2.0 / 0.2.1 新干员素材（头像 / 立绘 / 技能图 / Spine）一个都没有
+
+**症状**：0.2.0/0.2.1 加入的那批干员（外援），头像、立绘、技能图标、Spine **全部 404**，游戏里一片空白。
+
+**根因**：`data/assets.json` 是**提交在仓库里的清单** ✓，并入上游后它引用的条数涨到 **9756** ✓；但 `tools/fetch-assets.mjs` 上一次真跑是 **10-07 13:17**（那次 `[plan]` 只有 7470 个文件、`stats.files=7470`）⇒ `public/assets/` 上实际只有 **7577** 条 ⇒ **缺 2179 条**，其中 **1000 条是图/骨架**：`spine/op` 428、`skill/*.png` 205、`char/avatar` 142、`char/portrait` 142、`token/avatar` 35、`prof/sub` 10；另 1179 条是音频（`audio/voice` 994 + `audio/sfx` 185）。
+
+**为什么"清单里有"却没人发现**：`server/resources.js` 的清单**只从本机 `stat` 取 `size`** ✓（`measure()`）⇒ 本机没有的文件在清单里就是**没有 `size`** ✓，客户端预载把它算进「源站没有提供（清单里没有它们的大小），已跳过」✓（§8）⇒ 服务端看着"一切正常" ✓，玩家侧是图裂 ✗。
+
+**交付链路决定修法**：nginx 把 `/assets/**`、`/media/**`、`/fonts/**` 一律 **302 到 `https://local.xiaolubao.com/Stronghold-Protocol<path>`** ✓ ⇒ **玩家看到的图 = R2 上的对象** ✓。所以"把文件补到机器上"只让清单量到 `size` ✓，**必须同时上传 R2** ✓。
+
+**修法（全程在服务器上做，不重启应用）**
+1. `.214`：`cd /opt/Stronghold-Protocol && node tools/fetch-assets.mjs` ✓（**不带** `--prune` / `--force` / `--allow-shrink` ✓）。实测 **50 秒** ✓，9540 → **12123 文件** ✓，476 → **643 MB** ✓，9 MB/s ✓，`miss=4` ✓。
+2. 服务器直传 R2：`214-r2-push.py` ✓（纯标准库 SigV4 ✓，key = `Stronghold-Protocol/<去掉 public/ 的路径>` ✓）。实测 **12130 个对象 / 612.9 MB / 265 秒 / 2.3 MB/s / 失败 0** ✓。
+
+**坑（按踩到的顺序）**
+1. **`--dry-run` 的计划行在头部** ✓：`[plan]` 在上面 ✓，尾巴全是 `spineLocal` 的 note ✗ ⇒ 用 `head` 看，别用 `tail` 只看尾巴就下结论 ✗。
+2. **`spineLocal`**：部分 `token_*` / `enemy_*` 的 Spine **官方客户端才有** ✓，上游 dump 拿不到 ✓ ⇒ 下载器只给 note 不给文件 ✓（本次 `miss=4` ✓）⇒ 要用 `tools/local-extract`（Python + Ark-Unpacker ✓）从官服文件提取到 `public/assets/local/` ✓（该目录**永不被 `--prune` 删** ✓）。
+3. **R2 上有两套布局** ✓：历史上一批对象只存在于**桶根**（`/assets/...` ✓），而 nginx 302 到的是**带前缀**的 `Stronghold-Protocol/assets/...` ✓ ⇒ 排查时**两个路径都要试** ✓，别看到一个 404 就下结论 ✗。
+4. **`.214` 上没有任何上传工具** ✓（`rclone`/`aws`/`s3cmd`/`mc`/`storcli` 全无 ✓，`boto3` 也没有 ✓）⇒ 只能自己签 SigV4 ✓；**path-style 必须把 bucket 名放路径第一段** ✓（否则 R2 把 `Stronghold-Protocol` 当成 bucket 名回 `InvalidBucketName` ✓）。
+5. **key 里千万别混进 `public/`** ✓（本次真事故 ✓）：`os.path.relpath(full, APP)` 得到的是 **`public/assets/...`** ✓ ⇒ 直接拼前缀就传成了 `Stronghold-Protocol/**public**/assets/...` ✓ ⇒ **PUT 返回 200 但正确 key 上是 404** ✗✗ ⇒ 所以**不能只看 PUT 的 200** ✓，必须用**签名 S3 HEAD** 验真 ✓（`214-r2-s3verify.py` ✓）。
+6. **Cloudflare 会对同一 IP 的高频 HEAD 限流** ✓（本次 `.214` 全部 403 ✓，连原本 200 的对象也 403 ✓）⇒ 验真走**签名 S3 直连** ✓；玩家路径从别的 IP 实测正常 ✓（说明限流只影响排查 ✗，不影响玩家 ✓）。
+7. **凭据处理**：只从环境变量读 ✓（`R2_EP`/`R2_AK`/`R2_SK`/`R2_BUCKET` ✓），env 文件用 `put`（SFTP ✓）落到 `/root/.r2env` 并 `chmod 600` ✓，用完 `shred` ✓；**任何脚本都不打印** EP/AK/SK ✓。
+8. **PowerShell 传远端命令**：双引号里的 `$(…)` 会被 **PowerShell 本地**求值 ✗（`||` 直接语法报错 ✗）⇒ 一律用**单引号**包远端命令 ✓，复杂逻辑写成脚本 `put` 上去再 `bash` ✓。
+9. **Python 后台日志是块缓冲** ✓：`print` 重定向到文件时，`tail` 会长时间 0 字节 ✗（本次 4 分钟 ✓）⇒ 用 `python3 -u` ✓，或读 `/proc/<pid>/io` 的 `wchar` 估进度 ✓（本次 630 MB / 643 MB ✓）。
+10. **`pkill -f <脚本名>` 会连自己那条 SSH 命令一起杀** ✗（命令行里含同名串 ✓）⇒ 用 `pkill -f '名字[-]分段'` ✓，重启逻辑放独立脚本 ✓。
+11. **别按本机清单的"全部 URL"去 R2 抓** ✗：`local-assets.json`（`source: local-client`）里那 2179 条在 R2 上**根本不存在** ✓ ⇒ 404 + 60/180 秒超时会把并发 worker 钉死 ✓（1 MB/s → 18 KB/s ✗）；正确口径是**以 `.214` 清单里存在 `size` 的集合为准** ✓（那正是 `.214` 磁盘上真有的集合 ✓）。
+
+**验收口径**：R2 上 `https://local.xiaolubao.com/Stronghold-Protocol/assets/char/avatar/char_003_kalts.png` = **200** ✓；`.214` 清单 `sized` ≈ **11217** ✓；t44 本地补齐后 `sized` 同步 ✓；玩家侧不再图裂 ✓。
+
