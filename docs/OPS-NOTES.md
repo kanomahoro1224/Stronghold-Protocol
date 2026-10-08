@@ -154,6 +154,30 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 5. 没有任何记录需要改写时**不重启**（规则没变的情况下等于空跑）。
 ⚠️ 代价：这是**把旧局面重放进新引擎**——上游用 `rulesHash` 挡住它正是因为"引擎状态会被拿来对着它没见过的输入重建"，恢复回来的局**可能状态错乱或报错**（第 4 步的日志会显示）。本次由用户明确要求才这么做。
 
+### 拒绝理由全表（`server/state/resume.js` `checkRecord`）
+
+| reason | 判定 | 能恢复吗 |
+|---|---|---|
+| `rules` / `build` | `record.rulesHash !== hash`（build 那半需未设 `SP_STATE_IGNORE_BUILD`） | **能** ✓ 打补丁或改写记录即可 |
+| `phase` | `resumePlan()` 认为该阶段**不可重入**（只有轮次开始 / 开放备战 / 结算可重入） | ✗ 但**文件保留** |
+| `final` | `record.round >= finalRound` | ✗ 文件保留 |
+| `expired` | **`now - record.updatedAt > ttlMs`**；TTL = `max(20 分钟, SP_SOLO_RECONNECT_MS)` | ✗ **终态，启动即删** |
+| `ended` / `no-human` / `version` / `shape` / `key-mismatch` / `missing` | 已结束 / 无真人 / 记录格式版本不符 / 结构坏 / 键不匹配 | ✗ 终态，启动即删 |
+
+- **活着的对局永远不会 `expired`** ✓：轮次开始、结算、以及每几秒的心跳都会重写记录（源码注释：*a live match refreshes its record every few seconds, so its TTL never runs out*）⇒ `expired` = "**20 分钟没人动过的僵尸记录**" ✓，启动扫描顺手删掉 ✓。
+- 删除集合 `PURGEABLE_REFUSALS = {version, shape, ended, no-human, key-mismatch, expired}`；**`phase` / `build` / `rules` 会被保留在磁盘上** ✓ —— 所以才存在"事后改写记录 + 重启"这条强制恢复路径 ✓。
+
+### 2026-10-08 12:00 实况（0.1.3 / 0.1.4 → 0.2.1）
+- 部署：`.214` 04:00:05→04:00:16 ✓（vhost 200 ✓）；t44 首跑因 **vhost 误判 → 自动回滚** ✗（见下方坑），04:02:50 修好后重部署 ✓。
+- 对局：`.214` **417 局可恢复**（拒绝 68 = `phase×62, final×6`，**`rules` 为 0** ✓），玩家已接回 381+ 局；t44 **28 局可恢复**（拒绝 6 = `phase×6`），已接回 25 局。
+  `.214` 首扫（04:00:25）是 `350 可恢复 / 513 拒绝`，拒绝里 `expired×486` 正是僵尸记录被清（`state` 文件数 966 → 555）✓，**不是部署弄丢的局** ✓。
+- 保留验证：维护 tips（`public/runtime/status.json`）、`data/config.json`、`data/notice.json` 全部原样 ✓（mtime 仍是升级前 ✓）；两台 `sp-` 定时器与 crontab 兜底行都已自清 ✓；依赖 `7 缺=无` ✓。
+
+**新坑（务必记住）**：`vhost_check` 用 `curl -sk --resolve <域名>:443:127.0.0.1 https://<域名>/` 做"重启后验证"——**t44 上必然返回 000** ✗（它的 nginx 只监听 `127.0.0.1:8080/8443`，443 由上层 stream 层 `$ssl_preread_protocol` 转发），于是把**已经升级成功**的 t44 判成失败并**自动回滚** ✗（把已升级的机器退回旧版，玩家多被踢一次 ✗）。修法：**先探测本机实际监听的 https 端口（443 / 8443）再 `--resolve` 到该端口**，并且该检查**只告警、绝不据此回滚** ✓（回滚的唯一依据应是本机 `/healthz` ✓）。
+
+**另一处观察**：`download()` 的"优先使用本机预打补丁的包"分支**没生效** ✗（两台 12:00 日志都是「⚠ 包内没有规则章补丁 → 解包后由 `patch_state_gate` 补上」），兜底的"解包后补丁"那层按预期接管 ✓。**教训：任何"预先准备好"的优化都必须配一层"事后校验/兜底"** ✓，判定条件本身也还要再查。
+
+
 
 **怎么查**：`curl -s 127.0.0.1:3000/healthz` 的 `state` 段（`scan.reasons`、`resumedCount`、`persist.written/errors` / `lastError`），日志 `journalctl -u stronghold | grep '\[state\]'`。
 
