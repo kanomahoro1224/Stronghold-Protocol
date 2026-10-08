@@ -400,6 +400,6 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 - 流程 ✓：解包（不含 `data/` ✓ 线上库不被覆盖 ✓）→ `node --check` ✓ → 盒子上跑 `tools/check-probe-address.mjs` **27/27** ✓ + `check-latency-logic.mjs` **28/28** ✓ → 用新 `probe.js` 直接探 ✓：`t44.sjcmc.cn` **175 ms ok** ✓、`t44.kafuno.cn` **157 ms ok** ✓ → `systemctl restart stronghold-community` ✓。
 - ⚠️ **踩坑** ✗：脚本原先把「给 t44 写 `probe_address`」放在重启**之前** ✓ 结果 `Error: no such column: probe_address` ✗ —— 迁移是**服务进程启动**时由 `openDatabase()` 跑的 ✓ 重启前库里还没有这一列 ✓ ⇒ **顺序必须是「先重启（跑迁移）→ 再写库」** ✓（脚本已按此修正 ✓ 结果一致 ✓）。
 - 线上复核 ✓（游客视角 ✓）：community `10:42:48 UTC` ✓ / game `04:01:02 UTC` **未动** ✓；`game.` 与 `hk.` 都 **200** ✓ `nginx -t` ok ✓；**两条节点都 `ok=true`** ✓（t44 151 ms ✓ HK 14 ms ✓）⇒ t44 不再被判离线 ✓；游客响应里 `probeAddress=undefined` ✓（不泄露运维地址 ✓）。
-- 数据 ✓：`id=1` 公开 `https://t44.kafuno.cn:34046/` ✓ 探测 `https://t44.sjcmc.cn:34046/` ✓；`id=2` 探测＝公开 ✓。
+- 数据 ✓：`id=1` 公开 `https://t44.kafuno.cn:34046/` ✓ 探测 `http://t44.sjcmc.cn:34046/` ✓（部署脚本写的是 `https://` ✓，10:43:30 UTC 又在**后台界面**里被改成 `http://` ✓ —— 这顺带证明该字段在线上端到端可用 ✓，UI → API → 库都通 ✓；两种 scheme 都探得到 ✓ 实测 86 ms ✓，只是 http 那一段是明文（内容仅是公开的 `/healthz` ✓）✓ 想换回 https 后台改一下即可 ✓）；`id=2` 探测＝公开 ✓。
 - 公网三趟 e2e 复跑 ✓ **全部通过** ✓：正常 `本机 159 / 62 ms` ✓；拦截本机 ping ⇒「运行正常 / 本机未测到 · 服务端 1247 / 23 ms」✓ 不说离线 ✓；伪造服务端失败 ⇒「本机可达 / 探测超时 · timeout · 本机 162 ms」且可进入 ✓。
 
