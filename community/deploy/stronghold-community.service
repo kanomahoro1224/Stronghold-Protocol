@@ -1,0 +1,24 @@
+[Unit]
+Description=Stronghold Protocol community site
+Documentation=https://github.com/sganggs/Stronghold-Protocol
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/Stronghold-Protocol/community
+# The same hardening shape as stronghold.service (root-owned app dir, unprivileged user, private /tmp).
+Environment=NODE_ENV=production PORT=3100 HOST=127.0.0.1
+Environment=SP_COMMUNITY_DB=/opt/Stronghold-Protocol/community/data/community.db
+ExecStart=/usr/local/bin/node server/index.js
+User=stronghold
+Group=stronghold
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=65535
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

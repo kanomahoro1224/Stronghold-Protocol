@@ -1,0 +1,14 @@
+{
+  "name": "卫戍协议 · 社区",
+  "short_name": "卫戍社区",
+  "description": "《卫戍协议》社区服务器聚合站",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0f0e",
+  "theme_color": "#0c0f0e",
+  "icons": [
+    { "src": "/img/icon/qdeer-192.webp", "sizes": "192x192", "type": "image/webp", "purpose": "any" },
+    { "src": "/img/icon/qdeer-512.webp", "sizes": "512x512", "type": "image/webp", "purpose": "any" },
+    { "src": "/img/icon/qdeer-1024.webp", "sizes": "1024x1024", "type": "image/webp", "purpose": "any" }
+  ]
+}

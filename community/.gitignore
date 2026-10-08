@@ -1,0 +1,13 @@
+# --- runtime data (SQLite, WAL sidecars) ------------------------------------------------------
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# --- dev-only screenshot output (tools/shoot.mjs) ---------------------------------------------
+.shots/
+.shots-raw/
+.shots-check/
+.tmp-icon/
+
+# --- dev server log: first boot can print the generated admin password, so it must never be tracked
+server.log

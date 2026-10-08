@@ -1,0 +1,31 @@
+/* community/public/fonts/fonts.css — self-hosted display faces, mirrored from the game client.
+ * Bender (c) Jovanny Lemonad / Oleg Zhuravlev, Gladkikh Ivan — free font.
+ * Novecento Wide (c) Jan Tonellato / Synthview — free font.
+ *
+ * Oxanium / Rajdhani / Noto Sans SC are fetched from Google Fonts by the game client's HTML shell; the
+ * community site declares an explicit @font-face stack here for the faces we self-host, and lets the
+ * remaining families fall through to whatever the browser has. */
+
+@font-face {
+  font-family: 'Bender';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('bender-regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Bender';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('bender-light.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Novecento Wide';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('novecento-wide-normal.woff2') format('woff2');
+}

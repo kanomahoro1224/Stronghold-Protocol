@@ -330,3 +330,21 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **验收** ✓：定向 8 文件 **435/435 通过 / 0 失败** ✓（含移植的 5 条：`common` 白名单/缓存键 ✓、`manifest` 棋盘 + 方括号 + 工具链 ✓、`archive` 棋盘 JSON 往返 + 旧字面量包兼容 ✓）；`client-static` 通过 ✓ ⇒ 新 `shared/` 导入可解析 ✓（`server/http/static.js:70` 本就挂载 `/shared/` ✓）。
 
+## §14 社区站上线 + 域名分工（`game.` = 社区 ✓ `hk.` = 游戏）
+
+**结果** ✓：`community/` 作为**独立进程**跑在 `.214` 的 `127.0.0.1:3100` ✓，公网入口 `game.xiaolubao.com` 反代到它 ✓；游戏本体的公网名换成 `hk.xiaolubao.com` ✓（原本 `game.` 的那份 nginx 站点文件**原样搬家** ✓，R2 302 / `sp_code` 分流 / `/ws` / `/data/resource-manifest.json` 全部保留 ✓）。**证书不用动** ✓ —— `/etc/nginx/ssl/xiaolubao/{fullchain,privkey}.pem` 是 `*.xiaolubao.com` 通配 ✓（ZeroSSL ECC ✓ 到 2026-10-23 ✓），两个名字共用 ✓；机器上**没有 certbot** ✓（也不需要 ✓）。
+
+**数据库是这次唯一不能想当然的环节** ✓✗：
+- 库里有真数据 ✓（2 个节点 ✓ 其中 `HK - 分线` 已指向 `https://hk.xiaolubao.com/` ✓、管理员 `admin@luke.qaq` ✓、3 个会话 ✓），**绝不能让服务器重新 seed** ✗。
+- 迁之前必须 `PRAGMA wal_checkpoint(TRUNCATE)` ✓：开发机 `community.db-wal` 有 **107 KB 未落盘** ✗，只拷 `.db` 会静默丢数据 ✓（合并后 WAL = 0 ✓ 单文件 36864 B ✓ sha256 `3761c2c3…` ✓）。
+- 部署脚本**只在库不存在时放置** ✓，之后每次部署都不覆盖线上库 ✓✓。
+- 两类文件永不入库 ✓：`server.log`（首启可能打印随机管理员密码 ✗）与 `.shots/token.txt`（真会话 token ✗）✓ 已进 `.gitignore` ✓。
+
+**服务** ✓：`/opt/Stronghold-Protocol/community` ✓ + `/etc/systemd/system/stronghold-community.service` ✓（`User=stronghold` ✓ `PORT=3100` ✓ `HOST=127.0.0.1` ✓ `NODE_ENV=production` ✓ → 会话 Cookie 带 `Secure` ✓；`node:sqlite` 只需 Node ≥ 22.5 ✓ 机器是 22.23.3 ✓ 无原生依赖、无 `node_modules` ✓）。零停机 ✓：**只 `nginx -t` + `nginx -s reload`** ✓，游戏进程全程没重启 ✓（切换前后 `humans 1601→1583`、`matches 592→588`、`sockets 2028→1908` ✓ 现有 WS 不断 ✓）。回滚 ✓：`/opt/stronghold-deploy/game.xiaolubao.com.conf.bak-20261008-101225` ✓（恢复 + 删掉 `hk.xiaolubao.com.conf` + reload ✓）；`nginx -t` 失败脚本会自己回滚 ✓。
+
+**两个坑** ✓：
+1. **`resource-sw.js` 注销桩** ✓：老玩家在 `game.` 源上还注册着**游戏**的 Service Worker ✗，它会拿游戏缓存回答 `/fonts/**`、`/assets/**` ✓ ⇒ 会盖掉社区站自己的 `/fonts/fonts.css` ✗。社区的站点块里用 `location = /resource-sw.js` 直接返回一段自注销脚本 ✓（`activate` 时 `self.registration.unregister()` ✓，Cache Storage 不动 ✓）。
+2. **验收别用 `-H 'Host: x' https://127.0.0.1/`** ✗：SNI 是 `127.0.0.1` ✓ 而且 HTTP/2 的 `:authority` 不跟随 `-H Host` ✓ ⇒ 拿到的是默认 server（旧 worker 还在退场时更乱 ✗）。我第一版就因此看到「同一 Host 下 `/` 是游戏页 ✗、`/healthz` 是社区 ✗」这种自相矛盾 ✓。正确姿势 ✓：`curl --resolve <name>:443:127.0.0.1 https://<name>/…` ✓。
+
+**影响面** ✓：老玩家在 `game.` 上**已建立**的连接继续有效 ✓（reload 不断 ✓），但**刷新就会落到社区页** ✓ ⇒ 之后要走 `hk.xiaolubao.com` 或 `t44.kafuno.cn:34046` ✓；社区列表里两条节点正好就是这两个 ✓ ⇒ 落地页天然把玩家导过去 ✓。`.214` 的站点文件与单元同步留档在 `community/deploy/` ✓。
+
