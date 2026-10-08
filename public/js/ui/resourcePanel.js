@@ -31,10 +31,13 @@ export function byteText(st) {
  * The denominators are the entries this browser can actually download (`wanted` / `tier1Wanted`, store.js `eligible`):
  * a manifest entry the server has no size for is a file the origin does not serve, it is never requested, and counting
  * it in the total made the line read `全部 9040/11221` for ever — the numbers said "2181 to go" while there was nothing
- * left to fetch and the bar sat at 100 %. The skipped ones are reported on their own line by the manager.
+ * left to fetch and the bar sat at 100 %. `wanted` is authoritative whenever the payload carries it (it always does:
+ * store.js fills it in for status, progress and result alike); a box whose manifest can be sized nowhere (assets served
+ * from a path the app cannot stat) has `wanted === 0` and then there is nothing honest to show at all. The skipped ones
+ * are reported on their own line by the manager.
  */
 export function detailText(st) {
-  const total = st.wanted || st.total;
+  const total = Number.isFinite(st.wanted) ? st.wanted : st.total;
   if (!total) return '';
   const tier1Total = st.tier1Wanted ?? st.tier1Total;
   return [
