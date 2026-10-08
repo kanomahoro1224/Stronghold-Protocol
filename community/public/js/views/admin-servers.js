@@ -1,6 +1,6 @@
 // community/public/js/views/admin-servers.js — 后台 · 服务器管理控制台.
 // Table CRUD over /api/servers, mirroring the draft: stat cards, table (名称/地址/区域/实时状态/操作), 添加服务器 modal.
-import { useState, useEffect, useCallback, useMemo } from 'preact/hooks';
+import { useState, useEffect, useCallback, useMemo } from '/vendor/hooks.module.js';
 import { api, ApiError } from '../api.js';
 import { html, Modal, Field, toast, IconPlus, IconServer, IconOff, IconGlobe, relativeTime } from '../ui.js';
 import { AdminShell } from './admin-shell.js';

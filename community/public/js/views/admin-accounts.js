@@ -1,7 +1,7 @@
 // community/public/js/views/admin-accounts.js — 后台 · 账号管理页.
 // The ONLY place accounts can be created (self-registration is off). Mirrors the draft: stat cards,
 // account table (账号名称/登录名/角色/状态/操作) and the 新建账号 modal with a plaintext-password notice.
-import { useState, useEffect, useCallback, useMemo } from 'preact/hooks';
+import { useState, useEffect, useCallback, useMemo } from '/vendor/hooks.module.js';
 import { api, ApiError } from '../api.js';
 import { html, Modal, Field, toast, IconPlus, IconUsers, IconUser, IconShield, IconOff, relativeTime } from '../ui.js';
 import { AdminShell } from './admin-shell.js';

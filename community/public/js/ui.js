@@ -1,7 +1,7 @@
 // community/public/js/ui.js — shared primitives: icons, toast, modal, brand, JSON pretty-printer.
-import { h } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
-import htm from 'htm';
+import { h } from '/vendor/preact.module.js';
+import { useEffect, useState } from '/vendor/hooks.module.js';
+import htm from '/vendor/htm.module.js';
 
 export const html = htm.bind(h);
 

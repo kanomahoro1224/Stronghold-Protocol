@@ -1,5 +1,5 @@
 // community/public/js/views/admin-login.js — 后台 · 管理员登录页.
-import { useState, useRef, useEffect } from 'preact/hooks';
+import { useState, useRef, useEffect } from '/vendor/hooks.module.js';
 import { api, ApiError } from '../api.js';
 import { html, BrandMark, IconShield, toast } from '../ui.js';
 

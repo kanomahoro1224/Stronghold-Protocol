@@ -7,8 +7,8 @@
 //
 // The server boots the SPA shell for any extension-less path, so a hard refresh on /admin works.
 
-import { render, h } from 'preact';
-import { useEffect, useState, useCallback } from 'preact/hooks';
+import { render, h } from '/vendor/preact.module.js';
+import { useEffect, useState, useCallback } from '/vendor/hooks.module.js';
 import { html, ToastHost } from './ui.js';
 import { api } from './api.js';
 import { ServerList } from './views/server-list.js';
@@ -65,3 +65,5 @@ const App = () => {
 };
 
 render(h(App), document.getElementById('app'));
+// 告诉 js/boot-guard.js 模块图确实跑起来了（它只在 8 秒内一直没渲染时才在页面上报警）。
+document.documentElement.dataset.appReady = '1';

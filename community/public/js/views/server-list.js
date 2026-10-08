@@ -2,7 +2,7 @@
 // Mirrors the Ardot draft: nav (服务器 / 下载[hidden] / 关于), hero stats, region filters, node cards with the
 // FULL healthz JSON panel, and a 「进入服务器」 jump button on each card.
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'preact/hooks';
+import { useState, useEffect, useCallback, useMemo, useRef } from '/vendor/hooks.module.js';
 import { api, ApiError } from '../api.js';
 import { measureAll, statusFor } from '../latency.js';
 import {

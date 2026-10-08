@@ -401,5 +401,26 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 - ⚠️ **踩坑** ✗：脚本原先把「给 t44 写 `probe_address`」放在重启**之前** ✓ 结果 `Error: no such column: probe_address` ✗ —— 迁移是**服务进程启动**时由 `openDatabase()` 跑的 ✓ 重启前库里还没有这一列 ✓ ⇒ **顺序必须是「先重启（跑迁移）→ 再写库」** ✓（脚本已按此修正 ✓ 结果一致 ✓）。
 - 线上复核 ✓（游客视角 ✓）：community `10:42:48 UTC` ✓ / game `04:01:02 UTC` **未动** ✓；`game.` 与 `hk.` 都 **200** ✓ `nginx -t` ok ✓；**两条节点都 `ok=true`** ✓（t44 151 ms ✓ HK 14 ms ✓）⇒ t44 不再被判离线 ✓；游客响应里 `probeAddress=undefined` ✓（不泄露运维地址 ✓）。
 - 数据 ✓：`id=1` 公开 `https://t44.kafuno.cn:34046/` ✓ 探测 `http://t44.sjcmc.cn:34046/` ✓（部署脚本写的是 `https://` ✓，10:43:30 UTC 又在**后台界面**里被改成 `http://` ✓ —— 这顺带证明该字段在线上端到端可用 ✓，UI → API → 库都通 ✓；两种 scheme 都探得到 ✓ 实测 86 ms ✓，只是 http 那一段是明文（内容仅是公开的 `/healthz` ✓）✓ 想换回 https 后台改一下即可 ✓）；`id=2` 探测＝公开 ✓。
+
+## §17 iOS 打开 `game.xiaolubao.com` 只有一片深色空页
+
+**症状** ✓（用户实拍 ✓）：iPhone Safari 打开 `game.xiaolubao.com` ⇒ 只有深色背景 ✓ 没有任何内容 ✓；桌面与安卓正常 ✓。
+
+**根因** ✓：`public/index.html` 用 `<script type="importmap">` 把裸模块名映射到 `/vendor/*.js` ✓，而 **import map 需要 Safari/iOS 16.4+** ✓ —— 更旧的 iOS 会**静默忽略**它 ✗ ⇒ `import { useState } from 'preact/hooks'` 这类裸名解析失败 ✗ ⇒ 整个 `main.js` 不执行 ✓ ⇒ **CSS 到了（所以是深色 ✓）而 `#app` 永远是空的** ✓，逐项对上症状 ✓。
+
+- 全仓扫描确认 ✓：**没有任何** iOS 16.4+ 才有的 JS 语法/API ✓（`structuredClone` ✓ `toSorted` ✓ `??=` ✓ `Object.groupBy` ✓ `Promise.withResolvers` ✓ 静态块 ✓ 全都为零 ✓）⇒ 唯一的拦路虎就是 import map ✓（CSS 里可能有个别新特性 ✓ 但那只会影响外观 ✓ 不会白屏 ✓）。
+- 顺带发现 ✓：游戏站 `hk.` **也有** import map ✗，但它自带 `__spBootFail` 兜底 ✓；社区站**什么兜底都没有** ✗ ⇒ 用户只能看到空页 ✓。
+
+**修复** ✓（纯静态 ✓ **不需要重启** ✓）：
+
+1. 6 个用到裸模块名的前端文件全部改成真实地址 ✓（`/vendor/preact.module.js` ✓ `/vendor/hooks.module.js` ✓ `/vendor/htm.module.js` ✓）。
+2. ⚠️ **只删 importmap 不够** ✗ —— `vendor/hooks.module.js`（官方压缩过的 hooks 构建 ✓）内部自己写着 `from"preact"` ✓，一并改成 `from"./preact.module.js"` ✓。**以后替换这个 vendor 文件必须重新改这一处** ✓。
+3. `index.html` 删掉 importmap ✓，改为先加载**普通脚本** `js/boot-guard.js` ✓ 再加载 module ✓。
+4. 新增 `js/boot-guard.js` ✓：普通脚本（不依赖模块 ✓）⇒ 任何启动失败（模块 link 失败 ✓ 脚本报错 ✓ 或 8 秒还没渲染 ✓）都在页面顶部显示中文提示 + **UA** ✓ ⇒ **以后不会再出现「一片空页」** ✓；`main.js` 渲染成功后置 `document.documentElement.dataset.appReady = '1'` ✓。
+   ⚠️ CSP 是 `script-src 'self'` 且没有 `unsafe-inline` ✓ ⇒ 兜底必须是**外链普通脚本** ✓，**不能**用 `onerror=` 内联处理器（会被 CSP 拦掉 ✗；游戏站那边正是内联写法 ✓ 在社区站行不通 ✓）。
+
+**验收** ✓：`tools/check-module-specifiers.mjs` **10/10** ✓（纯 Node ✓ 全仓裸模块名归零 ✓ importmap 复活即失败 ✓ 兜底脚本必须存在且不含 import/export ✓ 且不许出现内联处理器 ✓）；`tools/verify-no-importmap.mjs` **9/9** ✓（浏览器两幕 ✓：**把 importmap 删掉再加载 = iOS 16.4 以下的处境** ✓ 页面照常渲染出卡片 ✓；**故意让 `/vendor/*` 全部加载失败** ✓ 页面出现可读提示并带 UA ✓ 不再是空页 ✓）；回归 ✓ `check-latency-logic` **28/28** ✓ `check-probe-address` **27/27** ✓。
+
+**仍待办** ✓：游戏站 `hk.` 的 import map ✗ —— 它有兜底提示但**进不去游戏** ✗ ⇒ 旧 iOS 用户要么升级到 16.4+ ✓，要么用同样办法改客户端 ✓（那是**上游文件** ✓ 改动面大得多 ✓ 需要单独决定 ✓）。
 - 公网三趟 e2e 复跑 ✓ **全部通过** ✓：正常 `本机 159 / 62 ms` ✓；拦截本机 ping ⇒「运行正常 / 本机未测到 · 服务端 1247 / 23 ms」✓ 不说离线 ✓；伪造服务端失败 ⇒「本机可达 / 探测超时 · timeout · 本机 162 ms」且可进入 ✓。
 

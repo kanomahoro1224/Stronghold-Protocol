@@ -67,10 +67,11 @@ community/
 │  ├─ http.js     安全响应头、JSON/Cookie 工具、静态文件服务
 │  └─ seed.js     首次启动的示例数据与初始管理员
 ├─ public/
-│  ├─ index.html  SPA 外壳（含 importmap）
+│  ├─ index.html  SPA 外壳（普通脚本兜底 + module，见下）
 │  ├─ css/theme.css   设计令牌（移植自游戏前端）
 │  ├─ css/app.css     布局与组件
 │  └─ js/
+│     ├─ boot-guard.js 普通脚本兜底：模块图整体失败时在页面上给出可读提示（不许再出现深色空页）
 │     ├─ main.js       路由（/、/admin、/admin/accounts）
 │     ├─ api.js        接口客户端（ApiError）
 │     ├─ ui.js         图标、弹窗、Toast、JSON 高亮、品牌标
@@ -108,12 +109,17 @@ SQLite 持久化与管理后台，因此作为**独立进程**运行在另一个
 ## 安全说明
 
 - 密码使用 **scrypt** 加盐哈希；会话只存 token 的 SHA-256，Cookie 为 `HttpOnly` + `SameSite=Lax`。
-- 完整 CSP（`script-src 'self'`，内联 importmap 单独以 SHA-256 哈希放行，无 `unsafe-inline`）。
+- 完整 CSP（`script-src 'self'`，无 `unsafe-inline`）。
 - 所有管理接口经 `requireAdmin` 守卫；系统保证**至少保留一个启用中的管理员**，且不能停用/删除自己。
 - 静态文件服务拒绝路径穿越；非 GET/HEAD 的静态请求返回 405。
 - **探测节点的 TLS 校验被显式放宽**（社区节点常见自签证书 / 走隧道），仅作用于 `probe.js` 的出站探测。
 
-> ⚠️ 若修改 `public/index.html` 的 importmap，需同步更新 `server/http.js` 中 CSP 的哈希值，否则模块解析会被拦截：
-> ```bash
-> node -e "const f=require('fs'),c=require('crypto');const h=f.readFileSync('public/index.html','utf8').match(/<script type=\"importmap\">([\s\S]*?)<\/script>/)[1];console.log('sha256-'+c.createHash('sha256').update(h,'utf8').digest('base64'))"
-> ```
+> ⚠️ **模块名一律写真实路径**（`/vendor/preact.module.js` 等），**不要**再用 import map —— 它需要
+> Safari/iOS **16.4+**，旧 iPhone 上会被静默忽略，裸模块名解析失败 ⇒ 整个 `main.js` 不执行 ⇒ 只剩一片
+> 深色空页（2026-10 真实事故）。同理 `vendor/hooks.module.js` 内部那行 `from"preact"` 已改成
+> `from"./preact.module.js"`，**升级这个 vendor 文件后要重新改**。
+> `tools/check-module-specifiers.mjs`（纯 Node）与 `tools/verify-no-importmap.mjs`（浏览器，含「模块挂掉必须
+> 有可读提示」一幕）守住这条规则。
+>
+> 备注：`server/http.js` 的 CSP 里还留着一个历史 SHA-256 哈希，它已不对应任何脚本（内联脚本全部移除），
+> 留着无害；删掉它需要重启服务，故等到下次重启顺手清理。

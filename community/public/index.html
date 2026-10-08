@@ -18,15 +18,9 @@
 <body>
   <div class="app-bg" aria-hidden="true"></div>
   <div id="app"></div>
-  <script type="importmap">
-  {
-    "imports": {
-      "preact": "/vendor/preact.module.js",
-      "preact/hooks": "/vendor/hooks.module.js",
-      "htm": "/vendor/htm.module.js"
-    }
-  }
-  </script>
+  <!-- 普通脚本：模块图整体失败时也要能说明白（旧 iOS 不支持 import map，见 js/boot-guard.js） -->
+  <script src="/js/boot-guard.js"></script>
+  <!-- 模块名一律写 /vendor/*.js 真实地址：不再靠 import map 做映射（IMPORT MAP 需要 Safari/iOS 16.4+） -->
   <script type="module" src="/js/main.js"></script>
 </body>
 </html>
