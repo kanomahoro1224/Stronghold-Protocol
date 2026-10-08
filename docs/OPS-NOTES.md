@@ -316,3 +316,17 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **坑** ✓：迁移测试的前提要写对 ✓ —— 迁移发生在「**清单已是 CDN 绝对地址、缓存仍是站点路径**」时 ✓；若测试里清单还写着站点路径 ✗（生产里 `index.js` 会先重写 ✓），`keyOf` 也是站点路径 ✓、`aliasOf()` 返回 null ✓，于是它会**真的去下载** ✗（我第一版就这么写错了一次 ✓ 断言 `calls` 为空才抓到 ✓）。
 
+## §13 合并上游预载修复（`xinhai-ai` `a94c720a`）
+
+**结论先行** ✓：上游 `xinhai-ai/Stronghold-Protocol` 与本 fork 的预载是**两套并行实现** ✗（`git merge-base --is-ancestor` 全部返回 1 ✓，`store.js` 两边差 ±475 行 ✓）⇒ **不能 `git merge`** ✗（等于重写 ✓）。逐条对比后 ✓：上游预载史上 20 条提交里 ✓，本 fork **只有最新两条没有** ✓ —— `a94c720a fix: preload board metadata and normalize resource paths` ✓ 与 `5d8e91e7 perf: optimize ZIP resource imports with bounded read caching` ✓（后者依赖上游自研的 `zipReader.js`/`integrity.js` 栈 ✗，我们走 fflate 且本就流式 ✓ ⇒ **不移植** ✓）。
+
+**`a94c720a` 补的两个真缺口** ✓（本地实测 ✓）：
+1. **棋盘元数据从未进过预载** ✗：`resourceType()` 只认扩展名 ✓ ⇒ `.json` 一律 `null` ✓ ⇒ `public/assets/local/map/autochess/tiles.json`（8745 B ✓，`boardArt.js:45` / `board3d/load.js:115` 运行期确实 fetch ✓）等 4 个文件**永远不在清单里** ✓（`manifest: json 0` ✓）。
+2. **方括号路径两套拼写、缓存永不命中** ✗：渲染器按 `encodeURI` 请求 `%5Bopt%5D…` ✓，清单/缓存键却是字面量 `[opt]` ✓ ⇒ 本地 6 个这类文件（`fx/[opt]merged_textures*.png` ×5 ✓ + `water/[ucp]TX_water_normal.png` ✓）预载等于白下 ✓。
+
+**改法** ✓：新增 `shared/resourcePaths.js`（`isBoardResourceJson` 白名单 4 个 json ✓ + `canonicalResourceUrl` 归一 `%5B`/`%5D` ✓），服务端 `server/resources.js`（`resourceType` ✓、`collectResourceFiles` 归一+去重+`tiles.json` 同伴推导 ✓、`pathKey` ✓、`localPathFor` decode+控制字符拦截 ✓、`createResourceIndex` 由磁盘现算 `tiles.json` 指纹并让 size/mtime 参与失效 ✓）、客户端 `common.js`/`service.js`/`archive.js`（缓存键归一 ✓、旧字面量键作为**回退候选** ✓、ZIP 身份归一且**旧包仍可读** ✓）、`tools/asset-hashes.mjs`（键改归一 ✓）、`buildTag.js`（把 `shared/resourcePaths.js` 纳入 build 标识 ✓ ⇒ SW 依赖变了要刷新页面 ✓）。
+
+**⚠️ 部署最大的坑** ✓：`data/asset-hashes.json` 被 `.gitignore` 忽略 ✓ ⇒ **机器上那份才是生效的** ✓。`.214` 那份只有 **7182/12123** 条 ✓ 且方括号是**字面量** ✓ ⇒ 若在机器上**全量重算** ✗，几千个文件的 hash 会从「合成 stamp」变成真 SHA-1 ✓ ⇒ **所有玩家重下 613 MB** ✗✗。正确做法 ✓：**只把那 6 个键重命名为 `%5B` 拼写** ✓（其余一条不动 ✓），棋盘 JSON 本来就在表里（4 条 ✓）✓、`tiles.json` 由服务端现算 ✓ ⇒ 零重下 ✓。t44 干脆**没有**这份表 ✗ ⇒ 它的清单哈希是合成值 ✓（t44 公网有自己的清单 ✓，与 `.214` 的 ZIP 互通性本就受限 ✓ —— 记录在案 ✓）。
+
+**验收** ✓：定向 8 文件 **435/435 通过 / 0 失败** ✓（含移植的 5 条：`common` 白名单/缓存键 ✓、`manifest` 棋盘 + 方括号 + 工具链 ✓、`archive` 棋盘 JSON 往返 + 旧字面量包兼容 ✓）；`client-static` 通过 ✓ ⇒ 新 `shared/` 导入可解析 ✓（`server/http/static.js:70` 本就挂载 `/shared/` ✓）。
+

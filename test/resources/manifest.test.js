@@ -8,12 +8,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 // The asset-URL rewriter moved out of the server entry point in the 0.2.0 split (server/http/static.js imports it from
 // shared/cdn.js): the test pinned `server/index.js` as the module that re-exports it.
 import { createStaticHandler } from '../../server/index.js';
 import { rewriteAssetPaths } from '../../shared/cdn.js';
+import { hashTree, buildDoc } from '../../tools/asset-hashes.mjs';
 import {
   RESOURCE_MANIFEST_FILE, RESOURCES_FORMAT, TIER_ESSENTIAL, TIER_REST, buildResourceManifest, collectResourceFiles,
   createResourceIndex, isResourcePath, localPathFor, resourceType, tierForPath, validateResourceUrl,
@@ -339,6 +341,51 @@ describe('the served resource manifest', () => {
 });
 
 describe('the resource index cache', () => {
+  test('installed board sidecars have real hashes and sizes, tile changes invalidate the manifest, and CDN paths agree', async (t) => {
+    const atlas = '/assets/local/map/autochess/TX_autochessi_D.png';
+    const texture = '/assets/local/map/fx/[opt]merged_textures.png';
+    const materials = '/assets/local/map/fx/materials.json';
+    const prefab = '/assets/local/map/fx/prefab.json';
+    const tiles = '/assets/local/map/autochess/tiles.json';
+    const localDoc = { groups: { 'map/autochess': { atlas: { path: atlas, hash: 'aaaabbbbcccc' } },
+      'map/fx': { texture: { path: texture, hash: 'ddddaaaabbbb' }, materials: { path: materials, hash: 'bbbbccccdddd' },
+        prefab: { path: prefab, hash: 'ccccddddeeee' } } } };
+    const inst = install({ localDoc, files: [atlas, texture, materials, prefab, tiles].map((s) => s.slice(1)) });
+    t.after(inst.cleanup);
+    const index = createResourceIndex({ ...inst, cdnBase: 'https://cdn.example/game',
+      rewrite: (doc) => rewriteAssetPaths(doc, 'https://cdn.example/game') });
+    const a = await index.get();
+    assert.equal(a.manifest.files.find((f) => f.url === 'https://cdn.example/game' + encodeURI(texture)).size, texture.length - 1);
+    const tilePath = path.join(inst.publicDir, tiles);
+    const tileBody = fs.readFileSync(tilePath);
+    const expected = createHash('sha1').update(tileBody).digest('hex').slice(0, 12);
+    assert.equal(a.manifest.files.find((f) => f.url.endsWith('/tiles.json')).hash, expected);
+    fs.writeFileSync(tilePath, '{"version":2,"board3d":{}}');
+    const b = await index.get();
+    assert.notEqual(b.etag, a.etag);
+    assert.notEqual(b.manifest.version, a.manifest.version);
+    fs.unlinkSync(tilePath);
+    const c = await index.get();
+    assert.equal(c.manifest.files.some((f) => f.url.endsWith('/tiles.json')), false, 'no endless download when optional local crops are absent');
+  });
+
+  test('the hash tool keys resources the way the manifest does, brackets included', async (t) => {
+    const names = ['assets/local/map/fx/materials.json', 'assets/local/map/autochess/tiles.json',
+      'assets/local/map/fx/[opt]merged_textures.png', 'assets/game-data.json'];
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-res-hashes-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    for (const name of names) {
+      const file = path.join(root, 'public', name);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, name);
+    }
+    const entries = await hashTree(root);
+    const bracket = entries.find((e) => e.url.endsWith('merged_textures.png'));
+    assert.equal(bracket.url, '/assets/local/map/fx/%5Bopt%5Dmerged_textures.png');
+    assert.equal(bracket.hash, createHash('sha1').update(names[2]).digest('hex').slice(0, 12));
+    const doc = buildDoc(entries);
+    assert.equal(doc.files['/assets/local/map/autochess/tiles.json'].length, 12, 'the board sidecar is hashed too');
+  });
   test('the version follows the hashes, not the file times', async () => {
     const localDoc = { version: 1, groups: { map: { TX: { path: '/assets/local/map/autochess/TX_D.png', hash: 'aaaaaaaaaaaa' } } } };
     const inst = install({ localDoc });

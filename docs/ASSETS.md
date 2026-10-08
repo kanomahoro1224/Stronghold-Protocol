@@ -522,6 +522,17 @@ what the worker's `/media/…` mapping looks up. A cache written by an earlier b
 downloaded again: `store.js #adopt` hashes the old entry and rewrites its key. `cdnBase` is '' in development, where
 assets must come from the local server.
 
+Local board metadata is also required: `map/fx/materials.json`, `map/fx/prefab.json`, `map/autochess/materials.json` and
+`map/autochess/tiles.json` under `/assets/local/` are the only JSON sidecars accepted by preload and ZIP validation
+(`shared/resourcePaths.js`, read by the server manifest builder and the browser alike) — game data and language JSON are
+never resource URLs. The crop table is discovered beside a listed `TX_autochessi_D.png` atlas: it is listed when the file
+is installed or the hash table records it, its bytes supply its hash on a manifest rebuild, and its size/mtime
+invalidate the manifest cache; without either it is dropped rather than listed as a download nobody can serve. Brackets
+in resource paths use `%5B`/`%5D` everywhere — manifest URL, cache key, ZIP identity — which is exactly what the renderer
+requests; a ZIP written before this rule (raw brackets) still matches, and the worker answers a raw-bracket request from
+the encoded entry. `shared/resourcePaths.js` is a Service Worker dependency, so it is part of the build tag: reload the
+page once after a deploy that touches it.
+
 **Updating is incremental.** All the files live in one cache (`stronghold-resources-v1-all`) and each entry's hash is
 recorded in the index entry inside it, so a new manifest re-downloads the files whose hash changed and keeps the rest:
 adding artwork to an install that already preloaded costs the new files, not the whole set. A cache of the older layout

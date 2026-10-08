@@ -21,6 +21,7 @@ import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { ASSET_HASHES_FILE } from '../server/resources.js';
+import { canonicalResourceUrl } from '../shared/resourcePaths.js';
 
 /** The trees the resource manifest draws from (server/resources.js collects the same URLs out of the data manifests). */
 export const ROOTS = Object.freeze(['assets', 'fonts']);
@@ -67,7 +68,8 @@ export async function hashTree(root, { onError, onProgress } = {}) {
       const rel = path.relative(base, abs);
       try {
         const stat = await fsp.stat(abs);
-        out.push({ url: urlOf(name, rel), hash: await digestFile(abs), size: stat.size });
+        // The key is the canonical URL the manifest and the cache use (brackets as `%5B`), not the on-disk spelling.
+        out.push({ url: canonicalResourceUrl(urlOf(name, rel)), hash: await digestFile(abs), size: stat.size });
       } catch (err) {
         onError?.(abs, err);
       }

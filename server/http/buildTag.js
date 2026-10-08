@@ -19,7 +19,7 @@ import { ROOT } from './config.js';
  * change without a restart the server still runs the old simulation and data — a page that reloaded into the new files
  * would be out of step with the server that validates its battles (and DEPLOY.md restarts the server for every update).
  */
-export const BUILD_INPUTS = Object.freeze(['public/index.html', 'public/js', 'public/css']);
+export const BUILD_INPUTS = Object.freeze(['public/index.html', 'public/js', 'public/css', 'shared/resourcePaths.js']);
 
 /** Names the static server never serves: dot files (`.DS_Store`, `.main.js.swp`) and editor backups (`main.js~`). */
 const isIgnoredBuildName = (name) => name.startsWith('.') || name.endsWith('~');
