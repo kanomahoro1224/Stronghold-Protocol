@@ -103,9 +103,60 @@ describe('lanes', () => {
   });
 });
 
+// The preload asks the object store directly (assetOrigin.js `assetBase()` → the store's `cdnBase`): the game's own
+// manifests already carry absolute store URLs, so the preload should too — and the entry it caches is then the one a
+// play-time request looks up, instead of a site path the Service Worker never sees.
+describe('object store (cdnBase)', () => {
+  const CDN = 'https://cdn.example.com/Prefix';
+  const withCdn = (m, extra = {}) => new ResourceStore(m, {
+    caches: extra.caches ?? new MemoryCaches(), fetcher: extra.fetch, origin: ORIGIN, cdnBase: CDN,
+    fileTimeoutMs: extra.fileTimeoutMs, now: extra.now,
+  });
+
+  test('sourceOf: a site path is fetched from the store, an absolute store URL as itself', () => {
+    const s = withCdn(manifest([]));
+    assert.equal(s.sourceOf(`${ORIGIN}/assets/a.png`), `${CDN}/assets/a.png`);
+    assert.equal(s.sourceOf(`${ORIGIN}/fonts/f.woff2`), `${CDN}/fonts/f.woff2`);
+    assert.equal(s.sourceOf(`${ORIGIN}/assets/a.png?x=1`), `${CDN}/assets/a.png?x=1`, 'a query survives the move');
+    assert.equal(s.sourceOf(`${CDN}/assets/a.png`), `${CDN}/assets/a.png`, 'already the store URL');
+    assert.equal(s.sourceOf(`${ORIGIN}/data/assets.json`), `${ORIGIN}/data/assets.json`, 'not a mirrored tree');
+    assert.equal(s.sourceOf('not a url'), 'not a url');
+    assert.equal(store(manifest([])).sourceOf(`${ORIGIN}/assets/a.png`), `${ORIGIN}/assets/a.png`, 'no base → the game host');
+  });
+
+  test('the download goes to the store while the cache entry keeps the manifest key', async () => {
+    // the audio shape: assetOrigin.js leaves /assets/audio/** as a site path so the worker can map /media/… onto it
+    const url = '/assets/audio/bgm/act1.mp3';
+    const m = manifest([{ url, tier: 1, size: 8 }]);
+    const caches = new MemoryCaches();
+    const { fetch, calls } = fetcherFor({ bodies: { [`${CDN}${url}`]: 'x'.repeat(8) } });
+    await withCdn(m, { caches, fetch }).download({ tiers: [1] });
+    assert.deepEqual(calls, [`${CDN}${url}`], 'one request, to the store (no 302 through the game host)');
+    const cache = await caches.open(CACHE_NAME);
+    assert.ok(await cache.match(`${ORIGIN}${url}`), 'stored under the key the worker looks up for /media/…');
+  });
+
+  test('a cache written before the rewrite is moved, not downloaded again', async () => {
+    const body = 'x'.repeat(8);
+    const hash = await digest(body);
+    // after the rewrite (resources/index.js) the manifest entry is the store URL; the player's cache still holds the site key
+    const m = manifest([{ url: `${CDN}/assets/a.png`, tier: 1, size: 8, hash }]);
+    const caches = new MemoryCaches();
+    await seed(caches, `${ORIGIN}/assets/a.png`, body, hash);
+    const { fetch, calls } = fetcherFor({});
+    const s = withCdn(m, { caches, fetch });
+    assert.equal((await s.status()).count, 0, 'the store key is not there yet');
+    await s.download({ tiers: [1] });
+    assert.deepEqual(calls, [], 'the bytes were already on disk: nothing was fetched');
+    assert.equal((await s.status()).count, 1);
+    const cache = await caches.open(CACHE_NAME);
+    assert.ok(await cache.match(`${CDN}/assets/a.png`), 'moved to the store key');
+    assert.equal(await cache.match(`${ORIGIN}/assets/a.png`), undefined, 'and dropped from the old one');
+  });
+});
+
 describe('ResourceStore', () => {
-  test('status reports what is cached, in files and bytes', async () => {
-    const m = manifest([{ url: '/assets/a.png', tier: 1, size: 10 }, { url: '/assets/b.png', tier: 2, size: 20 }, { url: '/assets/c.png', tier: 2, size: 30 }]);
+  test('status reports what is cached, in files and bytes', async () => {    const m = manifest([{ url: '/assets/a.png', tier: 1, size: 10 }, { url: '/assets/b.png', tier: 2, size: 20 }, { url: '/assets/c.png', tier: 2, size: 30 }]);
     const caches = new MemoryCaches();
     const s = store(m, { caches });
     const empty = await s.status();

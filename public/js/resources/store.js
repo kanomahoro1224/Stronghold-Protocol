@@ -61,15 +61,17 @@ async function digestOf(response) {
 export class ResourceStore {
   /**
    * @param {{ files: { url: string, tier: number, size?: number, hash?: string }[], version: string, totalBytes?: number|null }} manifest
-   * @param {{ caches?: any, fetcher?: typeof fetch, origin?: string, smallLanes?: number, bigLanes?: number,
+   * @param {{ caches?: any, fetcher?: typeof fetch, origin?: string, cdnBase?: string, smallLanes?: number, bigLanes?: number,
    *           fileTimeoutMs?: number, now?: () => number }} [opts] `bigLanes` defaults to `bigLanesFor(smallLanes)`
    */
-  constructor(manifest, { caches = globalThis.caches, fetcher = globalThis.fetch?.bind(globalThis), origin, smallLanes = DEFAULT_SMALL_LANES, bigLanes = bigLanesFor(smallLanes), fileTimeoutMs = FILE_TIMEOUT_MS, now = () => Date.now() } = {}) {
+  constructor(manifest, { caches = globalThis.caches, fetcher = globalThis.fetch?.bind(globalThis), origin, cdnBase = '', smallLanes = DEFAULT_SMALL_LANES, bigLanes = bigLanesFor(smallLanes), fileTimeoutMs = FILE_TIMEOUT_MS, now = () => Date.now() } = {}) {
     this.manifest = manifest;
     this.files = Array.isArray(manifest.files) ? manifest.files : [];
     this.caches = caches;
     this.fetcher = fetcher;
     this.origin = origin || globalThis.location?.origin || 'http://localhost';
+    /** Object-store prefix (assetOrigin.js `assetBase()`); '' keeps every fetch on the game host (development). */
+    this.cdnBase = typeof cdnBase === 'string' ? cdnBase.replace(/\/+$/, '') : '';
     this.smallLanes = Math.max(1, smallLanes);
     this.bigLanes = Math.max(1, bigLanes);
     /** Per-file deadline (0 disables it — tests that script a fetcher by hand want no timers). */
@@ -83,6 +85,38 @@ export class ResourceStore {
   /** Cache key (absolute URL) of a manifest entry. */
   keyOf(url) {
     return absoluteUrl(url, this.origin) || String(url);
+  }
+
+  /**
+   * Where an entry is downloaded from. Usually the cache key itself: the manifest of a direct-to-store deployment already
+   * carries absolute store URLs (assetOrigin.js `rewriteAssetPaths`), so the preload never eats the game host's 302.
+   * The audio entries are the exception — they keep their site-path key on purpose (the worker maps the game's
+   * extension-less `/media/…` route onto `/assets/audio/…`), so those are fetched from the store by path instead.
+   * `cdnBase` is '' in development, where assets must come from the local server so edits show up.
+   * @param {string} key cache key (an absolute URL)
+   * @returns {string}
+   */
+  sourceOf(key) {
+    if (!this.cdnBase) return key;
+    try {
+      const url = new URL(key);
+      if (url.origin !== new URL(this.origin).origin) return key; // already an absolute store URL
+      if (!/^\/(?:assets|fonts)\//.test(url.pathname)) return key; // not one of the trees the store mirrors
+      return `${this.cdnBase}${url.pathname}${url.search}`;
+    } catch { return key; }
+  }
+
+  /**
+   * The cache key the same file carried before the store rewrite, or null. 0.2.1 and earlier stored the site path
+   * (`https://game/assets/x.png`) while this build asks for the store URL, and a player's multi-hundred-MiB cache must
+   * not be downloaded a second time just because the key moved; `#adopt` moves such an entry after hashing it. Only the
+   * store → site direction exists, because the audio keys never moved.
+   * @param {string} key
+   * @returns {string|null}
+   */
+  aliasOf(key) {
+    if (!this.cdnBase || !key.startsWith(`${this.cdnBase}/`)) return null;
+    try { return new URL(key.slice(this.cdnBase.length), this.origin).href; } catch { return null; }
   }
 
   /**
@@ -293,8 +327,20 @@ export class ResourceStore {
    * @returns {Promise<boolean>} true when the file needed no network at all
    */
   async #adopt(file, cache, older) {
-    if (!older.length || !file.hash || !CONTENT_HASH_RE.test(file.hash)) return false; // nothing to compare against
+    if (!file.hash || !CONTENT_HASH_RE.test(file.hash)) return false; // nothing to compare against
     const key = this.keyOf(file.url);
+    // The same file under the key this client used before the store rewrite (site path → store URL): once the hash
+    // matches, the entry moves instead of being fetched again.
+    const alias = this.aliasOf(key);
+    if (alias) {
+      const moved = await cache.match(alias);
+      if (moved && (await digestOf(moved)) === file.hash) {
+        await cache.put(key, moved);
+        await cache.delete(alias);
+        return true;
+      }
+    }
+    if (!older.length) return false;
     for (const name of older) {
       const other = await this.caches.open(name);
       const hit = await other.match(key);
@@ -465,7 +511,8 @@ export class ResourceStore {
           else {
             // Everything network-touching of this file runs under the per-file deadline, including the cache write.
             await this.#withDeadline(signal, async (inner) => {
-              let res = await this.#fetchStorable(key, inner);
+              const source = this.sourceOf(key);
+              let res = await this.#fetchStorable(source, inner);
               // `cache: 'no-store'` bypasses the HTTP cache, not Cache Storage: a Service Worker of an older build may
               // answer this fetch out of its own cache (and a stale one at that). Verify the bytes against the manifest
               // hash and, when they disagree, ask again on a URL no cache entry can match — the worker matches full URLs.
@@ -474,7 +521,7 @@ export class ResourceStore {
               if (file.hash && CONTENT_HASH_RE.test(file.hash)) {
                 const seen = await digestOf(res);
                 if (seen && seen !== file.hash) {
-                  res = await this.#fetchStorable(`${key}${key.includes('?') ? '&' : '?'}sp=${file.hash}`, inner);
+                  res = await this.#fetchStorable(`${source}${source.includes('?') ? '&' : '?'}sp=${file.hash}`, inner);
                 }
               }
               await cache.put(key, this.storable(res));

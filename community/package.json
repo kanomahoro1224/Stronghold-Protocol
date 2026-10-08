@@ -1,0 +1,16 @@
+{
+  "name": "stronghold-community",
+  "version": "0.1.0",
+  "private": true,
+  "description": "《卫戍协议》社区站点：服务器列表 / 下载 / 后台管理（Node.js + SQLite 独立服务）",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "seed": "node server/seed.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}

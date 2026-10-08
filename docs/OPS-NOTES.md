@@ -305,3 +305,14 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **验收** ✓：`test/resources`（7 文件）+ `test/ui/gameLogic` + `test/i18n` + `test/client-static` + `test/docs-consistency` + `test/docs-paths` = **386/386 通过 / 0 失败** ✓（另加本轮定向 140/140 ✓）；i18n `check --all` 4 包 100% ✓；两台机器 12 文件 sha256 一致且线上生效 ✓。
 
+## §12 预载改直连 R2（不走 nginx 302）
+
+**背景** ✓：客户端 `public/js/assetOrigin.js` 早就把 `/assets/**` 重写成对象存储的绝对地址 ✓（文件头注释写明原因：302 曾占那台 2vCPU 机器 **~60% 请求量 / ~30% CPU** ✓），`data.js` 与 `assets.js` 在**清单入口**统一重写 ✓ —— **只有资源预载清单这一处漏了** ✗。
+后果有两层 ✓：① 预载每个文件都白吃一次 302 ✓；② 更要命 —— 预载把文件存在**站点路径**下（`https://game/assets/x.png` ✓），而游戏运行期请求的是 **CDN 绝对地址** ✓，Service Worker 的 `matchResource` 又是按**完整 URL** 查缓存 ✓ ⇒ **永远查不到** ✗ ⇒ 预载的 613 MB 对游玩**毫无作用** ✓，玩家首次用到时还得再下一次 ✗。
+
+**改法** ✓（纯客户端 ✓ 不重启 ✓）：`resources/index.js` → `validateManifest(rewriteAssetPaths(await res.json()))` ✓ + `new ResourceStore(manifest, { cdnBase: assetBase() })` ✓；`store.js` 新增 `sourceOf()` ✓（缓存键仍是站点路径时改从存储按路径取 ✓ —— 音频就是这一类 ✓）与 `aliasOf()` + `#adopt` 内的**旧键迁移** ✓（老缓存哈希相符就搬过去 ✓ ⇒ 老玩家不重下 ✓）；哈希不符自动 `?sp=<hash>` 重取那套本来就有 ✓（`store.js:477` ✓）⇒ 边缘给陈旧字节也能自愈 ✓。
+
+**实测证据** ✓：取清单里的真实 URL 直连对象存储 ✓ → **200** ✓ + `access-control-allow-origin: *` ✓ + `cf-cache-status: DYNAMIC` ✓（CF 根本不缓存这些对象 ✓ ⇒ 不必带 `?r2v=2` ✓）；`archive.js resourcePath()` 的注释本就是「跨 origin/CDN 前缀稳定」✓ ⇒ ZIP 导入导出不受影响 ✓。
+
+**坑** ✓：迁移测试的前提要写对 ✓ —— 迁移发生在「**清单已是 CDN 绝对地址、缓存仍是站点路径**」时 ✓；若测试里清单还写着站点路径 ✗（生产里 `index.js` 会先重写 ✓），`keyOf` 也是站点路径 ✓、`aliasOf()` 返回 null ✓，于是它会**真的去下载** ✗（我第一版就这么写错了一次 ✓ 断言 `calls` 为空才抓到 ✓）。
+

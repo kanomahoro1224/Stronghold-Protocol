@@ -4,9 +4,19 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { CACHE_NAME, CACHE_PREFIX, MANIFEST_URL, SW_URL, cacheName } from '../../public/js/resources/common.js';
 import { DOWNLOAD_LOCK } from '../../public/js/resources/index.js';
+
+// Wiring check (the shape test/resources/panel.test.js uses for main.js): the resource manifest must enter the client
+// through the same rewrite every other manifest uses, and the store must be told where the object store is.
+test('the resource manifest is rewritten like the game manifests, and the store gets the object-store base', () => {
+  const src = readFileSync(new URL('../../public/js/resources/index.js', import.meta.url), 'utf8');
+  assert.match(src, /import \{ assetBase, rewriteAssetPaths \} from '\.\.\/assetOrigin\.js';/);
+  assert.match(src, /validateManifest\(rewriteAssetPaths\(await res\.json\(\)\)\)/, 'no site-path preload manifest');
+  assert.match(src, /new ResourceStore\(manifest, \{ cdnBase: assetBase\(\) \}\)/, 'the store fetches from the store');
+});
 
 class MemoryCache {
   constructor() { this.entries = new Map(); }

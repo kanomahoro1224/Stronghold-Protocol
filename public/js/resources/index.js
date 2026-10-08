@@ -12,6 +12,7 @@
 
 import { CACHE_PREFIX, MANIFEST_URL, SW_URL, TIER_ESSENTIAL, TIER_REST, checkAbort, formatBytes, resourceGroup, validateManifest } from './common.js';
 import { bigLanesFor, DEFAULT_SMALL_LANES, ResourceStore } from './store.js';
+import { assetBase, rewriteAssetPaths } from '../assetOrigin.js';
 import { t } from '../../../shared/i18n.js';
 
 /** @type {any} */
@@ -167,12 +168,18 @@ export function resourceContext() {
     if (!res.ok) return { error: t('无法读取资源清单：HTTP {status}', { status: res.status }) };
     let manifest;
     try {
-      manifest = validateManifest(await res.json());
+      // The preload is the last manifest to enter the client un-rewritten. assetOrigin.js turns its `/assets/**` entries
+      // into absolute object-store URLs (audio excepted, on purpose), which is what the game's own manifests already
+      // carry: the preload then asks the store directly instead of eating the game host's 302 per file — and, since the
+      // game's `<img src>` asks for exactly those URLs, the cached entry is finally the one a play-time request looks up.
+      // `validateManifest` accepts both forms (common.js `isResourceUrl`), and with no base configured (development,
+      // tests, `__SP_ASSET_BASE__ = ''`) the rewrite is a no-op.
+      manifest = validateManifest(rewriteAssetPaths(await res.json()));
     } catch (err) {
       return { error: String(err?.message || err) };
     }
     if (!manifest.files.length) return { manifest, empty: true };
-    const store = new ResourceStore(manifest);
+    const store = new ResourceStore(manifest, { cdnBase: assetBase() });
     applyLanes(store);
     return { manifest, store };
   })();

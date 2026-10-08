@@ -511,7 +511,16 @@ whatever is already cached. Two tabs of the same browser never download
 the same file twice: a Web Lock (`stronghold-resources-preload`, `ifAvailable`) makes one tab do the work while the
 others report what is already cached and re-check when the player returns to them; ZIP processing and 「清理缓存」 take
 the same lock. Downloads run in the page (plain `fetch` + `cache.put`, `cache: 'no-store'` so nothing is stored twice);
-`public/resource-sw.js` only reads that cache back.
+Every one of those files is fetched **straight from the object store**, never through the game host's `/assets/**` 302:
+the resource manifest enters the client through the same `assetOrigin.js` rewrite as the game's own manifests, so an
+entry's URL is already `…/Stronghold-Protocol/assets/…` and the cache key is exactly the URL a play-time request looks
+up (before that the preload stored site paths the Service Worker never matched, so a preloaded file was downloaded a
+second time the first time it was needed). The audio entries are the deliberate exception — `assetOrigin.js` leaves
+`/assets/audio/**` relative so the game keeps using the extension-less `/media/…` route (download managers) — and the
+store fetches those from the store **by path** (`store.js sourceOf`) while caching them under their site key, which is
+what the worker's `/media/…` mapping looks up. A cache written by an earlier build (site keys) is moved rather than
+downloaded again: `store.js #adopt` hashes the old entry and rewrites its key. `cdnBase` is '' in development, where
+assets must come from the local server.
 
 **Updating is incremental.** All the files live in one cache (`stronghold-resources-v1-all`) and each entry's hash is
 recorded in the index entry inside it, so a new manifest re-downloads the files whose hash changed and keeps the rest:
