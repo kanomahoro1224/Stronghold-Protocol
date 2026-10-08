@@ -266,5 +266,19 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 10. **`pkill -f <脚本名>` 会连自己那条 SSH 命令一起杀** ✗（命令行里含同名串 ✓）⇒ 用 `pkill -f '名字[-]分段'` ✓，重启逻辑放独立脚本 ✓。
 11. **别按本机清单的"全部 URL"去 R2 抓** ✗：`local-assets.json`（`source: local-client`）里那 2179 条在 R2 上**根本不存在** ✓ ⇒ 404 + 60/180 秒超时会把并发 worker 钉死 ✓（1 MB/s → 18 KB/s ✗）；正确口径是**以 `.214` 清单里存在 `size` 的集合为准** ✓（那正是 `.214` 磁盘上真有的集合 ✓）。
 
-**验收口径**：R2 上 `https://local.xiaolubao.com/Stronghold-Protocol/assets/char/avatar/char_003_kalts.png` = **200** ✓；`.214` 清单 `sized` ≈ **11217** ✓；t44 本地补齐后 `sized` 同步 ✓；玩家侧不再图裂 ✓。
+**验收口径**：R2 上 `https://local.xiaolubao.com/Stronghold-Protocol/assets/char/avatar/char_003_kalts.png` = **200** ✓；`.214` 清单 `count=12115 / tier1=8084 / sized=12115 / 0 unsized / 612.9 MiB` ✓；**签名 S3 逐条核对 12115/12115 = 200**（`214-r2-verify-all.py` ✓ 86 秒 ✓，非 200 = 0 ✓）；t44 补齐后 `sized` 同步 ✓；玩家侧不再图裂 ✓。
+
+**顺带纠正一个认知** ✓：交付给客户端的清单必须是**新**的那份 ✓ ⇒ 补全后 `.214` 的 `data/assets.json`（`stats.files` 9749 → **10643**，路径引用 **+894 条、−0 条** ✓ 纯增量 ✓）已同步回仓库并提交 ✓（`3cb18f2` ✓）—— **不做这一步，下一次部署会把新干员的素材从清单里抹掉** ✗。同时也要把这份清单推给 t44 ✓（t44 的客户端读的是**它自己**那份 ✓，不推它就不会去请求新干员的图 ✗）。
+
+### §10.1 t44 侧补齐：不该从 R2 拉，也不该用重试参数
+
+**为什么另一台服也要有一份文件**：清单里的 `size` **只来自本机 `statFile`** ✓（`server/resources.js` `measure()` ✓）⇒ **谁给客户端发清单，谁就必须有这些文件（或至少知道尺寸）** ✓。客户端拿 `size` 决定预载谁 ✓、算分母与百分比 ✓；没 `size` 的条目会被跳过 ✗（§8 / §10 那条提示 ✓）。字节本身仍是客户端**直接从 R2 取** ✓（nginx 302 ✓）⇒ **t44 本地那些文件根本不参与交付** ✗，它们只为"量尺寸"存在 ✓。
+
+**正解**：`.214` 直推 t44 ✓（`rsync -a --size-only --chown=stronghold:stronghold -e "ssh -p 34005 -o BatchMode=yes" /opt/Stronghold-Protocol/public/{assets,media,fonts}/ root@t44.sjcmc.cn:/opt/Stronghold-Protocol/public/…` ✓），比 t44 从 R2 逐个拉快得多 ✓，天然增量 ✓，以后换资产一条命令同步 ✓。
+
+1. **rsync 默认比"大小 + mtime"** ✗：t44 上那些文件是 curl 下来的 ✓ 时间戳不同 ✗ ⇒ 不加 `--size-only` 会把 643 MB **全部重传** ✗（两边内容同源于 R2 ✓ 大小必等 ✓，这里用它安全 ✓）；首次同步后 `-a` 会对齐 mtime ✓，以后就干净了 ✓。
+2. **免密要先铺** ✓：`.214` 生成 `id_ed25519`（`ssh-keygen -t ed25519 -N '' -C 214-to-t44` ✓），公钥进 t44 的 `/root/.ssh/authorized_keys` ✓（该机 `PermitRootLogin yes` ✓），并 `ssh-keyscan -p 34005 -H t44.sjcmc.cn > /root/.ssh/known_hosts` ✓ 才能非交互 ✓。
+3. **收尾补漏别用 `-m 120 --retry 3`** ✗✗（本次真教训 ✓）：挂住的连接会把并发 worker 钉死好几分钟 ✓，8 并发 15 分钟只推进 **191** 个 ✗；补漏就该沿用抓取时那套 **60 秒超时 + 多轮快扫（12~24 并发）** ✓。
+4. **`.214` 上带 `if/then/fi` 或内嵌 `python3 -c "…"` 的内联命令会被打回** ✗（`rc=2`、**无任何输出** ✗）⇒ **一律写成脚本 `put` 上去再 `bash`** ✓（本次所有失败的调用都是内联的 ✓，所有成功的都是脚本 ✓）。
+5. **客户端 `gone` 表是按"清单 hash"记 404 的** ✓（`store.js #goneSet` ✓）：服务端修好后，只要该文件的 **hash 没变** ✗，客户端就**永不再试** ✓ ⇒ 面板出现「{gone} 个文件源站没有（已跳过，不影响使用）」（`resourcePanel.js:247` ✓—— 注意它和「清单里没有它们的大小」那条是**两句不同的话** ✓，别混 ✓）⇒ 修法是玩家侧**「清理缓存」** ✓（`store.clear()` 会连索引里的 `gone` 一起删 ✓），或改成"清单 `version` 变了就重试一次" ✓。
 
