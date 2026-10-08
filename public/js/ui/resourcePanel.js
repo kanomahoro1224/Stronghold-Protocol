@@ -25,12 +25,21 @@ export function byteText(st) {
   return st.sizedTotal ? `${formatBytes(done)} / ${formatBytes(total)}` : formatBytes(total);
 }
 
-/** `必需 120/456 · 全部 800/3959 · 1.2 GiB / 2.4 GiB` — `全部` counts the entries the origin 404'd as settled. */
+/**
+ * `必需 120/456 · 全部 800/3959 · 1.2 GiB / 2.4 GiB` — `全部` counts the entries the origin 404'd as settled.
+ *
+ * The denominators are the entries this browser can actually download (`wanted` / `tier1Wanted`, store.js `eligible`):
+ * a manifest entry the server has no size for is a file the origin does not serve, it is never requested, and counting
+ * it in the total made the line read `全部 9040/11221` for ever — the numbers said "2181 to go" while there was nothing
+ * left to fetch and the bar sat at 100 %. The skipped ones are reported on their own line by the manager.
+ */
 export function detailText(st) {
-  if (!st.total) return '';
+  const total = st.wanted || st.total;
+  if (!total) return '';
+  const tier1Total = st.tier1Wanted ?? st.tier1Total;
   return [
-    st.tier1Total ? t('必需 {tier1Done}/{tier1Total}', { tier1Done: st.tier1Done, tier1Total: st.tier1Total }) : '',
-    t('全部 {0}/{total}', { 0: st.done + (st.gone || 0), total: st.total }),
+    tier1Total ? t('必需 {tier1Done}/{tier1Total}', { tier1Done: st.tier1Done, tier1Total }) : '',
+    t('全部 {0}/{total}', { 0: (st.done || 0) + (st.gone || 0), total }),
     byteText(st),
   ].filter(Boolean).join(' · ');
 }

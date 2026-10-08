@@ -552,9 +552,20 @@ reads a standalone package format, so a preload can be shared with someone else 
   file (a new hash) retries it by itself. The panel reads 「N 个文件源站没有（已跳过）」.
 - **`failed`** — a transient error (network, CORS/opaque, 5xx) or a per-file timeout (`FILE_TIMEOUT_MS`, 30 s): retried
   on the next run. Without the timeout one stalled socket pinned a download lane forever, which is what a player saw as
-  「预载卡在 76%」.
+  「预载卡在 76%」. The migration step (`ResourceStore#adopt`, which reads an older cache instead of downloading) runs
+  outside the fetch deadline, so it carries its own `#withTimeout` guard now: one stalled Cache Storage operation used to
+  freeze its lane for good (the run never settled, so the panel stayed on 「正在后台预载…」 with the counters of the last
+  emit and never published anything again).
 - **`skipped`** — bigger than `MAX_FILE_BYTES` (24 MiB) or no size in the manifest; never fetched. The panel counts
-  them separately (「{skipped} 个文件超过单文件缓存上限，使用时按需加载。」) so they cannot be mistaken for a stalled run.
+  them separately (「{skipped} 个文件超过单文件缓存上限，使用时按需加载。」) so they cannot be mistaken for a stalled run,
+  and — since 2026-10-08 — the progress line's denominators count **only the servable entries**
+  (`wanted` / `tier1Wanted`), not `total`. Counting the skipped ones in `total` made the line read `全部 9040/11221`
+  for ever on a manifest that lists files the origin does not have: the bar was at 100 %, every sized file was cached
+  (`433 MiB / 433 MiB`), and the numbers still claimed 2181 files to go — indistinguishable from a stalled run.
+  The fork's live manifest is exactly that case: `count=11221, tier1=7190, sized=9042`, i.e. **2179 entries without a
+  size** (`assets/audio` 1179, `assets/spine` 428, `assets/char` 284, `assets/skill` 205, `module` 37, `token` 35,
+  `prof` 10, `ui` 1) — files the upstream `data/assets.json` references that this install never fetched. Curing that
+  (not just its display) means backfilling those assets or dropping them from the manifest.
 - **ZIP phases** — 正在校验 / 正在导入 / 正在导出 with a percentage (`{0}资源包：{percent}%`); a package that fails
   structure, size or digest checks is rejected before anything is written, and 取消失败/空间不足 keep the files that
   already passed.

@@ -31,7 +31,15 @@ describe('preload numbers', () => {
 
   test('detailText: the two tiers, the file count and the bytes', () => {
     assert.equal(detailText(state()), '', 'no manifest yet');
-    assert.equal(detailText(state({ total: 3966, wanted: 3960, done: 812, tier1Total: 456, tier1Done: 456, tier2Total: 3510, tier2Done: 356 })), '必需 456/456 · 全部 812/3966');
+    // `wanted` (not `total`) is the goal: entries the origin has no size for are never requested, so counting them in
+    // the denominator made the line read `全部 812/3966` for ever while there was nothing left to download.
+    assert.equal(detailText(state({ total: 3966, wanted: 3960, done: 812, tier1Total: 456, tier1Done: 456, tier2Total: 3510, tier2Done: 356 })), '必需 456/456 · 全部 812/3960');
+    assert.equal(detailText(state({ total: 10, wanted: 10, done: 10, tier1Total: 0 })), '全部 10/10', 'a skipped entry never reaches the goal');
+    assert.equal(detailText(state({ total: 10, wanted: 8, done: 8, tier1Total: 0 })), '全部 8/8', '8 servable files, 2 the origin does not have');
+    assert.equal(detailText(state({ total: 10, wanted: 8, done: 6, gone: 2, tier1Total: 0 })), '全部 8/8', '404s settle towards the same goal');
+    // a state without `wanted` (an older payload) still renders, and `tier1Wanted` prefers the servable count
+    assert.equal(detailText(state({ total: 10, wanted: 0, done: 4, tier1Total: 0 })), '全部 4/10');
+    assert.equal(detailText(state({ total: 100, wanted: 90, done: 50, tier1Total: 30, tier1Wanted: 20, tier1Done: 10 })), '必需 10/20 · 全部 50/90');
     const withBytes = state({ total: 3966, wanted: 3966, done: 812, tier1Total: 456, tier1Done: 456, totalBytes: 259726913, sizedTotal: 3966, bytes: 50000000 });
     assert.equal(detailText(withBytes), '必需 456/456 · 全部 812/3966 · 47.7 MiB / 248 MiB');
     assert.equal(detailText(state({ total: 10, done: 1, tier1Total: 0 })), '全部 1/10', 'no essential tier ⇒ no 必需 line');

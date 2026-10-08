@@ -245,6 +245,22 @@ export class ResourceStore {
     }
   }
 
+  /**
+   * `promise`, but rejected once `ms` passes. The per-file `fetch` already runs under `#withDeadline`; this is the guard
+   * for the one step that has no deadline of its own — adopting a file out of an older cache (`#adopt` reads Cache
+   * Storage, which can stall on a broken profile). Without it a single stalled file freezes its lane for good: the run
+   * never settles, the panel stays on 「正在后台预载…」 with the counters of the last emit, and no progress is ever
+   * published again. On timeout the file is counted as failed and the lane moves on.
+   */
+  #withTimeout(promise, ms, what) {
+    if (!ms) return promise;
+    let timer = null;
+    const guard = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what}超时（${Math.round(ms / 1000)} 秒）`)), ms);
+    });
+    return Promise.race([promise, guard]).finally(() => { if (timer !== null) clearTimeout(timer); });
+  }
+
   /** Fetch a file and hand back a storable response (an opaque or empty or failed answer throws). */
   async #fetchStorable(url, signal) {
     const res = await this.fetcher(url, { mode: 'cors', credentials: 'omit', cache: 'no-store', signal });
@@ -428,7 +444,7 @@ export class ResourceStore {
         checkAbort(signal);
         const key = this.keyOf(file.url);
         try {
-          if (await this.#adopt(file, cache, older)) adopted++;
+          if (await this.#withTimeout(this.#adopt(file, cache, older), this.fileTimeoutMs, '整理已保存的资源')) adopted++;
           else {
             // Everything network-touching of this file runs under the per-file deadline, including the cache write.
             await this.#withDeadline(signal, async (inner) => {
