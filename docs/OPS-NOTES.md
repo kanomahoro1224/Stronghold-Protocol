@@ -7,21 +7,23 @@
 
 ## 0. 双服拓扑（"双服"指哪两台）
 
-| | .214 | .22 |
-|---|---|---|
-| IP | `45.207.220.214` | `45.207.220.22` |
-| hostname | `MNY910268931402` | `MNY815122892528` |
-| 应用目录 | `/opt/Stronghold-Protocol` | `/opt/Stronghold-Protocol` |
-| 部署目录 | `/opt/stronghold-deploy` | `/opt/stronghold-deploy` |
-| 部署脚本 | `deploy-214.sh`（手写 tar） | `deploy_code.sh`（+ R2 代码镜像） |
-| **客户端代码从哪出** | nginx `sp-code-version.conf` 的 `default ""` → **本机 node 出码** | `default "https://local.xiaolubao.com/Stronghold-Protocol/rel/0.1.3-e19d2e8b11"` → **302 到 R2** |
-| systemd 服务 | `stronghold.service`（`/opt/stronghold-deploy/serve-tuned.mjs` 包装，钉 maxRooms / soloReconnectWindowMs） | 同左 |
-| 系统时区 | **UTC** | **UTC** |
+> **双服 = `.214`（主站 game.xiaolubao.com）+ t44（分线 game.kafuno.cn）**。`45.207.220.22` 是**第三台**（同名 vhost、0.1.3），不在"双服"里，见表格最后一行。
 
-- 站点域名 `game.xiaolubao.com`（两台 vhost 同名；`.22` 经 Cloudflare）。分线/联机 `game.kafuno.cn`（大厅里那条公告链接）。
-- 两台都是 **0.1.3**（部署 0.2.1 前）。`/opt/Stronghold-Protocol` **不是 git 仓库**，是解包部署。
-- `/assets/**`、`/media/**`、`/fonts/**` 都由 nginx **302 到 R2** `https://local.xiaolubao.com/Stronghold-Protocol`（`.214` conf 52/58/67 行，带 `?r2v=2`）→ **图音不在机器上，在 R2**，所以改素材要动 R2，不是动机器。
-- SSH：`F:\WeChat\.tools\sshx.py`（密码在 `F:\WeChat\.env` 的 `pw`），用法 `run root <本地脚本>` / `exec root "<一行命令>"` / `put root <本地> <远端>`。
+| | **.214（主站）** | **t44（分线）** | .22（第三台，备用/非双服） |
+|---|---|---|---|
+| 访问 | `45.207.220.214`（直连 22） | `t44.sjcmc.cn:34005`（SSH）、`:34046`（HTTP/HTTPS），**NAT 机** | `45.207.220.22` |
+| hostname | `MNY910268931402` | `ECS8709` | `MNY815122892528` |
+| 域名 | `game.xiaolubao.com` | `game.kafuno.cn`、`t44.sjcmc.cn`、`_` | `game.xiaolubao.com` |
+| 版本（部署前） | 0.1.3 | **0.1.4** | 0.1.3 |
+| 应用端口 | `127.0.0.1:3000` | `127.0.0.1:3000`（nginx 只监听 127.0.0.1:8080/8443，外面套 nginx stream `$ssl_preread_protocol` 分流：非 TLS→8080、TLS→8443；CF Flexible 回源明文、Full 回源 TLS） | `127.0.0.1:3000` |
+| 部署脚本 | `deploy-214.sh` | `deploy-t44.sh` + `README-t44.txt` | `deploy_code.sh` |
+| **客户端代码从哪出** | `sp-code-version.conf` 的 `default ""` → **本机 node 出码** | **没有** `sp-code-version.conf` → 本机出码 | `default "https://local.xiaolubao.com/Stronghold-Protocol/rel/0.1.3-e19d2e8b11"` → **302 到 R2** |
+| systemd 服务 | `stronghold.service`（`serve-tuned.mjs` 包装，钉 maxRooms / soloReconnectWindowMs） | 同左 | 同左 |
+| 系统时区 | **UTC** | **UTC** | **UTC** |
+| 是否 git 仓库 | 否（解包部署） | 否 | 否 |
+
+- `/assets/**`、`/media/**`、`/fonts/**` 在 `.214` 由 nginx **302 到 R2** `https://local.xiaolubao.com/Stronghold-Protocol`（conf 52/58/67 行，带 `?r2v=2`）→ **图音不在机器上，在 R2**，改素材要动 R2 而不是机器。
+- SSH：`F:\WeChat\.tools\sshx.py`（密码在 `F:\WeChat\.env` 的 `pw`），用法 `run root <本地脚本>` / `exec root "<一行命令>"` / `put root <本地> <远端>`；t44 需要 `SSH_PORT=34005`。**`.22` 从 2026-10-08 02:41 UTC 起 SSH 失联**（见 §6）。
 
 ---
 
@@ -102,11 +104,11 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 ## 6. 开放中的问题（2026-10-08 03:00 UTC 记录）
 
-1. **`.22` 的 SSH 从 02:41 UTC 起就进不去**（Paramiko `Error reading SSH protocol banner` / `No existing session`：TCP 连得上但拿不到 banner；从 `.214` 侧看它更是 `No route to host`，web 也 000）。它 20 分钟前还完全正常（发 tips、装依赖、挂定时器都是那次做的），所以**大概率是链路/限流或对端防火墙**，不是它挂了 —— 它自己的 `sp-deploy-v021.timer` 仍会在 04:00 UTC 本地触发，**不依赖 SSH**。
-2. 因此 **`.22` 上跑的还是较早那版脚本**（`md5 8133 字节` 那版，`install_deps` 先 `npm ci`）。`.214` 上已是修好的 **8261 字节 / md5 `efd7ea2de190218e64297d4b45bf81ee`** 版。登录 `.22` 后请立刻覆盖：
+1. **双服定时器状态（已核）**：`.214` 与 t44 都挂了 `sp-deploy-v021.timer` → **2026-10-08 04:00:00 UTC（北京 12:00）**，两机脚本都是最新版 **8933 B / md5 `1368b954b46e3ba5799dcb79655b3c5b`**（会自动探测应用端口、主站与分线 vhost 都试、没有 `sp-code-version.conf` 时自动跳过 R2 发布），两机 `--preflight` 均通过；双服 tips 也都已发布并验证。
+2. **`.22` 不在双服内，但那里也留了一个同名定时器**：2026-10-08 03:00 UTC 前误挂（当时以为它就是第二台，用户随后澄清双服 = `.214` + t44）。`.22` 的 SSH 从 02:41 UTC 起失联（Paramiko banner / `No existing session`；从 `.214` 看是 `No route to host`），**无法远程摘除**。它跑的是较早那版脚本（**8133 B**，`install_deps` 先 `npm ci`），12:00 会在 `.22` 上自行部署，并把 R2 代码前缀指向新版本（它的 `default` 非空）——影响面仅限 `.22` 自己（`.214`/t44 都是本机出码）。**登录 `.22` 后立刻**换成新版并确认：
    ```bash
-   md5sum /opt/stronghold-deploy/deploy-v021.sh    # 期望 efd7ea2de190218e64297d4b45bf81ee
-   # 从本 fork 的 .tools/deploy-v021.sh 重新传一次即可
+   md5sum /opt/stronghold-deploy/deploy-v021.sh    # 期望 1368b954b46e3ba5799dcb79655b3c5b
+   # 从本 fork 的 .tools/deploy-v021.sh 重新传一次；不想让它自动部署就 systemctl stop sp-deploy-v021.timer
    ```
 3. **若 `.22` 12:00 部署失败且服务起不来**（`npm ci` 半途失败会留下被清空的 `node_modules`）：
    ```bash
