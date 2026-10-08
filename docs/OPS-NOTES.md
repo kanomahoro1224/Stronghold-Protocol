@@ -198,3 +198,31 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **怎么查**：`curl -s 127.0.0.1:3000/healthz` 的 `state` 段（`scan.reasons`、`resumedCount`、`persist.written/errors` / `lastError`），日志 `journalctl -u stronghold | grep '\[state\]'`。
 
+## 9. t44 的"HTTP 也能预载"为什么无解，以及唯一可行路径（2026-10-08 议定）
+
+**硬约束**（实测，不是推测 ✓）：
+- **Cache Storage 是 secure-context API** ✓ → HTTP 页面上 `caches` 根本不存在 ✓ ⇒ **改代码无解** ✗，这不是我们的门槛 ✓。
+- t44 的对外约束：**没有 80/443** ✗、**没有 `sjcmc.cn` 的 DNS 权限** ✗（`t44.sjcmc.cn` 只能 HTTP ✗）、**对外端口随机不可控** ✗、**出口 IP 不唯一**（同一时刻 `ipinfo`/`ifconfig.me` → `183.247.170.218` ✓，`myip.ipip.net` → `120.199.9.150`（浙江电信）✓，而 `t44.sjcmc.cn` 解析在 `120.199.9.131` ✓）⇒ **不要自己写 DDNS 脚本** ✗，改用 **CNAME** 继承现有 DDNS ✓。
+- 因此 **`https://t44.sjcmc.cn:34046` 永远拿不到有效证书** ✗（HTTP-01 要 80 ✗ / TLS-ALPN 要 443 ✗ / DNS-01 要 TXT 权限 ✗）。
+
+**Cloudflare 这条路已否决** ✗（延迟实测，2026-10-08 04:50 UTC）：
+
+| 观察点 | 直连 t44 | 经 CF（`game.kafuno.cn`） | 到 CF anycast（1.1.1.1） |
+|---|---|---|---|
+| t44 本机（国内 ✓） | 0.01 s | **ping 182 ms** ✗ / TLS 0.37~0.61 s ✗ | 36 ms |
+| `.214`（CF 边上 ✗） | ping 39.6 ms | ping 3.2 ms | 2.8 ms |
+
+⇒ 免费版把国内流量解析到远处 PoP ✓，t44 流量要多绕 **≈146 ms 单程** ✗ —— 对锁步 RTS 报废 ✓。**CF Tunnel / CF 代理不得承载对局流量** ✗（`.214` 的体感**不能**代表 t44 ✗：两台的"CF 友好度"完全相反 ✓）。
+
+**议定路径**（直连 + 自有域名 + 免费证书 ✓，延迟与现在一致 ✓）：
+1. CF DNS 加 **`t44.kafuno.cn` CNAME → `t44.sjcmc.cn`** ✓，**代理状态必须 DNS only（灰云 ✗ 不能橙云 ✗** —— CF 不代理 34046 这种端口 ✓，橙云会把游戏打挂 ✓）。CNAME 直接继承 `sjcmc.cn` 那边现有 DDNS ✓，零维护 ✓。
+2. 证书：把现有 lineage 扩一个 SAN ✓ —— `certbot certonly --dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/cf.ini --cert-name game.kafuno.cn -d game.kafuno.cn -d t44.kafuno.cn --expand` ✓（脚本 `/opt/stronghold-deploy/t44-add-kafuno-san.sh` ✓，先 `--dry-run` ✓）。本机 `certbot` **已装** ✓ 且 **cloudflare 插件在位** ✓（`certbot plugins` 命中 4 处 ✓、`python3-cloudflare` ✓），只差一个 **CF API Token（Zone:DNS:Edit for `kafuno.cn`）** 放在 `/etc/letsencrypt/cf.ini`（600 ✓）。
+   ⚠️ 顺带修一个隐患 ✓：现有 renewal 是 **`authenticator = webroot`（HTTP-01，要 80 口）** ✗ —— 这台没有 80 ✓，**下次续期会失败** ✗（当前证书 2027-01-05 到期 ✓，还有 89 天 ✓）。换成 DNS-01 后不再依赖任何端口 ✓✓。
+   nginx **一行都不用改** ✓：vhost 是 `server_name game.kafuno.cn t44.sjcmc.cn _;` ✓，`_` 已经兜住任意 Host ✓；证书路径固定 `/etc/ssl/t44/` ✓，由 deploy hook `renewal-hooks/deploy/t44-copy-cert.sh` 拷贝 ✓。
+3. CF Redirect Rule：`https://game.kafuno.cn/*` → **`https://t44.kafuno.cn:34046/$1`**（302 ✓），并去掉原来那条 https→http 的规则 ✓（它正是玩家掉回 HTTP 的原因 ✓）。跳转是客户端行为 ✓ ⇒ 对局流量**直连** ✓，只有首跳经过 CF ✓，延迟不受影响 ✓✓。
+4. 老入口 `http://t44.sjcmc.cn:34046` 保持不动 ✓（老书签不废 ✓，只是没有预载 ✓）。
+
+**仍待解决（否则 HTTPS 修好预载也空转 ✗）**：t44 清单 `sized=0` ✓（见 §8 末 ✓）—— 得让清单能拿到大小 ✓：把 `.214` 的 `public/assets` 落到 t44 ✓（磁盘 29 G 空闲 ✓，`public/assets` 目前不存在 ✓），或让清单按 R2 元数据出 `size` ✓。
+
+**验证口径**（做完后按这个查 ✓）：`curl -s --resolve t44.kafuno.cn:8443:127.0.0.1 https://t44.kafuno.cn:8443/` 期望 `200 tls=0` ✓（现在是 `tls=1` ✗）；`openssl x509 -noout -ext subjectAltName` 应含两个名字 ✓；`https://game.kafuno.cn/` 应 302 到 `https://t44.kafuno.cn:34046/` ✓；最后在浏览器里看 secure context（预载不再报需要 HTTPS ✓）。
+
