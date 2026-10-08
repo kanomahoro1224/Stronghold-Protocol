@@ -42,6 +42,7 @@ PORT=3200 SP_COMMUNITY_ADMIN_PASSWORD=你的密码 npm start
 | --- | --- |
 | 顶部 Tab：服务器 / 下载 / 关于 | `.nav .tabs`；**下载栏目按需求暂时隐藏**（`server-list.js` 的 `TABS.hidden`） |
 | 服务器列表实时拉取 `/healthz` | `server/probe.js` 并发探测 + 10s 缓存（`ttl`），前端每 15s 刷新 |
+| 延迟判断（本机 vs 服务端） | `public/js/latency.js`：本机 ping 失败**先看服务端结果**（`statusFor()`），服务端不可达但本机连通则显示「本机可达」，两边都没数据才判离线 —— 详见仓库 `docs/OPS-NOTES.md` §15 |
 | **完整展示原始 JSON** | 每张卡片可展开 `HEALTHZ · 原始数据（全量）`，逐字段语法高亮渲染 |
 | 后台可新增服务器（名称/地址/区域） | 控制台「添加服务器」，地址自动规范化，重复校验 |
 | 区域＝全球地理大区 | `db.js` 的 `REGIONS`：亚洲/欧洲/北美/南美/大洋洲/非洲 |
