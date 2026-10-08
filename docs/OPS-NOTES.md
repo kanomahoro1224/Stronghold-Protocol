@@ -50,6 +50,8 @@
 - **`.22`**：`/opt/stronghold-deploy/deploy_code.sh` → 备份 → 解包 `/tmp/sp-code.tar.gz` → `chown` → **生产依赖齐全检查**（缺一个就 exit 3）→ `node --check` 入口 → 重启 → **紧接着 `python3 r2_code_mirror.py --publish`**（注释里写明顺序不能反：以前把 presence 冒烟放前面，`set -e` 一挂就导致 nginx 还停在旧代码前缀 = 玩家拿到旧客户端）→ 最后冒烟（非致命）。
 - **`.214`**：`deploy-214.sh` 同构，但**不需要 R2 代码发布**（本地出码）。
 - 官方定时方式（`docs/DEPLOY.md:326-333`）：**一次性** `systemd-run --on-calendar='…' --unit=sp-deploy-1159 /opt/stronghold-deploy/deploy-214.sh`。
+  ⚠️ `systemd-run` 出来的是**瞬时单元**（活在 `/run`），**机器一重启就没了**；机器时区是 **UTC**，所以"北京 12:00"要写成 `04:00:00`。要保险就再补一条 **cron 兜底**——本次两台都加了
+  `15 4 8 10 * /bin/bash /opt/stronghold-deploy/deploy-v021.sh >> …/logs/cron-v021.log 2>&1`（= 北京 12:15）。脚本带幂等标记（同一 sha 已部署过即退出），成功跑完还会自摘这条 cron，所以**重复触发无害**。
 
 ### 2.2 本次用的：`/opt/stronghold-deploy/deploy-v021.sh`
 钉死 `SHA=c631cdb…`，流程：预检（下载 codeload tar.gz → 解包 → `node --check` → 断言 `APP_VERSION=0.2.1` → 依赖检查）→ 备份（排除 node_modules/assets/fonts/vendor/media/.cache/state，另存 `data/config.json`、`data/notice.json`）→ 解包 → 还原被保留文件 → `npm i --omit=dev` → 依赖复检 → 重启 → 健康检查（`/healthz`、vhost `/`、`/js/main.js`）→（仅走 R2 出码的机器）R2 发布；**任何一步失败自动回滚**并重启回旧代码。带幂等标记 `/opt/stronghold-deploy/.deployed-<sha>`。
@@ -104,7 +106,7 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 ## 6. 开放中的问题（2026-10-08 03:00 UTC 记录）
 
-1. **双服定时器状态（已核）**：`.214` 与 t44 都挂了 `sp-deploy-v021.timer` → **2026-10-08 04:00:00 UTC（北京 12:00）**，两机脚本都是最新版 **8933 B / md5 `1368b954b46e3ba5799dcb79655b3c5b`**（会自动探测应用端口、主站与分线 vhost 都试、没有 `sp-code-version.conf` 时自动跳过 R2 发布），两机 `--preflight` 均通过；双服 tips 也都已发布并验证。
+1. **双服定时器状态（已核）**：`.214` 与 t44 都挂了 `sp-deploy-v021.timer` → **2026-10-08 04:00:00 UTC（北京 12:00）**（`systemctl list-timers` 显示 `Thu 2026-10-08 04:00:00 UTC`，两机都做了"再等 30 分钟"的当场复核），并各加了一道 **cron 兜底 04:15 UTC（北京 12:15）**；两机脚本都是最新版 **8933 B / md5 `1368b954b46e3ba5799dcb79655b3c5b`**（会自动探测应用端口、主站与分线 vhost 都试、没有 `sp-code-version.conf` 时自动跳过 R2 发布），两机 `--preflight` 均通过；双服 tips 也都已发布并验证。
 2. **`.22` 已关机，不在双服内**（用户 2026-10-08 确认）：它的 SSH 从 02:41 UTC 起失联就是因为**关机**（Paramiko `Error reading SSH protocol banner` / `No existing session`；从 `.214` 侧看是 `No route to host`），所以那台机器上误挂的 `sp-deploy-v021.timer` **不会触发**，暂时不用管。它上面还留着较早那版脚本（**8133 B**，`install_deps` 先 `npm ci`），**下次开机登录后**先换成新版：
    ```bash
    md5sum /opt/stronghold-deploy/deploy-v021.sh    # 期望 1368b954b46e3ba5799dcb79655b3c5b
