@@ -286,4 +286,7 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 3. **收尾补漏别用 `-m 120 --retry 3`** ✗✗（本次真教训 ✓）：挂住的连接会把并发 worker 钉死好几分钟 ✓，8 并发 15 分钟只推进 **191** 个 ✗；补漏就该沿用抓取时那套 **60 秒超时 + 多轮快扫（12~24 并发）** ✓。
 4. **`.214` 上带 `if/then/fi` 或内嵌 `python3 -c "…"` 的内联命令会被打回** ✗（`rc=2`、**无任何输出** ✗）⇒ **一律写成脚本 `put` 上去再 `bash`** ✓（本次所有失败的调用都是内联的 ✓，所有成功的都是脚本 ✓）。
 5. **客户端 `gone` 表是按"清单 hash"记 404 的** ✓（`store.js #goneSet` ✓）：服务端修好后，只要该文件的 **hash 没变** ✗，客户端就**永不再试** ✓ ⇒ 面板出现「{gone} 个文件源站没有（已跳过，不影响使用）」（`resourcePanel.js:247` ✓—— 注意它和「清单里没有它们的大小」那条是**两句不同的话** ✓，别混 ✓）⇒ 修法是玩家侧**「清理缓存」** ✓（`store.clear()` 会连索引里的 `gone` 一起删 ✓），或改成"清单 `version` 变了就重试一次" ✓。
+6. **清单在应用进程里是带缓存的** ✗（缓存键 = `data/{assets,local-assets,asset-hashes}.json` 的 **mtime:size** 加上 `cdnBase` ✓，见 `server/resources.js` 的 `key` ✓）⇒ 文件落地后必须 `touch data/assets.json` 才会按**新尺寸**重建 ✓；本次因为 rsync 与 curl 两路并行 ✓，第一轮 `touch` 拿到的还是旧尺寸（`totalBytes=603.6 MiB` ✗），**等两路都停了再 `touch` 一次**才收敛到 `612.8 MiB` ✓（与 `.214` 的 `612.9` 一致 ✓）。⇒ **换完文件的最后一步永远是：确认没有下载进程在跑 → `touch` → 再读 `/data/resource-manifest.json` 核对 `sized`** ✓。
+
+**t44 最终验收** ✓：`public/assets` **12123 文件 / 643M**（与 `.214` 一致 ✓）；清单 `count=12115 / tier1=8084 / sized=12115 / 0 unsized / 612.8 MiB` ✓；`stronghold` 服务全程未重启 ✓（仍启动于 04:03:00 UTC ✓）。
 
