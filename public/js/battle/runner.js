@@ -73,6 +73,7 @@ import { store as appStore } from '../store.js';
 import { unitStatsEntry, fxForm } from '../../../shared/protocol.js';
 import { siblingBase } from '../assetOrigin.js';
 import { spectateEffects } from './observe.js';
+import { recordError, setBattleSource } from '../diag.js';
 
 const TICK = 1 / 30;
 /** Fast-forward budget per frame (ticks) when far behind. */
@@ -174,9 +175,12 @@ export async function loadBrowserSim({ base = '/sim/', dataBase = SIM_DATA_BASE,
   return { spec, ds: new simdata.DataSource(raw, null) };
 }
 
-/** Battle logger: content errors are isolated by the sim; report them as warnings (the server logs its own). */
+/**
+ * Battle logger: content errors are isolated by the sim; report them as warnings (the server logs its own) and keep
+ * them for the diagnostics a player copies (diag.js).
+ */
 const SIM_LOGGER = Object.freeze({
-  error: (...a) => console.warn('[sim]', ...a),
+  error: (...a) => { console.warn('[sim]', ...a); recordError('sim', a.length === 1 ? a[0] : a.map(String).join(' ')); },
   warn: (...a) => console.warn('[sim]', ...a),
   info() {},
   debug() {},
@@ -369,6 +373,7 @@ export function createBattleRunner(deps) {
     } catch (err) {
       stats.errors++;
       console.warn('[runner] battle step failed', err);
+      recordError('runner', err, 'battle step failed');
       try { b.forceEnd('timeout'); } catch { /* ignore */ }
     }
     const dt = now() - t;
@@ -411,7 +416,7 @@ export function createBattleRunner(deps) {
       const list = catchingUp ? s.ev.filter(keepsState) : s.ev;
       if (list.length) emit('ev', { t: 'b.ev', fieldId: e.fieldId, gt: s.gt, ev: list });
     }
-    try { emit('snap', frameOf(e)); } catch (err) { console.warn('[runner] snapshot failed', err); }
+    try { emit('snap', frameOf(e)); } catch (err) { console.warn('[runner] snapshot failed', err); recordError('runner', err, 'snapshot failed'); }
   }
 
   /**
@@ -475,7 +480,7 @@ export function createBattleRunner(deps) {
         result = e.sim.spec.compactResult(e.battle.result());
         // an oversized frame would close the socket at the very end of the battle (64 KB inbound limit)
         if (typeof e.sim.spec.fitResult === 'function') result = e.sim.spec.fitResult(result, { bossLike: bossLike(e), battleId: e.battleId });
-      } catch (err) { console.warn('[runner] result failed', err); }
+      } catch (err) { console.warn('[runner] result failed', err); recordError('runner', err, 'result failed'); }
       if (result) {
         e.result = result;
         // the view answers with the settlement voice of this battle (screens/game.js → audio.voice result*): the
@@ -509,6 +514,7 @@ export function createBattleRunner(deps) {
         } else {
           e.delivery = 'delivered';
           console.warn('[runner] b.result refused', code);
+          recordError('runner', code, 'b.result refused');
         }
         return null;
       });
@@ -688,6 +694,7 @@ export function createBattleRunner(deps) {
       let sim;
       try { sim = await ensureSim(); } catch (err) {
         console.warn('[runner] simulation unavailable', err);
+        recordError('runner', err, 'simulation unavailable');
         return;
       }
       if (!wanted()) return;
@@ -696,6 +703,7 @@ export function createBattleRunner(deps) {
         battle = sim.spec.createBattleFromSpec(e.spec, sim.ds, { logger });
       } catch (err) {
         console.warn('[runner] battle construction failed', err);
+        recordError('runner', err, 'battle construction failed');
         return;
       }
       stats.battles++;
@@ -824,6 +832,16 @@ export function createBattleRunner(deps) {
       return () => listeners.get(type)?.delete(fn);
     },
     state,
+    /**
+     * The battle on screen as a report attaches it (diag.js): its b.start fields and its game time; null without one.
+     * @returns {{ battleId: string, fieldId: string, kind: string, spec: object, time: number|null }|null}
+     */
+    currentBattle() {
+      const e = cur;
+      if (!e || !e.spec) return null;
+      const time = e.battle && Number.isFinite(e.battle.time) ? e.battle.time : null;
+      return { battleId: e.battleId, fieldId: e.fieldId, kind: e.kind, spec: e.spec, time };
+    },
     stats() {
       return { ...stats, avgTickMs: stats.ticks ? stats.stepMs / stats.ticks : 0, entries: entries.size, loadingSim: !!simP };
     },
@@ -887,3 +905,4 @@ export const battleRunner = typeof window !== 'undefined' && typeof document !==
   ? createBattleRunner({ net: appNet, store: appStore })
   : null;
 if (battleRunner) globalThis.__SP_RUNNER__ = battleRunner; // dev / E2E introspection
+if (battleRunner) setBattleSource(() => battleRunner.currentBattle());
