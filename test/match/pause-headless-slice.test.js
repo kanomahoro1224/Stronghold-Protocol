@@ -1,4 +1,4 @@
-// test/match/pause-headless-slice.test.js — P1b follow-up (DESIGN §26): a frozen match (idle suspension, or the
+// test/match/pause-headless-slice.test.js — P1b follow-up (DESIGN §27): a frozen match (idle suspension, or the
 // owner's solo pause) must stop stepping the in-thread headless jobs of its server-run fields, and a resume must carry
 // on exactly where the field clock says. The `later(0)` slice chain of Match._runOnServer used to re-arm itself while
 // `this.paused` (≈1 ms of gap after every ≈8 ms slice, a ~90% duty cycle), so a suspended four-bot match simulated

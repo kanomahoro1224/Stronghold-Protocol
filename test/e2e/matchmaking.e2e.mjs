@@ -1,4 +1,4 @@
-// test/e2e/matchmaking.e2e.mjs — end-to-end checks for 同盟匹配 (DESIGN §26) that a unit test cannot reach: they drive
+// test/e2e/matchmaking.e2e.mjs — end-to-end checks for 同盟匹配 (DESIGN §27) that a unit test cannot reach: they drive
 // a real browser against a real server.
 //
 //   node --test test/e2e/matchmaking.e2e.mjs        (or: node test/e2e/matchmaking.e2e.mjs)

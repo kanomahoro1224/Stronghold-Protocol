@@ -348,7 +348,7 @@ export const C2S = {
   'room.spectate': { code: (v) => isStr(v, ROOM_CODE_LEN + 2) && /^[A-Za-z0-9]+$/.test(v) },
   'room.removeSpectator': { playerId: isId },
 
-  // 搜寻队友 (matchmaking, research 06 §3.3, DESIGN §26): one entry per session, one pool per difficulty. The server
+  // 搜寻队友 (matchmaking, research 06 §3.3, DESIGN §27): one entry per session, one pool per difficulty. The server
   // forms a co-op room from the pool once 4 connected humans wait in it; the free seats (only reachable through a
   // reconnect) go to AI teammates and the match starts right away (no ready check). A smaller pool just keeps
   // searching — there is no deadline and no AI fill — and nothing else starts it: nobody gets to cut another
@@ -413,7 +413,7 @@ export const S2C = [
   // presence { onlineCount } — currently connected browsers, including title visitors before hello; excludes AI.
   'presence',
   'room.state', 'room.closed',
-  // 搜寻队友 (DESIGN §26): queue.state { active, difficulty, size, max, waitedMs, solo } — pushed to a queued
+  // 搜寻队友 (DESIGN §27): queue.state { active, difficulty, size, max, waitedMs, solo } — pushed to a queued
   // session on join / pool change (solo: true ⇒ nobody else is waiting right now, so the client says so and points
   // at 同盟模拟 + AI instead). active: false ⇒ this session left the queue. The search has no deadline: it runs
   // until four connected doctors are in the pool or the searcher cancels. The room a matchmade pool forms arrives as

@@ -1,4 +1,4 @@
-// server/match/simPool.js — main-thread pool of simulation workers (DESIGN §26), OFF by default.
+// server/match/simPool.js — main-thread pool of simulation workers (DESIGN §27), OFF by default.
 //
 // At peak this box runs ~700 concurrent matches on 2 vCPU: a field nobody watches is simulated by the server on the
 // MAIN thread (fields.js HeadlessJob, in wall-clock slices), on the same core that answers players and moves JSON.

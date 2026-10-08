@@ -14,7 +14,9 @@
 //                      scan that reads the persisted index back after `listen`, and /healthz.state
 //   http/routes.js     the request listener: security headers, 414 / 400 / 405, GET /healthz → JSON status, else static
 //   http/common.js     what every answer shares: security headers, URL split, error page, JSON replies, bare 400
-//   http/boot.js       banner (Local / LAN / tunnel URLs), port-in-use hint, graceful shutdown on SIGINT / SIGTERM
+//   http/boot.js       a pending update package first (update.js: old files deleted, the install verified against
+//                      MANIFEST.json), banner (Local / LAN / tunnel URLs), port-in-use hint, graceful shutdown on SIGINT /
+//                      SIGTERM
 //
 // Per-network limits for internet clients (see net.js clientAddress; local/LAN peers are exempt): open sockets
 // (maxConnectionsPerAddr, refused at upgrade with 429), rooms and running matches (lobby.js).

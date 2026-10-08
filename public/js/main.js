@@ -215,7 +215,7 @@ function wireNet() {
   net.on('replaced', () => toast(t('该身份已在其他页面登录，本页已断开'), 'warn', { ttl: 6000 }));
   net.on('unhandledError', (err) => toastError(err));
   net.on('room.state', onRoomState);
-  // 搜寻队友 / matchmaking (DESIGN §26). `active: false` = this session is out of the pool (cancelled, or the room it
+  // 搜寻队友 / matchmaking (DESIGN §27). `active: false` = this session is out of the pool (cancelled, or the room it
   // was formed into is arriving as a room.state right after). `since` anchors the local elapsed counter on the
   // server's snapshot, so counting up needs no further traffic.
   net.on('queue.state', (msg) => {
@@ -269,7 +269,7 @@ function wireNet() {
     if (s.session.entered && !prev.session.entered) schedulePendingJoin();
     // in a room (co-op or solo, also a resumed one) a match is near: its data starts downloading
     if (s.room && !prev.room) warmGameData();
-    // 同盟匹配 (DESIGN §26) starts the match the instant the pool is full, so there is no waiting room to warm the
+    // 同盟匹配 (DESIGN §27) starts the match the instant the pool is full, so there is no waiting room to warm the
     // data in: start as soon as the player is searching, or a matched player begins downloading the match data at the
     // opening bell and watches "正在载入模拟数据…" while the others already play.
     if (s.queue && !prev.queue) warmGameData();

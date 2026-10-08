@@ -1,7 +1,12 @@
+# DESIGN §27, §28 — 同盟匹配 / 搜寻队友 and 在线人数 / online presence
+
+Part of [DESIGN.md](../DESIGN.md) (the index; section numbers are global).
+
 <!-- 本 fork 的两个自有章节。上游 0.2.0 把 DESIGN.md 拆成索引 + docs/design/ + docs/history/，章节号全局且永不改；
-     上游 §23/§24/§25 已被 history/0.1.3.md、history/0.1.4.md、history/0.2.0.md 占用，所以 fork 的同盟匹配与在线人数改号为 §26/§27。
+     上游 §23/§24/§25 已被 history/0.1.3.md、history/0.1.4.md、history/0.2.0.md 占用，上游 0.2.1 又拿走了 §26
+     （history/0.2.1.md），所以 fork 的同盟匹配与在线人数改号为 §27/§28。
      本文件的 `## N.` 块由 test/helpers/designDocs.js 按号还原进 DESIGN，标题行不要改号。 -->
-## 26. 同盟匹配 / 搜寻队友 (v0.1.3, owner request)
+## 27. 同盟匹配 / 搜寻队友 (v0.1.3, owner request)
 
 - **Asked for** (the owner, 2026-10-04): "我想要模拟方式加一个同盟匹配选项，能够匹配其他真人玩家" — the official 同盟模拟 mode group's **搜寻队友** (research 06 §3.1–§3.3), the one lobby feature §0 had explicitly left out of v1.
 - **UI**: a third `MODE_CARDS` card (同盟匹配, `public/js/screens/lobby.js`) next to 独立模拟 / 同盟模拟 — the cards are a 3-column grid now (`public/css/screens/lobby.css`; the short-landscape tweaks in `devices.css`). Picking it changes only the primary button: 开始搜寻队友 sends `queue.join {difficulty}` instead of `room.create`. The difficulty cards stay the pool selector (one pool per difficulty, `modeIdFor` ids unchanged) and are locked while searching.
@@ -24,7 +29,7 @@
 
 ---
 
-## 27. 在线人数 / online presence (v0.1.3, upstream PR #63)
+## 28. 在线人数 / online presence (v0.1.3, upstream PR #63)
 
 - **Where it came from**: upstream PR #63 (`NekoTC`, base master 8b10625) — 在标题页和联机大厅显示在线人数. The upstream owner **closed it unmerged** (2026-10-03): "这个项目主要是朋友之间自己开服…在线人数更像公开服务器的功能。需要看连接数的房主可以直接看服务器状态 `/healthz`", and left two review points for a fork that keeps it: count only sessions that already said `hello`, and coalesce the push. This fork keeps the feature (it is useful for the friends' server) **with both points applied**.
 - **Counting** (`server/net.js`): `Network.onlineCount` = one entry per session that is past `hello` (`conn.session`), keyed by `playerId ?? token ?? ws`. Excluded: sockets parked on the title screen before `hello`, AI seats, sessions retained for reconnect, and sockets already closing. That is what keeps the number from bouncing `N → N−1 → N`: the server rotates an idle pre-hello socket after `NET_DEFAULTS.helloTimeoutMs` (30 s, close 4002) and the client replaces it quietly. Several tabs of one person count once.

@@ -868,9 +868,9 @@ test('the deliberate trigger deviation (DESIGN §21.29): six 重装 skills DEFAU
   assert.match(doc('CHANGELOG.md'), /深巡、雷蛇的二技能，号角的二、三技能，灰毫的一、二技能改为攻击范围内有敌人时就释放/);
 });
 
-test('同盟匹配 / 搜寻队友 (DESIGN §26): the protocol lists, the pool rules and the client agree with the code', () => {
-  const S22 = DESIGN.slice(DESIGN.indexOf('## 26. 同盟匹配'));
-  assert.ok(S22.length > 500, 'DESIGN has a §26');
+test('同盟匹配 / 搜寻队友 (DESIGN §27): the protocol lists, the pool rules and the client agree with the code', () => {
+  const S22 = DESIGN.slice(DESIGN.indexOf('## 27. 同盟匹配'));
+  assert.ok(S22.length > 500, 'DESIGN has a §27');
   // §8.1 lists the two intents and the push; C2S/S2C know them and nothing else queue-shaped exists.
   for (const t of ['queue.join', 'queue.leave']) {
     assert.match(DESIGN, new RegExp(`\`${t.replace('.', '\\.')}`), `DESIGN §8.1 lists ${t}`);
@@ -891,7 +891,7 @@ test('同盟匹配 / 搜寻队友 (DESIGN §26): the protocol lists, the pool ru
   // The owner removed the deadline (2026-10-04: "不要那个120s超时了，如果没匹配到就一直匹配"): a pool waits forever, so
   // neither the option, the timer helpers nor the deadline field exist anywhere.
   assert.equal(LOBBY_DEFAULTS.matchQueueMaxWaitMs, undefined, 'the pool has no deadline option');
-  assert.ok(!/matchQueueMaxWaitMs/.test(S22), 'DESIGN §26 does not pin a deadline');
+  assert.ok(!/matchQueueMaxWaitMs/.test(S22), 'DESIGN §27 does not pin a deadline');
   assert.match(S22, /一直匹配|no deadline/);
   const lobbySrc = doc('server/lobby.js');
   for (const gone of ['armQueue', 'onQueueDeadline', 'matchQueueMaxWaitMs', 'MATCH_QUEUE_RETRY_MS']) {

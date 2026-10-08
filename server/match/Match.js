@@ -210,7 +210,7 @@ const env = (k) => (typeof process !== 'undefined' && process.env ? process.env[
 /**
  * SP_BOT_REHEARSAL → candidate layouts a bot rehearses per prep (0..8), or null to use `BOT_REHEARSAL_DEFAULT`.
  * Each candidate is a whole simulated battle (bot.js) — the most expensive thing a bot does, and the knob to turn
- * down on a box that is short of CPU (DESIGN §26).
+ * down on a box that is short of CPU (DESIGN §27).
  */
 export function parseBotRehearsal(v) {
   if (v == null || v === '') return null;

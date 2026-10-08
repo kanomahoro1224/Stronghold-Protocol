@@ -289,7 +289,7 @@ export function armQueueJoin({ difficulty, send, now = Date.now, setTimer = setT
 }
 
 /**
- * 搜寻队友 panel (matchmaking, DESIGN §26): what the left column shows while this player searches — from the click
+ * 搜寻队友 panel (matchmaking, DESIGN §27): what the left column shows while this player searches — from the click
  * itself (the grace window, before `queue.join` went out) and then while the server keeps the session in a pool. The
  * wait counts up from this player's own click (`start`, from armQueueJoin), falling back to the server's pool snapshot
  * (`q.since` through queueWaited) when this page has no click of its own; neither needs extra traffic.
@@ -400,7 +400,7 @@ export function LobbyScreen() {
 
   const online = conn.status === 'online';
   const codeOk = CODE_RE.test(code);
-  const q = useStore((s) => s.queue, shallowEqual); // 搜寻队友 search state, or null (DESIGN §26)
+  const q = useStore((s) => s.queue, shallowEqual); // 搜寻队友 search state, or null (DESIGN §27)
   // 同盟匹配 creates an alliance and the search itself happens inside the room (room.matchmake), so this screen never
   // arms a queue entry any more: the button below always creates a room. The queue path (`armQueueJoin` → queue.join,
   // the search panel, 取消搜寻) is left intact — it has its own tests and remains the transport for a future

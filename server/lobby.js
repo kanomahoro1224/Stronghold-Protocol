@@ -116,7 +116,7 @@ export const LOBBY_DEFAULTS = Object.freeze({
   maxMatchesPerAddr: 8,   // matches started from one client network that may run at once (0 = unlimited)
   resyncMinGapMs: 1000,   // heavy resyncs (match state / result replay) per session at most this often on repeated hellos
   soloReconnectWindowMs: null, // a dropped solo run stays resumable this long (null = data singleReconnectTime, 24 h)
-  // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §26)
+  // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §27)
   matchQueueMaxPerAddr: 8,      // queue entries from one client network at once (0 = unlimited)
   matchQueueMax: 128,           // entries per difficulty pool
 });
@@ -270,7 +270,7 @@ export class Lobby {
     /** @type {Map<string, NodeJS.Timeout>} deferred (coalesced) resyncs by playerId */
     this.resyncTimers = new Map();
     /**
-     * 搜寻队友 pools by difficulty (DESIGN §26): `{ difficulty, entries: [{ session, at }] }`. A pool has no timer —
+     * 搜寻队友 pools by difficulty (DESIGN §27): `{ difficulty, entries: [{ session, at }] }`. A pool has no timer —
      * the search runs until four connected doctors are in it (or the searcher cancels), so nothing expires by itself.
      * @type {Map<string, { difficulty: string, entries: { session: any, at: number }[] }>}
      */
@@ -469,7 +469,7 @@ export class Lobby {
     for (const r of this.rooms.values()) {
       if (r.match) {
         matches++;
-        // The server's own simulation load: battles it steps on its single core (DESIGN §26). `fieldsIdle` is the
+        // The server's own simulation load: battles it steps on its single core (DESIGN §27). `fieldsIdle` is the
         // subset nobody is watching — a match whose humans are all disconnected still steps their takeover fields for
         // the reconnect window (nothing suspends it any more; the box pays for that, deliberately). `paused` counts
         // the matches frozen by the owner's solo pause. `fieldsInThread` is the part of `fields`
@@ -590,7 +590,7 @@ export class Lobby {
     this.clearResync(session.playerId); // the next resume resyncs immediately
     // A searcher who drops keeps their pool entry (a reconnect resumes the search), but the doctors still waiting
     // must see the smaller count — and the solo hint — right away: with no deadline timer there is nothing else that
-    // would tell them (DESIGN §26).
+    // would tell them (DESIGN §27).
     const waiting = this.queueOf(session);
     if (waiting) {
       this.pruneQueue(waiting);
@@ -658,7 +658,7 @@ export class Lobby {
     const code = this.genCode();
     if (!code) return fail(ERR.INTERNAL, 'no room code available');
     // Only once the create can no longer fail: a refused create must not silently end a 搜寻队友 search, or the
-    // client would be left showing a search panel the server has already forgotten (DESIGN §26).
+    // client would be left showing a search panel the server has already forgotten (DESIGN §27).
     this.dequeue(session, { notify: false });
     if (cur) this.removeMember(cur, session.playerId);
     const room = new Room(code, mode, difficulty, this.now(), pool);
@@ -686,7 +686,7 @@ export class Lobby {
     if (room.mode === 'solo') return fail(ERR.ROOM_FULL, 'solo room');
     const idx = room.freeSeat();
     if (idx < 0) return fail(ERR.ROOM_FULL);
-    // Only once the join can no longer fail: a refused join must not silently end a 搜寻队友 search (DESIGN §26).
+    // Only once the join can no longer fail: a refused join must not silently end a 搜寻队友 search (DESIGN §27).
     this.dequeue(session, { notify: false });
     if (cur) this.removeMember(cur, session.playerId);
     room.seats[idx] = this.humanSeat(idx, session);
@@ -793,7 +793,7 @@ export class Lobby {
   }
 
   /**
-   * Seat one AI teammate in the room's lowest free seat (room.addBot and 搜寻队友's fill-up, DESIGN §26).
+   * Seat one AI teammate in the room's lowest free seat (room.addBot and 搜寻队友's fill-up, DESIGN §27).
    * @param {Room} room
    * @returns {number} the seat index, or -1 when the room has no free seat
    */
@@ -937,14 +937,14 @@ export class Lobby {
   }
 
   // ---------------------------------------------------------------------------------------------------
-  // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §26)
+  // 搜寻队友 / matchmaking (research 06 §3.3, DESIGN §27)
   // ---------------------------------------------------------------------------------------------------
 
   /**
    * `queue.join {difficulty}`: search for teammates in that difficulty's pool. One entry per session — an existing
    * lobby room is left first (like room.create) and searching while a match runs is refused. Four connected doctors
    * form a room at once; with fewer the pool simply keeps waiting (no deadline, no AI fill — the searcher cancels or
-   * keeps waiting, DESIGN §26).
+   * keeps waiting, DESIGN §27).
    */
   queueJoin(session, { difficulty }) {
     const cur = this.roomOf(session);

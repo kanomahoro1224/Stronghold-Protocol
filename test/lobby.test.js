@@ -1112,14 +1112,14 @@ describe('websocket lobby', () => {
     assert.ok(h.sessions >= 1);
   });
 
-  // The multi-core work sizes itself on these two numbers (DESIGN §26): hosted battles, and how many of them
+  // The multi-core work sizes itself on these two numbers (DESIGN §27): hosted battles, and how many of them
   // nobody is connected to. They must exist even with no match running, so a monitor can poll them from boot.
   test('healthz reports the server\'s own simulation load (fields / fieldsIdle) and event-loop delay', async () => {
     await createRoom(await pool.player('Counter'));
     const h = JSON.parse((await httpReq(srv.port, '/healthz')).body.toString());
     assert.equal(typeof h.fields, 'number');
     assert.equal(typeof h.fieldsIdle, 'number');
-    assert.equal(typeof h.paused, 'number', 'matches suspended for being unwatched (DESIGN §26, P1b)');
+    assert.equal(typeof h.paused, 'number', 'matches suspended for being unwatched (DESIGN §27, P1b)');
     assert.ok(h.fields >= 0 && h.fieldsIdle >= 0 && h.fieldsIdle <= h.fields);
     assert.equal(typeof h.loop.p99, 'number');
     assert.equal(typeof h.loop.windowMs, 'number');

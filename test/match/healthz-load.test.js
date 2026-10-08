@@ -1,4 +1,4 @@
-// test/match/healthz-load.test.js — DESIGN §26 "make the load visible": /healthz must report the battles the server
+// test/match/healthz-load.test.js — DESIGN §27 "make the load visible": /healthz must report the battles the server
 // actually steps, and where it steps them. Under client-side combat (DESIGN §14) every field with no connected human
 // (each bot seat, each mid-disconnect takeover) is a HeadlessJob advanced in this thread by Match._runOnServer, which
 // the old `hostedFields()` (runner + pacer only) never counted: a four-bot match reported `fields: 1` while four

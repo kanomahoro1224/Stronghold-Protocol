@@ -11,7 +11,7 @@ import { buildBattleSpec, createBattleFromSpec } from '../../sim/spec.js';
 import { createSimPool, parseSimWorkers } from '../simPool.js';
 
 /**
- * The worker-thread simulation pool (DESIGN §26 P2, `SP_SIM_WORKERS`), one per process and OFF by default: `0` keeps
+ * The worker-thread simulation pool (DESIGN §27 P2, `SP_SIM_WORKERS`), one per process and OFF by default: `0` keeps
  * every field on the event loop exactly as before, which is also the rollback. Created lazily, because the many
  * processes that never run a real-scheduler match (the whole test suite, tools/matchrun, the balance sims) must not
  * pay for workers they cannot use — and every virtual-scheduler match stays in-thread by construction (see
@@ -52,7 +52,7 @@ export class MatchClientCombat {
    * Battles the server itself is stepping for this match: a FieldRunner steps every live field in lockstep, a
    * HeadlessPacer fast-forwards one more while a takeover catches up to the wall clock, and — under client-side
    * combat (DESIGN §14) — every field the server took over is a `HeadlessJob` on this thread (`_runOnServer`) or a
-   * worker-pool job (P2). `/healthz` sums this over all matches — it is the server's simulation load (DESIGN §26),
+   * worker-pool job (P2). `/healthz` sums this over all matches — it is the server's simulation load (DESIGN §27),
    * the input to the multi-core work. A frozen match's runner (and, with it, this number) reports 0: nothing steps.
    */
   hostedFields() {

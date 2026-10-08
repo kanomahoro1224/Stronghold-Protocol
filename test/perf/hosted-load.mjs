@@ -1,4 +1,4 @@
-// Manual performance probe for the multi-core work (DESIGN §26) — NOT part of `node --test`:
+// Manual performance probe for the multi-core work (DESIGN §27) — NOT part of `node --test`:
 //
 //   node test/perf/hosted-load.mjs [seconds] [fieldsPerMatch]
 //
