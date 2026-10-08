@@ -71,6 +71,12 @@ try {
   const table = await page.evaluate(() => document.querySelector('.table, table')?.textContent || document.body.textContent);
   ok('表格里标出了实际探测地址', table.includes('探测 → ') && table.includes('192.0.2.11'), table.slice(table.indexOf(NAME), table.indexOf(NAME) + 160));
 
+  // 状态列必须把「服务端」和「本机」分开写：管理员看到的「不可达」只代表社区服务器那一侧。
+  const statusCell = await page.evaluate(() => document.querySelector('.cell-status--stack')?.innerText.replace(/\n+/g, ' | ') || '');
+  ok('状态列分成「服务端」与「本机」两行', /服务端/.test(statusCell) && /本机/.test(statusCell), statusCell);
+  ok('服务端那行给出可达/不可达结论', /运行正常|不可达/.test(statusCell), statusCell);
+  ok('本机那行给出延迟或「未测到/测速中」', /(\d+ ms|未测到|测速中)/.test(statusCell), statusCell);
+
   // 点该行「编辑」
   const clicked = await page.evaluate((name) => {
     let best = null, bestDepth = Infinity;

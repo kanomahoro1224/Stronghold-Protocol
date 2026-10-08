@@ -55,6 +55,7 @@ async function pass({ blockLocal = false, fakeDownId = null } = {}) {
     mains: [...document.querySelectorAll('.card__status-main')].map((e) => e.textContent.trim()),
     subs: [...document.querySelectorAll('.card__status-sub')].map((e) => e.textContent.trim().replace(/\s+/g, ' ')),
     enterable: [...document.querySelectorAll('.card')].map((c) => !!c.querySelector('a.btn--primary')),
+    classes: [...document.querySelectorAll('.card')].map((c) => c.className),
     stats: [...document.querySelectorAll('.stat__val')].map((e) => e.textContent.trim()),
   }));
   await page.close();
@@ -86,7 +87,8 @@ function invariants(label, r, exp) {
   ok(`${label}: 卡片数与服务端列表一致`, r.mains.length === exp.length, `${r.mains.length}/${exp.length}`);
   ok(`${label}: 本机有数 + 服务端可达 → 本机实测`, exp.every((e, i) => !(e.serverOk && hasLocal[i]) || (r.mains[i] === '运行正常' && /^本机 \d+ ms$/.test(r.subs[i] || ''))), r.subs.join(' | '));
   ok(`${label}: 本机无数据 + 服务端可达 → 服务端结果（绝不说离线）`, exp.every((e, i) => !(e.serverOk && !hasLocal[i]) || (r.mains[i] === '运行正常' && /^本机未测到 · 服务端( \d+ ms|正常)$/.test(r.subs[i] || ''))), r.subs.join(' | '));
-  ok(`${label}: 本机有数 + 服务端不可达 → 本机可达（绝不判离线）`, exp.every((e, i) => !(!e.serverOk && hasLocal[i]) || r.mains[i] === '本机可达'), r.mains.join(' | '));
+  ok(`${label}: 本机有数 + 服务端不可达 → 仍是「运行正常」（能连上就是正常）`, exp.every((e, i) => !(!e.serverOk && hasLocal[i]) || (r.mains[i] === '运行正常' && /^服务端.+ · 本机 \d+ ms$/.test(r.subs[i] || ''))), `${r.mains.join(' | ')} // ${r.subs.join(' | ')}`);
+  ok(`${label}: 本机有数 + 服务端不可达 → 卡片不能是灰/离线`, exp.every((e, i) => !(!e.serverOk && hasLocal[i]) || /is-online/.test(r.classes[i] || '')), r.classes.join(' | '));
   ok(`${label}: 本机无数据 + 服务端不可达 → 才允许离线`, exp.every((e, i) => !(!e.serverOk && !hasLocal[i]) || r.mains[i] !== '运行正常'), r.mains.join(' | '));
   ok(`${label}: 可进入 ⇔ 服务端可达或本机有数`, exp.every((e, i) => !!r.enterable[i] === (e.serverOk || hasLocal[i])), r.enterable.join(','));
   ok(`${label}: 旧措辞「本机延迟未知」不存在`, r.subs.every((s) => !/延迟未知/.test(s || '')));
@@ -110,7 +112,9 @@ if (mirror) {
   show('3. 服务端探测被伪造为失败（本机仍连通）', mirror, expMirror);
   invariants('反向', mirror, expMirror);
   const i = expMirror.findIndex((e) => e.faked);
-  ok('反向: 被伪造失败的节点显示「本机可达」', mirror.mains[i] === '本机可达', `${mirror.mains[i]} / ${mirror.subs[i]}`);
+  ok('反向: 被伪造失败的节点仍是「运行正常」', mirror.mains[i] === '运行正常', `${mirror.mains[i]} / ${mirror.subs[i]}`);
+  ok('反向: 副行点明是服务端那一侧失败', /服务端/.test(mirror.subs[i] || '') && /本机 \d+ ms/.test(mirror.subs[i] || ''), mirror.subs[i]);
+  ok('反向: 卡片保持绿色 is-online', /is-online/.test(mirror.classes[i] || ''), mirror.classes[i]);
   ok('反向: 该节点仍然可点进', mirror.enterable[i] === true);
   ok('反向: 该节点没有被判离线', mirror.mains[i] !== '离线无响应');
 } else {

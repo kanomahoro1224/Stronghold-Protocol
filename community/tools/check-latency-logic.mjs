@@ -42,10 +42,19 @@ ok('无服务端结论 → pending，不下判断', (() => { const s = statusFor
 console.log('statusFor · 反向：服务端探测失败，但本机刚刚连通（线上 t44 就是这种）');
 const mirror = statusFor({ health: DOWN, clientMs: 93 });
 ok('state = reachable，不是 off', mirror.state === 'reachable');
-ok('主行「本机可达」，不判离线', mirror.main === '本机可达');
-ok('副行同时给出服务端错误与本机实测', mirror.sub === '无法连接 · unreachable · 本机 93 ms');
+ok('主行仍是「运行正常」（能连上就是正常，不降级）', mirror.main === '运行正常');
+ok('主行用绿色调（不是琥珀色告警）', mirror.mainTone === 't-mint');
+ok('副行同时给出服务端错误与本机实测', mirror.sub === '服务端无法连接 · unreachable · 本机 93 ms');
+ok('副行用琥珀色，把服务端那一侧的问题留在小字里', mirror.subTone === 'amber');
 ok('tooltip 说明是服务端出口的问题', /浏览器/.test(mirror.subTitle));
-ok('版本待更新 + 本机可达 → 保留原因', (() => { const s = statusFor({ health: STALE, clientMs: 50 }); return s.state === 'reachable' && /版本/.test(s.sub) && /本机 50 ms/.test(s.sub); })());
+ok('版本待更新 + 本机可连 → 保留原因', (() => { const s = statusFor({ health: STALE, clientMs: 50 }); return s.state === 'reachable' && /版本/.test(s.sub) && /本机 50 ms/.test(s.sub); })());
+
+console.log('statusFor · 规则（2026-10-08 用户明确）：只要一侧连得上就是「运行正常」');
+ok('服务端可达 + 本机测不到 → 运行正常', statusFor({ health: UP, clientMs: null }).main === '运行正常');
+ok('服务端不可达 + 本机可达 → 运行正常', mirror.main === '运行正常');
+ok('「本机可达」不再作为主标题出现', !/本机可达/.test(mirror.main));
+ok('两侧都不通 → 才允许「离线无响应」', statusFor({ health: DOWN, clientMs: null }).main === '离线无响应');
+ok('两侧都不通 → state = off（卡片才会变红/灰）', statusFor({ health: DOWN, clientMs: null }).state === 'off');
 
 console.log('grade 分档');
 ok('null → none', grade(null) === 'none');

@@ -19,16 +19,18 @@ const LOCAL_RETRY_MS = 5000;
 const TABS = [{ id: 'servers', label: '服务器' }, { id: 'downloads', label: '下载', hidden: true }, { id: 'about', label: '关于' }];
 
 /** Derive the headline numbers for the hero from the probed list. */
-function summarize(servers) {
+function summarize(servers, latency = {}) {
   let online = 0, humans = 0, matches = 0;
   const regions = new Set();
   for (const s of servers) {
+    // 「在线」的口径和卡片一致：服务端可达，或者**本机**刚刚连通过（能连上就是运行正常）。
+    const localOk = latency[String(s.id)] != null;
+    if (s.health?.ok || localOk) online += 1;
     if (s.health?.ok) {
-      online += 1;
       humans += Number(s.health.raw?.humans) || 0;
       matches += Number(s.health.raw?.matches) || 0;
+      regions.add(s.region);
     }
-    if (s.health?.ok) regions.add(s.region);
   }
   return { total: servers.length, online, humans, matches, regions: regions.size };
 }
@@ -44,7 +46,8 @@ function summarize(servers) {
  */
 const StatusView = ({ health, clientMs, measuring }) => {
   const s = statusFor({ health, clientMs, measuring });
-  const cls = `card__status${s.state === 'ok' || s.state === 'local' ? '' : s.state === 'warn' || s.state === 'reachable' ? ' is-warn' : ' is-off'}`;
+  // 绿色 = 运行正常（服务端可达或本机连通都算）；只有「版本待更新」才琥珀，只有两侧都不通才红。
+  const cls = `card__status${s.state === 'warn' ? ' is-warn' : s.state === 'pending' || s.state === 'off' ? ' is-off' : ''}`;
   return html`<div class=${cls}>
     <span class=${`card__status-main ${s.mainTone}`}>${s.main}</span>
     ${s.sub ? html`<span class=${`card__status-sub ${s.subTone}`} title=${s.subTitle || ''}>${s.sub}</span>` : null}
@@ -199,7 +202,7 @@ export function ServerList({ ctx, onNavigate, onSession }) {
     () => (region === 'all' ? servers : servers.filter((s) => s.region === region)),
     [servers, region],
   );
-  const stats = useMemo(() => summarize(servers), [servers]);
+  const stats = useMemo(() => summarize(servers, latency), [servers, latency]);
 
   const reload = useCallback(async () => {
     await load(false);

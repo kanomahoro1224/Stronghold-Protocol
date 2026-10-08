@@ -89,7 +89,8 @@ try {
 } finally {
   if (browser) await browser.close();
   await srv.close();
-  rmSync(dir, { recursive: true, force: true });
+  // Windows 上 SQLite/Chrome 的句柄有时还没放完，删目录会 EBUSY —— 清理失败不该影响测试结论。
+  try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
 console.log(`\n${checks - failed}/${checks} 通过`);

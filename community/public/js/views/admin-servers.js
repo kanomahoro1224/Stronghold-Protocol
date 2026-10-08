@@ -1,7 +1,8 @@
 // community/public/js/views/admin-servers.js — 后台 · 服务器管理控制台.
 // Table CRUD over /api/servers, mirroring the draft: stat cards, table (名称/地址/区域/实时状态/操作), 添加服务器 modal.
-import { useState, useEffect, useCallback, useMemo } from '/vendor/hooks.module.js';
+import { useState, useEffect, useCallback, useMemo, useRef } from '/vendor/hooks.module.js';
 import { api, ApiError } from '../api.js';
+import { measureAll } from '../latency.js';
 import { html, Modal, Field, toast, IconPlus, IconServer, IconOff, IconGlobe, relativeTime } from '../ui.js';
 import { AdminShell } from './admin-shell.js';
 
@@ -60,17 +61,23 @@ function ServerModal({ server, regions, onClose, onSaved }) {
     </${Modal}>`;
 }
 
-const StatusCell = ({ health }) => {
-  if (!health) return html`<span class="cell-status"><span class="cell-status__main t-dim">探测中…</span></span>`;
-  if (health.ok) {
-    // This column is the COMMUNITY SERVER's reachability of the node, used by admins to spot dead nodes.
-    // The player-facing "本机延迟" is measured in the visitor's browser and shown on the public list only.
-    return html`<span class="cell-status" title="自社区服务器发起的探测">
-      <span class="cell-status__main t-mint">运行正常</span>
-      <span class="cell-status__sub">${health.latencyMs}ms</span>
-    </span>`;
-  }
-  return html`<span class="cell-status"><span class="cell-status__main t-red">离线无响应</span><span class="cell-status__sub">--</span></span>`;
+const StatusCell = ({ health, clientMs, measuring }) => {
+  if (!health) return html`<span class="cell-status cell-status--stack"><span class="cell-status__main t-dim">探测中…</span></span>`;
+  const localOk = clientMs != null;
+  // 这一列把**两侧**分开写：服务端探到的结果，和这个浏览器自己实测的结果。判定口径与前台一致 ——
+  // 只要有一侧连得上就是可用（管理员不会因为社区服务器出口不通就误删一个玩家能进的节点）。
+  return html`<span class="cell-status cell-status--stack">
+    <span class="cell-status__row" title="自社区服务器发起的探测（节点列表里的公开地址）">
+      <span class="cell-status__k">服务端</span>
+      <span class=${`cell-status__main ${health.ok ? 't-mint' : 't-red'}`}>${health.ok ? '运行正常' : '不可达'}</span>
+      <span class="cell-status__sub">${health.ok ? `${health.latencyMs}ms` : (health.error || '--')}</span>
+    </span>
+    <span class="cell-status__row" title="由你这个浏览器实测到该节点的往返时间">
+      <span class="cell-status__k">本机</span>
+      <span class=${`cell-status__main ${localOk ? 't-mint' : 't-dim'}`}>${measuring ? '测速中…' : localOk ? `${Math.round(clientMs)} ms` : '未测到'}</span>
+      ${!health.ok && localOk ? html`<span class="cell-status__sub t-amber">节点可用</span>` : null}
+    </span>
+  </span>`;
 };
 
 export function AdminServers({ ctx, onNavigate, onSession }) {
@@ -78,10 +85,14 @@ export function AdminServers({ ctx, onNavigate, onSession }) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // null | { } | server object
   const [pending, setPending] = useState(null); // server pending delete confirm
+  const [latency, setLatency] = useState({});
+  const [measuring, setMeasuring] = useState(false);
+  const serversRef = useRef([]);
 
   const load = useCallback(async () => {
     try {
       const { servers: list } = await api.listServers({ probe: true });
+      serversRef.current = list;
       setServers(list);
     } catch (e) {
       if (e.status === 401 || e.status === 403) { await onSession(); onNavigate('/admin'); return; }
@@ -91,15 +102,30 @@ export function AdminServers({ ctx, onNavigate, onSession }) {
 
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
 
+  /** 后台也量一次本机延迟：管理员看到的「不可达」只代表社区服务器那一侧。 */
+  const measureNow = useCallback(async () => {
+    const list = serversRef.current;
+    if (!list.length) return;
+    setMeasuring(true);
+    try {
+      // 注意：state 更新函数必须是同步的，await 要在外面先取好。
+      const result = await measureAll(list);
+      setLatency((prev) => ({ ...prev, ...result }));
+    } finally { setMeasuring(false); }
+  }, []);
+
+  useEffect(() => { const t = setInterval(measureNow, 30000); return () => clearInterval(t); }, [measureNow]);
+  useEffect(() => { if (servers.length) measureNow(); }, [servers.length, measureNow]);
+
   const stats = useMemo(() => {
-    const online = servers.filter((s) => s.health?.ok).length;
+    const online = servers.filter((s) => s.health?.ok || latency[String(s.id)] != null).length;
     return {
       total: servers.length,
       online,
       offline: servers.length - online,
       regions: new Set(servers.map((s) => s.region)).size,
     };
-  }, [servers]);
+  }, [servers, latency]);
 
   const remove = async (server) => {
     try {
@@ -162,7 +188,7 @@ export function AdminServers({ ctx, onNavigate, onSession }) {
                     : null}
                 </div>
                 <div class="table__cell"><span class=${`tag tag--${s.region}`}>${s.regionLabel}</span></div>
-                <div class="table__cell"><${StatusCell} health=${s.health} /></div>
+                <div class="table__cell"><${StatusCell} health=${s.health} clientMs=${latency[String(s.id)]} measuring=${measuring} /></div>
                 <div class="table__cell cell-actions">
                   <button class="btn btn--sm" onClick=${() => setEditing(s)}>编辑</button>
                   <button class="btn btn--danger-ghost btn--sm" onClick=${() => setPending(s)}>删除</button>

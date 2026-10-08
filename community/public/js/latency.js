@@ -132,13 +132,22 @@ const TONE = {
   pending: { main: 't-dim', sub: '' },
   ok: { main: 't-mint', sub: 'mint' },
   local: { main: 't-mint', sub: 'dim' },
-  reachable: { main: 't-amber', sub: 'amber' },
+  // 服务端不可达、但本机连通：结论仍是「运行正常」（节点对玩家可用），只用琥珀色小字交代服务端那一侧。
+  reachable: { main: 't-mint', sub: 'amber' },
   warn: { main: 't-amber', sub: 'amber' },
   off: { main: 't-red', sub: 'red' },
 };
 
 /**
  * What the status pill should say, given BOTH verdicts (the server's probe and this browser's timing).
+ *
+ * THE RULE (user, 2026-10-08): **只要能连上就是「运行正常」**. A node the player's browser just reached is
+ * usable, no matter what the community server's own probe says — the server's egress (a DNS answer that
+ * changed, a blocked route, a timeout) is fallible in exactly the same way a browser's is. So:
+ *   server reachable  OR  browser reachable  →  「运行正常」（绿）;
+ *   both sides failed                        →  only then 「离线无响应」（红）.
+ * The sub-line still states WHICH side saw what, so a server-side problem stays visible without demoting a
+ * node the player can actually join.
  *
  * `clientMs` uses three states on purpose:
  *   `undefined` — not measured yet, `null` — measured and the browser got nothing, a number — the real figure.
@@ -153,49 +162,46 @@ export function statusFor({ health, clientMs, measuring = false } = {}) {
   }
   const serverMs = Number.isFinite(health.latencyMs) ? Math.round(health.latencyMs) : null;
 
-  // The server could not reach it. If THIS browser just did, the node is not down — say what we actually know,
-  // because the server's own egress is fallible too (a DNS answer that changed, a blocked route, a 4 s timeout)
-  // and calling a node the visitor is connected to "offline" is exactly the wrong judgement.
-  if (!health.ok && clientMs != null) {
+  // The player's browser reached it ⇒ 运行正常, whatever the server thought. Name both sides in the sub-line.
+  if (clientMs != null) {
+    const local = Math.round(clientMs);
+    if (health.ok) {
+      return {
+        state: 'local',
+        main: '运行正常',
+        mainTone: TONE.local.main,
+        sub: `本机 ${local} ms`,
+        subTone: grade(clientMs),
+        subTitle: '由你的浏览器实测到该节点的往返时间',
+      };
+    }
     return {
       state: 'reachable',
-      main: '本机可达',
-      mainTone: TONE.reachable.main,
-      sub: `${health.error || '服务端探测失败'} · 本机 ${Math.round(clientMs)} ms`,
-      subTone: TONE.reachable.sub,
-      subTitle: '社区服务器探测该节点失败（可能是社区服务器的出口网络或 DNS 问题），但你的浏览器刚刚连通了它',
-    };
-  }
-
-  // The server could not reach it — the only evidence that justifies calling a node offline.
-  if (!health.ok) {
-    const stale = /版本|更新/.test(health.error || '');
-    return stale
-      ? { state: 'warn', main: '版本待更新', mainTone: TONE.warn.main, sub: health.error || '服务端探测异常', subTone: TONE.warn.sub, subTitle: '社区服务器探测该节点时的返回' }
-      : { state: 'off', main: '离线无响应', mainTone: TONE.off.main, sub: health.error || '服务端探测不可达', subTone: TONE.off.sub, subTitle: '社区服务器探测该节点时的返回' };
-  }
-
-  // The node is up (server says so). Report the player's own figure when we have one.
-  if (clientMs != null) {
-    return {
-      state: 'local',
       main: '运行正常',
-      mainTone: TONE.local.main,
-      sub: `本机 ${Math.round(clientMs)} ms`,
-      subTone: grade(clientMs),
-      subTitle: '由你的浏览器实测到该节点的往返时间',
+      mainTone: TONE.reachable.main,
+      sub: `服务端${health.error || '探测不可达'} · 本机 ${local} ms`,
+      subTone: TONE.reachable.sub,
+      subTitle: '社区服务器探测该节点失败（可能是社区服务器自己的出口网络或 DNS 问题），但你的浏览器刚刚连通了它 —— 对玩家来说这个节点是可用的',
     };
   }
 
-  // No local figure: fall back to the server's result instead of leaving it looking unreachable.
-  return {
-    state: 'ok',
-    main: '运行正常',
-    mainTone: TONE.ok.main,
-    sub: measuring
-      ? '本机测速中…'
-      : (serverMs == null ? '本机未测到 · 服务端正常' : `本机未测到 · 服务端 ${serverMs} ms`),
-    subTone: TONE.local.sub,
-    subTitle: '你的浏览器没测到往返时间（可能被拦截或瞬时不通）；这里显示的是服务端探测该节点的结果，不是你的本机延迟',
-  };
+  // No local figure. The server reached it ⇒ 运行正常, labelled as the server's result.
+  if (health.ok) {
+    return {
+      state: 'ok',
+      main: '运行正常',
+      mainTone: TONE.ok.main,
+      sub: measuring
+        ? '本机测速中…'
+        : (serverMs == null ? '本机未测到 · 服务端正常' : `本机未测到 · 服务端 ${serverMs} ms`),
+      subTone: TONE.local.sub,
+      subTitle: '你的浏览器没测到往返时间（可能被拦截或瞬时不通）；这里显示的是服务端探测该节点的结果，不是你的本机延迟',
+    };
+  }
+
+  // Both sides have nothing: this is the only evidence that justifies calling a node offline.
+  const stale = /版本|更新/.test(health.error || '');
+  return stale
+    ? { state: 'warn', main: '版本待更新', mainTone: TONE.warn.main, sub: health.error || '服务端探测异常', subTone: TONE.warn.sub, subTitle: '社区服务器探测该节点时的返回；本机也没测到' }
+    : { state: 'off', main: '离线无响应', mainTone: TONE.off.main, sub: health.error || '服务端探测不可达', subTone: TONE.off.sub, subTitle: '社区服务器与本机都没能连通该节点' };
 }

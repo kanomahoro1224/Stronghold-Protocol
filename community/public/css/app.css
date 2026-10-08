@@ -295,6 +295,9 @@
 .card__status.is-warn { background: rgba(42, 33, 8, .9); }
 .card__status-main { font-size: 13px; font-weight: 500; }
 .card__status-sub { font-family: var(--font-num); font-size: 12px; color: var(--text-dim); }
+.card__status-sub.amber { color: var(--amber); }
+.card__status-sub.mint { color: var(--mint-500); }
+.card__status-sub.red { color: var(--red-premium); }
 
 /* metric strip — 7 equal columns filling the card width */
 .card__metrics { display: flex; align-items: flex-start; margin-top: 22px; }
@@ -416,8 +419,13 @@
 .cell-status { display: flex; align-items: baseline; gap: 8px; }
 .cell-status__main { font-size: 13px; font-weight: 600; }
 .cell-status__sub { font-family: var(--font-num); font-size: 12px; color: var(--text-dim); }
+/* 后台状态列把「服务端」和「本机」分成两行 —— 判定口径与前台一致：只要一侧连得上就算可用。 */
+.cell-status--stack { flex-direction: column; align-items: flex-start; gap: 2px; }
+.cell-status__row { display: flex; align-items: baseline; gap: 6px; }
+.cell-status__k { font-size: 11px; color: var(--text-dim); min-width: 32px; }
+.cell-status__sub.t-amber { color: var(--amber); }
 .cell-actions { display: flex; gap: 8px; justify-content: flex-end; }
-.table__cols--servers { grid-template-columns: 1.6fr 2fr 110px 140px 170px; }
+.table__cols--servers { grid-template-columns: 1.6fr 2fr 110px 170px 170px; }
 .table__cols--accounts { grid-template-columns: 1.6fr 1.4fr 110px 150px 190px; }
 
 /* ---- login ------------------------------------------------------------------------------------ */
