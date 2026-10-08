@@ -17,6 +17,7 @@ import { GuideButton } from '../ui/guide.js';
 import { NoticeButton } from '../ui/notice.js';
 import { updateSettings, useSettings } from '../ui/settings.js';
 import { ResourceLauncher } from '../ui/resourcePanel.js';
+import { openStats } from './stats.js';
 import { toast } from '../ui/toasts.js';
 import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual } from '../store.js';
@@ -282,6 +283,7 @@ export function TitleScreen() {
             <${OnlinePill} count=${conn.onlineCount} />
           </span>
           <span class="title-conn__actions">
+            <${Button} variant="ghost" size="sm" icon="signal" onClick=${openStats} title=${t('统计数据')}>${t('统计')}<//>
             <${GuideButton} class="title-guide" />
             <${NoticeButton} class="title-notice" />
             <button type="button" class="title-settings fsbtn tapx" aria-label=${t('设置')} title=${t('设置')}
