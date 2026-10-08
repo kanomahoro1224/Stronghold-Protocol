@@ -226,3 +226,13 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **验证口径**（做完后按这个查 ✓）：`curl -s --resolve t44.kafuno.cn:8443:127.0.0.1 https://t44.kafuno.cn:8443/` 期望 `200 tls=0` ✓（现在是 `tls=1` ✗）；`openssl x509 -noout -ext subjectAltName` 应含两个名字 ✓；`https://game.kafuno.cn/` 应 302 到 `https://t44.kafuno.cn:34046/` ✓；最后在浏览器里看 secure context（预载不再报需要 HTTPS ✓）。
 
+### 9.1 执行记录（2026-10-08 05:20 UTC 起）
+
+- ✅ **DNS**：CF 加 `t44.kafuno.cn` **CNAME → `t44.sjcmc.cn`**（灰云 ✓）——直接继承 `sjcmc.cn` 那边的 DDNS ✓（这台出口 IP 不唯一：`.218`/`.150`/`.131` 都出现过 ✗，自己写 DDNS 必错 ✗）。
+- ✅ **令牌**：账户级令牌（`cfat_` 前缀 ✓）。**判据不是 `/user/tokens/verify`** ✗——账户级令牌打 `/user/*` 必然 401 `Invalid API Token` ✓（`/user` 还会 403 `Valid user-level authentication not found` ✓），**`GET /zones?name=kafuno.cn` 返回 200 才算可用** ✓。凭据写 `/etc/letsencrypt/cf.ini`（`dns_cloudflare_api_token = …` ✓ 600 ✓）。
+- ✅ **证书**：`--dry-run` 演练通过 ✓ → 正式扩 SAN ✓ → `DNS:game.kafuno.cn, DNS:t44.kafuno.cn` ✓，到期 **2027-01-06** ✓。`renewalparams.authenticator` 已从 `webroot` 变 **`dns-cloudflare`** ✓ + `dns_cloudflare_credentials` ✓ ⇒ **顺带消除了"没有 80 口 → 续期必失败"的隐患** ✓✓。nginx **一行未改** ✓（`server_name … _;` 兜底任意 Host ✓；证书路径仍 `/etc/ssl/t44/` ✓，由 `renewal-hooks/deploy/t44-copy-cert.sh` 拷 ✓）。
+- ✅ **公网验证**：`https://t44.kafuno.cn:34046/` → **`200 tls=0`** ✓✓（直连 `183.247.170.218` ✓ 有效证书 ✓）；`/healthz` → app 0.2.1 ✓；老 `http://t44.sjcmc.cn:34046/` 仍 **200** ✓（书签不废 ✓）；`stronghold` 全程 **未重启** ✓。⏭ 只剩 CF 那条 302 的目标要改成 `https://t44.kafuno.cn:34046/$1` ✓（改前它仍把玩家送回 http ✗）。
+- ✅ **资源落盘（第二层）**：t44 从 R2 镜像按清单把 11221 条 URL 拉到 `public/…`（约 476 MB ✓，6→32 并发 ✓，已存在跳过、可断点续跑 ✓），并把 `.214` 的 `data/local-assets.json`（150 KB ✓）就位（清单 `count` 9756 → 11221 ✓）。结束后 `touch data/assets.json` 即重建 ✓：**清单缓存的失效键只认 `data/{assets,local-assets,asset-hashes}.json` 的 `mtime:size`** ✓（`server/resources.js:293` ✓）⇒ **不用重启应用** ✓（进程内 cache ✓）。
+- ⚠️ **落盘不会改变玩家侧的交付路径** ✓：t44 的 nginx（`/etc/nginx/snippets/t44-locations.conf` ✓）把 `/assets/**`、`/media/**`、`/fonts/**` 一律 **302 到 R2** ✓（实测 ✓，`?r2v=2` ✓）⇒ 本地文件**只用来让清单量到 `size`** ✓，家里那条上行不会被玩家拖 ✓✓。`.214` 同理：nginx 302 到 R2 ✓，只有直连 app `:3000` 才会拿本地文件 ✓（所以 `.214` 磁盘上的 476 MB 与玩家下载量无关 ✓）。
+- 📌 排查技巧：`pkill -f <脚本名>` 会**连自己这条 SSH 命令一起杀掉** ✗（命令行里含同样的字符串 ✓）→ 用 `pkill -f '名字[-]分段'` ✓，且把重启逻辑放进**独立脚本**执行 ✓。
+
