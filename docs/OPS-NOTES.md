@@ -97,3 +97,31 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 - **双服已挂一次性定时部署**：`sp-deploy-v021.timer` → **2026-10-08 04:00:00 UTC = 北京时间 12:00**，跑 `/opt/stronghold-deploy/deploy-v021.sh`（两机 `--preflight` 均通过）。
 - 线上仍是 **0.1.3**；部署后 **JP 配音才会真正出声**（0.1.3 客户端不认 `voiceAlt`，也没有「配音语言」开关）。
 - 待办：`fork/master` 仍在 v0.2.0（未快进）；上游 release 素材里的 ~399 个音效可择机补进 R2；线上那条 tips 部署成功后可换成「已更新完毕」或删除（`rm public/runtime/status.json`）。
+
+---
+
+## 6. 开放中的问题（2026-10-08 03:00 UTC 记录）
+
+1. **`.22` 的 SSH 从 02:41 UTC 起就进不去**（Paramiko `Error reading SSH protocol banner` / `No existing session`：TCP 连得上但拿不到 banner；从 `.214` 侧看它更是 `No route to host`，web 也 000）。它 20 分钟前还完全正常（发 tips、装依赖、挂定时器都是那次做的），所以**大概率是链路/限流或对端防火墙**，不是它挂了 —— 它自己的 `sp-deploy-v021.timer` 仍会在 04:00 UTC 本地触发，**不依赖 SSH**。
+2. 因此 **`.22` 上跑的还是较早那版脚本**（`md5 8133 字节` 那版，`install_deps` 先 `npm ci`）。`.214` 上已是修好的 **8261 字节 / md5 `efd7ea2de190218e64297d4b45bf81ee`** 版。登录 `.22` 后请立刻覆盖：
+   ```bash
+   md5sum /opt/stronghold-deploy/deploy-v021.sh    # 期望 efd7ea2de190218e64297d4b45bf81ee
+   # 从本 fork 的 .tools/deploy-v021.sh 重新传一次即可
+   ```
+3. **若 `.22` 12:00 部署失败且服务起不来**（`npm ci` 半途失败会留下被清空的 `node_modules`）：
+   ```bash
+   cd /opt/Stronghold-Protocol && npm i --omit=dev --no-audit --no-fund   # 就地补依赖
+   systemctl restart stronghold && curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/healthz
+   # 仍不行就用备份回滚：
+   bash /opt/stronghold-deploy/deploy-v021.sh --rollback-last
+   ```
+   两台的备份都在 `/opt/stronghold-deploy/backups/code-<ts>.tar.gz`，被保留的运营文件在 `backups/keep-<ts>/`。
+4. 部署后 3 分钟内的自查（两台各跑一遍）：
+   ```bash
+   grep -m1 APP_VERSION /opt/Stronghold-Protocol/shared/constants.js        # 期望 0.2.1
+   curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/healthz   # 200
+   curl -sk -o /dev/null -w '%{http_code}\n' --resolve game.xiaolubao.com:443:127.0.0.1 https://game.xiaolubao.com/
+   # .22 额外看客户端代码前缀是否换新：
+   grep -E '^\s*default' /etc/nginx/conf.d/sp-code-version.conf
+   ```
+
