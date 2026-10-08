@@ -274,7 +274,12 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **为什么另一台服也要有一份文件**：清单里的 `size` **只来自本机 `statFile`** ✓（`server/resources.js` `measure()` ✓）⇒ **谁给客户端发清单，谁就必须有这些文件（或至少知道尺寸）** ✓。客户端拿 `size` 决定预载谁 ✓、算分母与百分比 ✓；没 `size` 的条目会被跳过 ✗（§8 / §10 那条提示 ✓）。字节本身仍是客户端**直接从 R2 取** ✓（nginx 302 ✓）⇒ **t44 本地那些文件根本不参与交付** ✗，它们只为"量尺寸"存在 ✓。
 
-**正解**：`.214` 直推 t44 ✓（`rsync -a --size-only --chown=stronghold:stronghold -e "ssh -p 34005 -o BatchMode=yes" /opt/Stronghold-Protocol/public/{assets,media,fonts}/ root@t44.sjcmc.cn:/opt/Stronghold-Protocol/public/…` ✓），比 t44 从 R2 逐个拉快得多 ✓，天然增量 ✓，以后换资产一条命令同步 ✓。
+**两条路都试过，实测（同一晚，同一批文件）**
+- **`.214` 直推 t44**（`rsync -a --size-only --chown=stronghold:stronghold -e "ssh -p 34005 -o BatchMode=yes" /opt/Stronghold-Protocol/public/<子目录>/ root@t44.sjcmc.cn:/opt/Stronghold-Protocol/public/<子目录>/` ✓）：**单条 SSH 流只有 ~70 KB/s** ✗（7 分钟 29 MB ✗）；并发到 4~8 条时开始 `Connection timed out during banner exchange` ✗（`183.247.170.218:34005` ✓，`.214` 这个源 IP 被 sshd/网络限流 ✓）⇒ **能用，但在这条跨云链路上不快也不稳**。
+- **t44 从 R2 拉**（`xargs -P 24` + 60 秒超时 ✓）：**~440 KB/s** ✓（473 MB / ~18 分钟 ✓），失败率 7~8%（都是偶发 `000` ✓，多轮快扫能收干净 ✓）⇒ **本轮最快的其实是这一条**。
+- ⇒ 结论 ✗：**"直推" 不是性能最优解**，"减少要传的东西"才是 —— 见下面的根治办法 ✓。
+
+**根治办法（推荐，但属于生产配置变更，需你点头）** ✓：t44 不必存这 643 MB ✗，它只需要**一份带尺寸的清单** ✓。t44 的 nginx 加一条即可：`location = /data/resource-manifest.json { proxy_pass http://45.207.220.214/data/resource-manifest.json; }` ⇒ t44 直接用 `.214` 的清单（**尺寸天然齐全** ✓），字节照旧由客户端从 R2 取 ✓ ⇒ **以后 `.214` 换资产，t44 零同步** ✓。代价：预载面板依赖 `.214` ✗（游戏本身不依赖 ✓——它的 `/data/*.json` 是本地的 ✓）。
 
 1. **rsync 默认比"大小 + mtime"** ✗：t44 上那些文件是 curl 下来的 ✓ 时间戳不同 ✗ ⇒ 不加 `--size-only` 会把 643 MB **全部重传** ✗（两边内容同源于 R2 ✓ 大小必等 ✓，这里用它安全 ✓）；首次同步后 `-a` 会对齐 mtime ✓，以后就干净了 ✓。
 2. **免密要先铺** ✓：`.214` 生成 `id_ed25519`（`ssh-keygen -t ed25519 -N '' -C 214-to-t44` ✓），公钥进 t44 的 `/root/.ssh/authorized_keys` ✓（该机 `PermitRootLogin yes` ✓），并 `ssh-keyscan -p 34005 -H t44.sjcmc.cn > /root/.ssh/known_hosts` ✓ 才能非交互 ✓。
