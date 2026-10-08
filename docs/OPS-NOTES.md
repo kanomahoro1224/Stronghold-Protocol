@@ -105,7 +105,7 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 ## 6. 开放中的问题（2026-10-08 03:00 UTC 记录）
 
 1. **双服定时器状态（已核）**：`.214` 与 t44 都挂了 `sp-deploy-v021.timer` → **2026-10-08 04:00:00 UTC（北京 12:00）**，两机脚本都是最新版 **8933 B / md5 `1368b954b46e3ba5799dcb79655b3c5b`**（会自动探测应用端口、主站与分线 vhost 都试、没有 `sp-code-version.conf` 时自动跳过 R2 发布），两机 `--preflight` 均通过；双服 tips 也都已发布并验证。
-2. **`.22` 不在双服内，但那里也留了一个同名定时器**：2026-10-08 03:00 UTC 前误挂（当时以为它就是第二台，用户随后澄清双服 = `.214` + t44）。`.22` 的 SSH 从 02:41 UTC 起失联（Paramiko banner / `No existing session`；从 `.214` 看是 `No route to host`），**无法远程摘除**。它跑的是较早那版脚本（**8133 B**，`install_deps` 先 `npm ci`），12:00 会在 `.22` 上自行部署，并把 R2 代码前缀指向新版本（它的 `default` 非空）——影响面仅限 `.22` 自己（`.214`/t44 都是本机出码）。**登录 `.22` 后立刻**换成新版并确认：
+2. **`.22` 已关机，不在双服内**（用户 2026-10-08 确认）：它的 SSH 从 02:41 UTC 起失联就是因为**关机**（Paramiko `Error reading SSH protocol banner` / `No existing session`；从 `.214` 侧看是 `No route to host`），所以那台机器上误挂的 `sp-deploy-v021.timer` **不会触发**，暂时不用管。它上面还留着较早那版脚本（**8133 B**，`install_deps` 先 `npm ci`），**下次开机登录后**先换成新版：
    ```bash
    md5sum /opt/stronghold-deploy/deploy-v021.sh    # 期望 1368b954b46e3ba5799dcb79655b3c5b
    # 从本 fork 的 .tools/deploy-v021.sh 重新传一次；不想让它自动部署就 systemctl stop sp-deploy-v021.timer
