@@ -59,7 +59,11 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS servers (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT    NOT NULL,
+  -- 公开地址：玩家点「进入服务器」、浏览器测速用的那个。
   address     TEXT    NOT NULL,
+  -- 实际探测地址：社区服务器探测 /healthz 时用的那个，留空 = 与 address 相同。
+  -- 两者可能不一样：例如 DNS 从社区服务器解析到一个连不通的 IP（线上 t44 就是），而玩家侧一切正常。
+  probe_address TEXT  NOT NULL DEFAULT '',
   region      TEXT    NOT NULL,
   note        TEXT    NOT NULL DEFAULT '',
   sort_order  INTEGER NOT NULL DEFAULT 0,
@@ -91,6 +95,19 @@ CREATE INDEX IF NOT EXISTS idx_servers_region  ON servers(region);
 `;
 
 /**
+ * Bring an existing database up to the current schema. SQLite has no `ADD COLUMN IF NOT EXISTS`, so each
+ * column is checked first; `CREATE TABLE IF NOT EXISTS` above only covers brand-new files.
+ */
+function migrate(db) {
+  const addColumn = (table, name, ddl) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+    if (!cols.includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    return !cols.includes(name);
+  };
+  return { addedProbeAddress: addColumn('servers', 'probe_address', "probe_address TEXT NOT NULL DEFAULT ''") };
+}
+
+/**
  * Open (and migrate) the database.
  * @param {{ file?: string }} [opts]
  */
@@ -102,6 +119,7 @@ export function openDatabase(opts = {}) {
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 
@@ -117,10 +135,24 @@ export const publicAccount = (row) => row && ({
   lastLoginAt: row.last_login_at ?? null,
 });
 
-export const publicServer = (row) => row && ({
+/**
+ * The address the community server should actually probe: the explicit probe address when set, else the
+ * public one. Everything that talks to the node from the server side goes through this.
+ * @param {{ address?:string, probe_address?:string }} row
+ */
+export const probeTargetOf = (row) => (row && row.probe_address) || (row && row.address) || '';
+
+/**
+ * Row → API shape (never leak password_hash).
+ *
+ * `withProbe` is opt-in because `probe_address` is operator plumbing (it can be a bare IP or an internal
+ * hostname), so only admin responses include it — the public list must not hand that out.
+ */
+export const publicServer = (row, { withProbe = false } = {}) => row && ({
   id: row.id,
   name: row.name,
   address: row.address,
+  ...(withProbe ? { probeAddress: row.probe_address || '' } : {}),
   region: row.region,
   regionLabel: regionLabel(row.region),
   note: row.note,

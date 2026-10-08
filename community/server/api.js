@@ -3,13 +3,14 @@
 // Surface (all JSON; errors are `{ error: { code, message } }`):
 //   GET    /api/bootstrap          site config + regions + session (who am I)
 //   GET    /api/servers            public list; ?probe=1 adds live /healthz results
+//                                  (probeAddress is returned to admins only)
 //   GET    /api/servers/:id        one server + its live probe
 //   POST   /api/auth/login         { loginName, password } → sets session cookie
 //   POST   /api/auth/logout
 //   GET    /api/auth/me
 //
 //   admin only (403 otherwise):
-//   POST   /api/servers            { name, address, region, note? }
+//   POST   /api/servers            { name, address, region, note?, probeAddress? }
 //   PUT    /api/servers/:id        partial update
 //   DELETE /api/servers/:id
 //   GET    /api/accounts
@@ -20,7 +21,7 @@
 //
 // The server never exposes password hashes, and the last enabled admin can be neither disabled nor deleted.
 
-import { REGIONS, REGION_VALUES, publicServer, publicAccount, hashPassword } from './db.js';
+import { REGIONS, REGION_VALUES, publicServer, publicAccount, hashPassword, probeTargetOf } from './db.js';
 import { currentAccount, endSession, isAdmin, login, validatePassword, killSessions } from './auth.js';
 import { probe, probeAll, invalidate, canonicalAddress, isValidAddress } from './probe.js';
 import { sendJson, sendError, readJsonBody } from './http.js';
@@ -36,7 +37,7 @@ const int = (v) => (Number.isInteger(v) ? v : Number.parseInt(String(v), 10));
 // ---- validation helpers -------------------------------------------------------------------------
 
 /** @returns {{ ok:true, value:object } | { ok:false, message:string }} */
-function readServerInput(body, { partial = false } = {}) {
+export function readServerInput(body, { partial = false } = {}) {
   const out = {};
   if (!partial || body.name !== undefined) {
     const name = str(body.name, NAME_MAX);
@@ -47,6 +48,17 @@ function readServerInput(body, { partial = false } = {}) {
     const address = canonicalAddress(body.address);
     if (!isValidAddress(body.address)) return { ok: false, message: '服务器地址无效，请填写形如 https://t44.kafuno.cn:34046/ 的地址' };
     out.address = address;
+  }
+  // 实际探测地址：可选。留空（或显式传空串）＝ 用上面的服务器地址探测。
+  if (body.probeAddress !== undefined) {
+    const raw = str(body.probeAddress, ADDRESS_MAX);
+    if (!raw) {
+      out.probeAddress = '';
+    } else if (!isValidAddress(raw)) {
+      return { ok: false, message: '实际探测地址无效，请填写形如 https://1.2.3.4:34046/ 的地址（留空则用服务器地址）' };
+    } else {
+      out.probeAddress = canonicalAddress(raw);
+    }
   }
   if (!partial || body.region !== undefined) {
     const region = str(body.region, 20);
@@ -66,8 +78,10 @@ function readServerInput(body, { partial = false } = {}) {
  * @returns {(req, res, url: URL, deps: object) => Promise<boolean>} handler; returns false when unrouted
  */
 export function createApi({ db, secure }) {
-  const listServers = () => db.prepare('SELECT * FROM servers ORDER BY sort_order ASC, id ASC').all().map(publicServer);
-  const getServer = (id) => publicServer(db.prepare('SELECT * FROM servers WHERE id = ?').get(id));
+  const listRows = () => db.prepare('SELECT * FROM servers ORDER BY sort_order ASC, id ASC').all();
+  const getRow = (id) => db.prepare('SELECT * FROM servers WHERE id = ?').get(id);
+  const listServers = (withProbe = false) => listRows().map((r) => publicServer(r, { withProbe }));
+  const getServer = (id, withProbe = false) => publicServer(getRow(id), { withProbe });
   const getAccount = (id) => db.prepare('SELECT * FROM accounts WHERE id = ?').get(id);
   const countActiveAdmins = () => db.prepare("SELECT COUNT(*) AS n FROM accounts WHERE role = 'admin' AND disabled = 0").get().n;
 
@@ -123,9 +137,11 @@ export function createApi({ db, secure }) {
 
       // ---- servers (public read) ----------------------------------------------------------------
       if (head === 'servers' && method === 'GET' && !param) {
-        const servers = listServers();
+        const rows = listRows();
+        const servers = listServers(isAdmin(currentAccount(db, req)));
         if (url.searchParams.get('probe') === '1') {
-          const probes = await probeAll(servers);
+          // 服务端探测走「实际探测地址」（留空则是公开地址）——玩家点击用的始终是公开地址。
+          const probes = await probeAll(rows.map((r) => ({ address: probeTargetOf(r) })));
           sendJson(res, 200, { servers: servers.map((s, i) => ({ ...s, health: probes[i] })) });
         } else {
           sendJson(res, 200, { servers });
@@ -133,9 +149,10 @@ export function createApi({ db, secure }) {
         return true;
       }
       if (head === 'servers' && method === 'GET' && param) {
-        const server = getServer(int(param));
-        if (!server) { sendError(res, 404, 'NOT_FOUND', '服务器不存在'); return true; }
-        sendJson(res, 200, { server: { ...server, health: await probe(server.address) } });
+        const row = getRow(int(param));
+        if (!row) { sendError(res, 404, 'NOT_FOUND', '服务器不存在'); return true; }
+        const server = getServer(row.id, isAdmin(currentAccount(db, req)));
+        sendJson(res, 200, { server: { ...server, health: await probe(probeTargetOf(row)) } });
         return true;
       }
 
@@ -145,14 +162,14 @@ export function createApi({ db, secure }) {
         const body = await readJsonBody(req);
         const parsed = readServerInput(body);
         if (!parsed.ok) { sendError(res, 400, 'INVALID', parsed.message); return true; }
-        const { name, address, region, note = '', sortOrder = 0 } = parsed.value;
+        const { name, address, region, note = '', probeAddress = '', sortOrder = 0 } = parsed.value;
         const dup = db.prepare('SELECT id FROM servers WHERE address = ?').get(address);
         if (dup) { sendError(res, 409, 'DUPLICATE', '该地址的服务器已存在'); return true; }
         const now = Date.now();
-        const info = db.prepare(`INSERT INTO servers (name, address, region, note, sort_order, created_at, updated_at)
-                                 VALUES (?, ?, ?, ?, ?, ?, ?)`).run(name, address, region, note, sortOrder, now, now);
-        invalidate(address);
-        sendJson(res, 201, { server: getServer(Number(info.lastInsertRowid)) });
+        const info = db.prepare(`INSERT INTO servers (name, address, probe_address, region, note, sort_order, created_at, updated_at)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(name, address, probeAddress, region, note, sortOrder, now, now);
+        invalidate(probeTargetOf({ address, probe_address: probeAddress }));
+        sendJson(res, 201, { server: getServer(Number(info.lastInsertRowid), true) });
         return true;
       }
       if (head === 'servers' && method === 'PUT' && param) {
@@ -171,14 +188,16 @@ export function createApi({ db, secure }) {
         const next = {
           name: v.name ?? row.name,
           address: v.address ?? row.address,
+          probe_address: v.probeAddress ?? row.probe_address,
           region: v.region ?? row.region,
           note: v.note ?? row.note,
           sort_order: v.sortOrder ?? row.sort_order,
         };
-        db.prepare(`UPDATE servers SET name=?, address=?, region=?, note=?, sort_order=?, updated_at=? WHERE id=?`)
-          .run(next.name, next.address, next.region, next.note, next.sort_order, Date.now(), id);
-        invalidate(row.address); invalidate(next.address);
-        sendJson(res, 200, { server: getServer(id) });
+        db.prepare(`UPDATE servers SET name=?, address=?, probe_address=?, region=?, note=?, sort_order=?, updated_at=? WHERE id=?`)
+          .run(next.name, next.address, next.probe_address, next.region, next.note, next.sort_order, Date.now(), id);
+        // 公开地址或探测地址一变，两边的探测缓存都要立刻失效，否则最长 10s 内还是旧目标的结论。
+        invalidate(probeTargetOf(row)); invalidate(probeTargetOf(next));
+        sendJson(res, 200, { server: getServer(id, true) });
         return true;
       }
       if (head === 'servers' && method === 'DELETE' && param) {
@@ -187,7 +206,7 @@ export function createApi({ db, secure }) {
         const row = db.prepare('SELECT * FROM servers WHERE id = ?').get(id);
         if (!row) { sendError(res, 404, 'NOT_FOUND', '服务器不存在'); return true; }
         db.prepare('DELETE FROM servers WHERE id = ?').run(id);
-        invalidate(row.address);
+        invalidate(probeTargetOf(row));
         sendJson(res, 200, { ok: true });
         return true;
       }

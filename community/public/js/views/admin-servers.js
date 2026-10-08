@@ -5,11 +5,11 @@ import { api, ApiError } from '../api.js';
 import { html, Modal, Field, toast, IconPlus, IconServer, IconOff, IconGlobe, relativeTime } from '../ui.js';
 import { AdminShell } from './admin-shell.js';
 
-const emptyForm = { name: '', address: '', region: 'asia', note: '' };
+const emptyForm = { name: '', address: '', probeAddress: '', region: 'asia', note: '' };
 
 function ServerModal({ server, regions, onClose, onSaved }) {
   const [form, setForm] = useState(server
-    ? { name: server.name, address: server.address, region: server.region, note: server.note || '' }
+    ? { name: server.name, address: server.address, probeAddress: server.probeAddress || '', region: server.region, note: server.note || '' }
     : emptyForm);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -41,8 +41,12 @@ function ServerModal({ server, regions, onClose, onSaved }) {
         <${Field} label="服务器名称">
           <input class="input" placeholder="如：前线节点 · 华东二线" value=${form.name} onInput=${set('name')} required maxlength="40" />
         </${Field}>
-        <${Field} label="服务器地址" hint="形如 https://t44.kafuno.cn:34046/ —— 系统会自动探测其 /healthz 接口">
+        <${Field} label="服务器地址" hint="形如 https://t44.kafuno.cn:34046/ —— 玩家点「进入服务器」用它，浏览器测速也用它">
           <input class="input" placeholder="https://example.com:34046/" value=${form.address} onInput=${set('address')} required />
+        </${Field}>
+        <${Field} label="实际探测地址（可选）"
+          hint="留空＝就探测上面的服务器地址。只有当社区服务器连不上公开地址时才需要填这里（例如 DNS 从社区服务器解析到连不通的 IP），填社区服务器能直连的地址，如 https://1.2.3.4:34046/">
+          <input class="input" placeholder="留空则用服务器地址" value=${form.probeAddress} onInput=${set('probeAddress')} />
         </${Field}>
         <${Field} label="服务器区域">
           <select class="input" value=${form.region} onChange=${set('region')}>
@@ -151,7 +155,12 @@ export function AdminServers({ ctx, onNavigate, onSession }) {
                   <span class=${`cell-name__dot ${s.health?.ok ? '' : 'is-err'}`}></span>
                   <span class="cell-name__txt">${s.name}</span>
                 </div>
-                <div class="table__cell cell-mono" title=${s.address}>${s.address}</div>
+                <div class="table__cell cell-mono" title=${s.address}>
+                  <span style="display:block">${s.address}</span>
+                  ${s.probeAddress && s.probeAddress !== s.address
+                    ? html`<span style="display:block;color:var(--text-dim);font-size:11px" title="服务端 /healthz 探测走这个地址">探测 → ${s.probeAddress}</span>`
+                    : null}
+                </div>
                 <div class="table__cell"><span class=${`tag tag--${s.region}`}>${s.regionLabel}</span></div>
                 <div class="table__cell"><${StatusCell} health=${s.health} /></div>
                 <div class="table__cell cell-actions">
