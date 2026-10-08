@@ -129,3 +129,21 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
    grep -E '^\s*default' /etc/nginx/conf.d/sp-code-version.conf
    ```
 
+---
+
+## 7. 对局与状态持久化（部署会不会丢对局）
+
+**机制**：`server/state/*` 把每个进行中的对局持久化到 **`<repo>/state/matches/match:XXXX.json`**（`SP_STATE_DIR` 可改；默认就在 checkout 里，且 **`state/` 是 gitignored**）。落盘时机：每轮 `round_start` / `settle` + 数秒一次的心跳（`server/match/match/state.js`）。重启后由 `server/http/state.js` 在 `listen` **之后**惰性扫盘（`/healthz.state.scan` 给出 listed / loaded / refused / reasons），**玩家拿着重连 token 回来时**（`server/state/resume.js` 的一次性 claim）才真正重建那一局。重连窗口：普通 10 分钟，单人局按 `SP_SOLO_RECONNECT_MS`（默认 24 h）；记录 TTL 默认 20 分钟起（`recordTtlMs`）。
+
+**部署不会碰它**：官方 `deploy-214.sh` / `deploy-t44.sh` 的备份都带 `--exclude=./state`，部署包里也没有 `state/` ⇒ 记录文件**原地不动**（2026-10-08 实测：`.214` 966 个 / 18 MB，t44 44 个 / 652 KB，且当时都在持续写）。`data/` 里也**没有**运行时文件（只有静态内容 + 运营手改的 `notice.json`）⇒ 不存在"部署覆盖玩家数据"。
+
+**但跨版本恢复不了**（2026-10-08 实测）：闸门 = **build + engine 哈希**，两台都设了 `SP_STATE_IGNORE_BUILD` ⇒ build 不校验，**engine 才是决定项**：
+
+| | `.214`（0.1.3） | t44（0.1.4） | 待部署（0.2.1 合并线） |
+|---|---|---|---|
+| engineHash 前 12 位 | `4a6cd96d9372` | `252f321d617b` | **`510e8c15ca99`** |
+
+⇒ 升级后 boot scan 会把旧记录判成 `refused`（`reasons` 里出现 engine），**进行中的对局会中断**，玩家重连后回大厅 / 开新局 —— 这就是维护 tips 里「对局可能中断，请做好规划」的由来。**新版本自己写的记录**恢复正常可恢复（同 build 同 engine 的内部重启没问题：`.214` 上次重启 resumed 了 16 局）。
+
+**怎么查**：`curl -s 127.0.0.1:3000/healthz` 的 `state` 段（`scan.reasons`、`resumedCount`、`persist.written/errors` / `lastError`），日志 `journalctl -u stronghold | grep '\[state\]'`。
+
