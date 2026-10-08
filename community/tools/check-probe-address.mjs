@@ -5,12 +5,14 @@
 // It drives the REAL service (an ephemeral port, a throwaway database in the OS temp dir) over the real API, so
 // it covers: the schema migration on an old database, the input validation, which address the probe actually
 // uses, the fallback when the field is cleared, and that the field is only exposed to admins.
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import https from 'node:https';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openDatabase, probeTargetOf, publicServer } from '../server/db.js';
 import { readServerInput } from '../server/api.js';
+import { probe, invalidate } from '../server/probe.js';
 import { startCommunity } from '../server/index.js';
 
 let checks = 0;
@@ -118,6 +120,31 @@ try {
 } finally {
   await srv.close();
   rmSync(dir, { recursive: true, force: true });
+}
+
+console.log('4. 证书放宽：自签证书的节点也要能探到（各游戏节点的证书常年名不匹配）');
+{
+  const key = readFileSync(new URL('./fixtures/self-signed-key.pem', import.meta.url));
+  const cert = readFileSync(new URL('./fixtures/self-signed-cert.pem', import.meta.url));
+  const tls = https.createServer({ key, cert }, (req, res) => {
+    if (req.url.startsWith('/healthz')) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, version: 1, app: 'self-signed-test' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise((r) => tls.listen(0, '127.0.0.1', r));
+  const url = `https://127.0.0.1:${tls.address().port}/`;
+  let plainFetchFailed = false;
+  try { await fetch(`${url}healthz`); } catch { plainFetchFailed = true; }
+  ok('对照：普通 fetch 因自签证书失败', plainFetchFailed === true);
+  const r = await probe(url);
+  ok('probe() 放宽校验 → 正常拿到 200 JSON', r.ok === true && r.raw?.app === 'self-signed-test', JSON.stringify(r));
+  ok('探到的是节点自己的 /healthz 数据', r.status === 200 && r.latencyMs >= 0);
+  invalidate(url);
+  await new Promise((r2) => tls.close(r2));
 }
 
 console.log(`\n${checks - failed}/${checks} 通过`);

@@ -41,7 +41,7 @@ PORT=3200 SP_COMMUNITY_ADMIN_PASSWORD=你的密码 npm start
 | 需求 | 实现 |
 | --- | --- |
 | 顶部 Tab：服务器 / 下载 / 关于 | `.nav .tabs`；**下载栏目按需求暂时隐藏**（`server-list.js` 的 `TABS.hidden`） |
-| 服务器列表实时拉取 `/healthz` | `server/probe.js` 并发探测 + 10s 缓存（`ttl`），前端每 15s 刷新 |
+| 服务器列表实时拉取 `/healthz` | `server/probe.js` 并发探测 + 10s 缓存（`ttl`）；8s 超时、传输失败重试一次、**仅探测**放宽 TLS 校验（各节点证书常年与主机名不匹配），前端每 15s 刷新 |
 | 延迟判断（本机 vs 服务端） | `public/js/latency.js`：本机 ping 失败**先看服务端结果**（`statusFor()`），服务端不可达但本机连通则显示「本机可达」，两边都没数据才判离线 —— 详见仓库 `docs/OPS-NOTES.md` §15 |
 | 服务器「实际探测地址」 | 后台编辑服务器可选填：公开地址给玩家（进入按钮 + 浏览器测速），服务端 `/healthz` 探测走探测地址，留空＝用公开地址。老库自动迁移加列，该字段只对管理员返回 |
 | **完整展示原始 JSON** | 每张卡片可展开 `HEALTHZ · 原始数据（全量）`，逐字段语法高亮渲染 |

@@ -364,7 +364,7 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **验收** ✓：`community/tools/check-latency-logic.mjs` **28/28** ✓（含反向用例与重试计数 ✓）；`community/tools/verify-latency-fallback.mjs` 三趟浏览器 e2e ✓（正常 ✓ / 本机 ping 被拦截 ✓ / 服务端探测被伪造为失败 ✓），**本地与公网都全部通过** ✓ —— 公网那趟直接把 t44 判成「本机可达」✓。上线是纯静态替换 ✓（sha256 一致 ✓ community/game 两个时间戳都没动 ✓）。
 
-**仍待你决策** ✓：服务端探测那一侧还能更稳 ✗ —— 对 t44 这种「DNS 给了一个连不通的 IP」✗，现在是 **4s 超时 + 单次尝试**就判死 ✓。可选：超时抬到 8s ✓、失败重试一次 ✓、以及按 `probe.js` 注释与 README 所**宣称**的「已放宽 TLS 校验」✗（代码里其实没有 ✗）补上 ✓。这些都要**重启 community 服务** ✓ 你点头我再动 ✓。
+**已办** ✓（见 §16）：探测超时 4s→8s ✓、传输失败重试一次 ✓、以及 `probe.js` 注释一直**宣称**却没实现的「放宽 TLS 校验」✓ 都已补上 ✓；并给 t44 配上了稳定可达的探测地址 `https://t44.sjcmc.cn:34046/` ✓。
 
 ## §16 「实际探测地址」：公开地址 ≠ 服务端能探测到的地址
 
@@ -388,5 +388,10 @@ tail -f /opt/stronghold-deploy/logs/deploy-v021-*.log       # 日志
 
 **验收** ✓：`tools/check-probe-address.mjs` **24/24** ✓（旧库迁移 ✓ 入参校验 ✓ 真实 API：公开地址用 `192.0.2.1`（RFC 5737 ✓ 必然连不通 ✓）+ 探测地址指向本机服务 ⇒ 判定**可达** ✓ 证明探测确实走的是探测地址 ✓；清空后回落到公开地址并如实判不可达 ✓；游客响应里没有该字段 ✓）。`tools/verify-admin-probe-address.mjs` **9/9** ✓（真实浏览器：编辑弹窗有该字段 ✓ 回填已存值 ✓ 改完保存写进数据库 ✓ 表格刷新 ✓）。`check-latency-logic.mjs` 28/28 回归 ✓。
 
-**部署状态** ✓：**代码已提交 ✓ 但没上线 ✗** —— 这次动了 `community/server/*` ✓，必须**重启** `stronghold-community` 才生效 ✓；如果只换前端 ✓ 会出现「字段看得见但存不进去」✗ 的假象 ✓ 所以整包一起等重启 ✓。重启后建议顺手给 t44 填上 `https://t44.sjcmc.cn:34046/` ✓（配合上面第 ② 条 ✓）。
+**部署** ✓：`systemctl restart stronghold-community` ✓（只重启社区服务 ✓ 游戏进程与 nginx 都不动 ✓）。
+
+- `probe.js` ✓：改用 `node:http` / `node:https` 就地为**每一次探测**关掉证书校验 ✓（`fetch` 想按请求放宽必须倚赖 undici ✗ 而本项目零依赖 ✗）；超时 4s→**8s** ✓；**传输失败（超时/压根没连上）重试一次** ✓（重试预算 4s ✓ ⇒ 最坏约 12s ✓），HTTP 层结论不重试 ✓；仍最多跟随 3 次跳转 ✓ 响应体上限 64KB ✓。
+- t44 的 `probe_address` 直接写库设为 `https://t44.sjcmc.cn:34046/` ✓（重启前写入 ✓ 重启后探测缓存天然是空的 ✓ 不用等 TTL ✓）。
+- 证书回归 ✓：`tools/check-probe-address.mjs` 第 4 节用**提交在库里的自签证书** ✓（`tools/fixtures/` ✓，已注明仅供测试 ✓）起一个本地 https 服务 ⇒ **对照实验**：普通 `fetch` 因证书不受信失败 ✓、`probe()` 正常拿到 200 JSON ✓ ⇒ 该文件 **27/27** ✓。
+- 从本机实测 ✓：`probe('https://t44.sjcmc.cn:34046/')` → **ok=true 197 ms** ✓（`app 0.2.1` ✓ 就是那台游戏节点 ✓）。
 
