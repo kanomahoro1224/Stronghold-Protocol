@@ -29,7 +29,6 @@ import { t, tc, N_ } from '../../../shared/i18n.js';
 import { errorCount, currentBattle, diagnosticsText } from '../diag.js';
 import { copyText } from './clipboard.js';
 
-import { AnnouncementButton } from './announcement.js';
 const cx = (...parts) => parts.filter(Boolean).join(' ');
 
 /** Settings store: { bgm, sfx, voice, muted, damageNumbers, quality, fpsLimit, preload, preloadOptional, preloadVoiceLang }. */
@@ -166,7 +165,7 @@ export function SettingsModal({ open, onClose }) {
   const [shortcutOpen, setShortcutOpen] = useState(false);
   const mtNote = machineTranslationNote(); // a pack marked as machine translation says so under the switch
   return html`<${Modal} open=${open} onClose=${onClose} title=${t('设置')} micro="SETTINGS" width="7.4rem"
-    actions=${html`<${AnnouncementButton} onClick=${onClose} /><${Button} variant="secondary" icon="book" class="set-guide" onClick=${() => openGuide(0)}>${t('玩法说明')}<//>
+    actions=${html`<${Button} variant="secondary" icon="book" class="set-guide" onClick=${() => openGuide(0)}>${t('玩法说明')}<//>
       <${Button} variant="primary" icon="check" onClick=${onClose}>${t('完成')}<//>`}>
     <div class="set-list">
       <div class="set-row">

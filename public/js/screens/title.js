@@ -13,7 +13,7 @@
 import { ResumeMatchButton } from '../ui/resumeMatch.js';
 import { useMemo, useState } from '../../vendor/hooks.module.js';
 import { NAME_MAX_LEN, APP_VERSION, DEV_BUILD } from '../../../shared/constants.js';
-import { html, Button, Icon, MicroLabel, TextField, PingPill, Modal } from '../ui/components.js';
+import { html, Button, Icon, MicroLabel, TextField, PingPill } from '../ui/components.js';
 import { AnnouncementButton } from '../ui/announcement.js';
 import { GuideButton } from '../ui/guide.js';
 import { openStats } from './stats.js';
@@ -205,7 +205,6 @@ export function TitleScreen() {
   const settings = useSettings();
   useLang(); // re-render on a language switch
   const [name, setName] = useState(() => store.get().me.name || identity.loadName() || '');
-  const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const assetsSettled = useData('assets');
   const assets = data.get('assets');
@@ -297,10 +296,6 @@ export function TitleScreen() {
           <${FullscreenButton} class="title-fs" />
         </div>
       </div>
-      <div class="title-about-wrap">
-        <${Button} variant="ghost" size="sm" class="title-about-button" aria-haspopup="dialog"
-          onClick=${() => setAboutOpen(true)}>${t('关于本服务器')}<//>
-      </div>
     </main>
 
     <div class="title-preload"><${ResourceLauncher} enabled=${settings.preload} onChange=${(v) => updateSettings({ preload: v })} /></div>
@@ -313,33 +308,5 @@ export function TitleScreen() {
       <${MicroLabel}>v${APP_VERSION} · WEB SIMULATION<//>
       ${DEV_BUILD ? html`<span class="title-dev" role="note">${t('开发版 · 不稳定，请勿用于公开服务器')}</span>` : null}
     </footer>
-    <${Modal} open=${aboutOpen} title=${t('关于本服务器')} class="title-about" width="min(7.4rem, 94vw)"
-      onClose=${() => setAboutOpen(false)}
-      actions=${html`<${Button} variant="primary" data-autofocus onClick=${() => setAboutOpen(false)}>${t('关闭')}<//>`}>
-      <dl class="title-about__links">
-        <div>
-          <dt>${t('联系邮箱')}</dt>
-          <dd><a href="mailto:linxia@fastmail.com">linxia@fastmail.com</a></dd>
-        </div>
-        <div>
-          <dt>${t('问题反馈')}</dt>
-          <dd><a href="https://space.bilibili.com/401522003" target="_blank" rel="noopener noreferrer">${t('B 站：临夏俨然')}</a></dd>
-          <p class="title-about__hint">${t('如果遇到服务器方面的问题，可以通过 B 站私信或发送邮件联系。')}</p>
-        </div>
-        <div>
-          <dt>${t('本服务器使用的 GitHub 仓库')}</dt>
-          <dd><a href="https://github.com/xinhai-ai/Stronghold-Protocol" target="_blank" rel="noopener noreferrer">https://github.com/xinhai-ai/Stronghold-Protocol</a></dd>
-        </div>
-      </dl>
-      <div class="title-about__disclaimer">
-        <h3>${t('版权与免责声明')}</h3>
-        <p>${t('本站为纯公益的非官方同人复刻，仅供学习、研究和个人非商业娱乐，不收取任何费用；与上海鹰角网络、Yostar 及其关联方没有任何关联，也未获得其授权或认可。')}</p>
-        <p>${t('《明日方舟》及「卫戍协议」相关名称、角色、美术、模型、界面、音乐音效、文本与游戏数据的版权归上海鹰角网络及其授权方所有。项目自编代码采用 GPL-3.0-or-later 许可证，游戏素材与数据不属于该许可证的授权范围；第三方库和字体保留各自的许可证。')}</p>
-        <p>${t('请勿将游戏素材与数据用于盈利，包括出售或付费分发、收费开服、付费房间或会员、植入广告、与本项目挂钩的打赏、赞助或众筹，以及打包进收费产品或服务。上述限制针对游戏素材与数据，GPL 本身允许在其条款下商业使用代码。')}</p>
-        <p>${t('本站按「原样」提供，不附带任何明示或暗示的担保。使用、架设或公开本项目涉及的网络安全、第三方工具与服务及当地法律法规等风险，由使用者自行承担。本站不需要也不会索取任何游戏账号。')}</p>
-        <p>${t('如相关权利人认为本站内容不妥，请通过上方邮箱联系，我们会尽快核实并删除相关内容，必要时停止提供服务。')}</p>
-        <p>${t('完整声明请参阅上游项目的')} <a href="https://github.com/sganggs/Stronghold-Protocol/blob/v0.1.4/NOTICE.md" target="_blank" rel="noopener noreferrer">${t('版权与使用声明（NOTICE）')}</a>${t('及')} <a href="https://github.com/sganggs/Stronghold-Protocol/blob/v0.1.4/LICENSE" target="_blank" rel="noopener noreferrer">${t('代码许可证')}</a>。</p>
-      </div>
-    <//>
   </div>`;
 }
