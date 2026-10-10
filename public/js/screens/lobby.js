@@ -347,7 +347,7 @@ export function LobbyScreen() {
         <h1 class="topbar__title">${t('选择模拟协议')}</h1>
       </div>
       <div class="topbar__right">
-        <${AnnouncementButton} />
+        <${AnnouncementButton} class="lobby-notice" variant="secondary" />
         <${Button} variant="secondary" size="sm" icon="chart" class="stats-entry" onClick=${openStats} title=${t('统计数据')} aria-label=${t('统计数据')}>${t('统计')}<//>
         <${ResumeMatchButton} />
         <${PwaInstallButton} class="lobby-pwa" />
