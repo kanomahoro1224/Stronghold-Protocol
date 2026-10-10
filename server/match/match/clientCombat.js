@@ -229,8 +229,13 @@ export class MatchClientCombat {
   /** m.public ~1 Hz while server-run fields progress along their timelines. */
   _armProgressTicker() {
     if (this._progressTimer || this.sched.instant) return;
+    // A frozen match (the owner's solo pause, an idle suspension) wakes up for nothing: park the
+    // 1 Hz ticker on `_progressWanted` and let `_resume` hand it its next tick exactly once
+    // (server/match/match/pause.js). Ported from the fork's pause guard.
+    if (this.paused) { this._progressWanted = true; return; }
     const tick = () => {
       this._progressTimer = null;
+      if (this.paused) { this._progressWanted = true; return; }
       if (!this.fields.some((f) => f.cc && f.mode === 'server' && !f.done && f.timeline)) return;
       this.markPublic();
       this._progressTimer = this.later(1000, tick);

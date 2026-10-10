@@ -52,6 +52,9 @@ export class MatchPause {
       f.rearmDeadline = false;
       f.rearmRelease = false;
     }
+    // The 1 Hz progress ticker of a frozen match parked on `_progressWanted`: give it its next tick
+    // exactly once (`_armProgressTicker` is a no-op while a tick is already armed).
+    if (this._progressWanted) { this._progressWanted = false; this._armProgressTicker(); }
     for (const f of this.fields.filter((x) => x.verifying && x.resultSource === 'verified' && x.result)) {
       f.verifying = false;
       this._fieldDone(f);
