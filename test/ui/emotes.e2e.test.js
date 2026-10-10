@@ -4,8 +4,9 @@
 //
 // Asserted: picture-only wheel pages (3×2 per theme) and bubbles (no text anywhere), swipe / arrow keys / dots change
 // the theme, sending closes the panel and greys 交流 for the 1 s cooldown, the panel reopens on the last-used theme,
-// a bubble fades out after 3 s and a newer one replaces it, the neutral glyph fallback when the art is missing, the
-// bubble sits beside the sender's avatar in the team panel, and zero console errors.
+// a bubble fades out after 3 s and a newer one replaces it, the neutral glyph fallback when the art is missing, a
+// plate sprite that fails to load falls back to the CSS plate (never bare 交流 text), the bubble sits beside the
+// sender's avatar in the team panel, and zero console errors.
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -82,6 +83,17 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
       imgs: [...document.querySelectorAll(`${root} .ewheel__item img`.trim())].filter((i) => i.complete && i.naturalWidth > 0).length,
       glyphs: document.querySelectorAll(`${root} .ewheel__item .eart--glyph`.trim()).length,
       panelText: panel ? panel.textContent.trim() : '',
+      // 游戏内文字聊天 lives in the same panel, under the grid. The picture-only rule is about the grid, so read the
+      // chat strip first and measure the grid without it — panelText now legitimately contains 发送 / ×.
+      chat: (() => {
+        const box = q('.ewheel__chat');
+        const input = q('.ewheel__chat-input');
+        return box && input
+          ? { value: input.value, sendDisabled: q('.ewheel__chat-send').disabled, clearDisabled: q('.ewheel__chat-clear').disabled }
+          : null;
+      })(),
+      // the grid's own text — the chat strip is a sibling of .ewheel__page, so this never sees 发送 / ×
+      gridText: (() => { const grid = q('.ewheel__page'); return grid ? grid.textContent.trim() : ''; })(),
       btnDisabled: q('.ewheel__btn')?.disabled ?? null,
       dotOn: [...document.querySelectorAll(`${root} .ewheel__dot`.trim())].findIndex((d) => d.classList.contains('is-on')),
     };
@@ -99,7 +111,36 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     assert.equal(s.theme, EMOTE_THEMES[0].themeId, 'first page by default');
     assert.equal(s.items, 6, '3×2 cells');
     assert.equal(s.imgs, 6, 'official pictures loaded');
-    assert.equal(s.panelText, '', 'no text in the panel');
+    assert.equal(s.gridText, '', 'no text in the emote grid itself');
+    // 游戏内文字聊天: the box sits under the grid; Enter and 发送 both send, X clears, and closing the panel keeps the draft
+    assert.ok(s.chat, 'the chat box is under the grid');
+    assert.equal(s.chat.value, '');
+    assert.equal(s.chat.sendDisabled, true, 'an empty box cannot send');
+    assert.equal(s.chat.clearDisabled, true, 'nothing to clear yet');
+    await page.type('#emo-stage .ewheel__chat-input', '走中路');
+    s = await wheelState(page, '#emo-stage');
+    assert.equal(s.chat.value, '走中路');
+    assert.equal(s.chat.sendDisabled, false);
+    assert.equal(s.chat.clearDisabled, false);
+    // closing the panel (the accidental outside press) and reopening must not lose the draft
+    await page.click('#emo-stage .ewheel__btn');
+    await page.click('#emo-stage .ewheel__btn');
+    s = await wheelState(page, '#emo-stage');
+    assert.equal(s.chat.value, '走中路', 'closing the panel never loses what was typed');
+    // X clears the box in one click
+    await page.click('#emo-stage .ewheel__chat-clear');
+    s = await wheelState(page, '#emo-stage');
+    assert.equal(s.chat.value, '', 'the X button empties the box');
+    assert.equal(s.chat.sendDisabled, true);
+    // Enter sends: the box empties and the line bubbles beside the sender
+    await page.type('#emo-stage .ewheel__chat-input', '谢谢');
+    await page.keyboard.press('Enter');
+    await sleep(60);
+    s = await wheelState(page, '#emo-stage');
+    assert.equal(s.chat.value, '', 'Enter sends and clears the box');
+    assert.equal(await page.$eval('#emo-stage .ebubble--text', (b) => b.textContent.trim()), '谢谢', 'the line bubbles');
+    await page.click('#emo-stage .ewheel__chat-clear');
+    await sleep(50);
     assert.equal(s.dotOn, 0);
     assert.equal(await page.$$eval('.emo-cat img', (els) => els.filter((i) => i.complete && i.naturalWidth > 0).length), 36, 'all 36 pictures load');
     await section.screenshot({ path: path.join(OUT, 'emotes-uikit.png') });
@@ -310,7 +351,7 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     assert.equal(s.items, 6);
     assert.equal(s.imgs, 0);
     assert.equal(s.glyphs, 6, 'unlisted and broken pictures both fall back to the glyph');
-    assert.equal(s.panelText, '');
+    assert.equal(s.gridText, '', 'no text in the emote grid itself (the chat strip below it is not part of the grid)');
     const bubbles = await page.$$eval('.ebubble', (els) => els.map((b) => ({ text: b.textContent.trim(), glyph: !!b.querySelector('.eart--glyph') })));
     assert.ok(bubbles.length >= 7);
     for (const b of bubbles) assert.deepEqual(b, { text: '', glyph: true });
@@ -328,7 +369,7 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     const s = await wheelState(page);
     assert.equal(s.items, 6);
     assert.equal(s.imgs, 6);
-    assert.equal(s.panelText, '');
+    assert.equal(s.gridText, '', 'no text in the emote grid itself (the chat strip below it is not part of the grid)');
     const geo = await page.$$eval('.team__row', (rows) => rows.filter((r) => r.querySelector('.team__bubble')).map((r) => {
       const row = r.getBoundingClientRect();
       const a = r.querySelector('.pavatar, .team__btn').getBoundingClientRect();
@@ -350,6 +391,42 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await sleep(300);
     assert.equal((await wheelState(page)).open, false);
     await page.screenshot({ path: path.join(OUT, 'emotes-mock-sent-1920.png') });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  // The reported defect: the 交流 button and its panel showed no plate at all, just the label. Both the button and the
+  // panel reach their official look through `has-sprite`, and that class also switches OFF the CSS look-alike plate and
+  // the button's border — so when the plate sprite does not paint (a copy missing on the server, a request an in-app
+  // browser refuses) the control degrades to bare text. A sprite that fails to load must drop `has-sprite` instead.
+  test('a plate sprite that fails to load falls back to the CSS plate: a real button, a plated panel', async () => {
+    const { page, problems } = await open('/dev/uikit.html', {
+      block: /\/assets\/local\/ui\/battle\/emoji_/,
+      // the 404s this test asks for, plus the mirror copies a local server does not have (the demo page lists them)
+      ignore: [/\/assets\/local\/ui\/battle\/emoji_/, /\/assets\/ui\//, /Failed to load resource/],
+    });
+    await page.waitForSelector('#emo-stage .ewheel__btn');
+    await sleep(300); // the plate preload resolves on the next frame
+    const btn = await page.$eval('#emo-stage .ewheel__btn', (b) => ({
+      cls: b.className,
+      border: getComputedStyle(b).borderTopWidth,
+      bg: getComputedStyle(b).backgroundColor,
+      glyph: !!b.querySelector('svg'),
+      text: b.textContent.trim(),
+    }));
+    assert.equal(btn.cls.includes('has-sprite'), false, `the failed sprite class is dropped (${btn.cls})`);
+    assert.notEqual(btn.border, '0px', 'the button keeps a bordered plate instead of no plate');
+    assert.equal(btn.glyph, true, 'and shows its glyph');
+    assert.equal(btn.text, '交流', 'with the label, as before');
+    const panel = await page.$eval('#emo-stage .ewheel__panel', (p) => ({
+      cls: p.className,
+      plate: getComputedStyle(p, '::before').content,
+      cells: p.classList.contains('has-cell'),
+    }));
+    assert.equal(panel.cls.includes('has-sprite'), false, `the panel drops the failed sprite too (${panel.cls})`);
+    assert.notEqual(panel.plate, 'none', 'and paints its CSS look-alike plate');
+    assert.equal(panel.cells, false, 'the failed cell sprite is dropped as well');
+    await page.screenshot({ path: path.join(OUT, 'emotes-plate-fallback.png') });
     assert.deepEqual(problems, []);
     await page.close();
   });
