@@ -20,7 +20,7 @@
 // Styles: public/css/emotes.css (injected on first use when the page does not link it).
 
 import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
-import { EMOTE_THEMES, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS, emoteInfo, emoteArtGroup } from '../../../shared/constants.js';
+import { EMOTE_THEMES, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS, CHAT_MAX_LEN, emoteInfo, emoteArtGroup } from '../../../shared/constants.js';
 import { html } from './components.js';
 import { GIcon } from './gameComponents.js';
 import { data, useData, localAsset, artUrls, nextArtUrl } from '../data.js';
@@ -157,6 +157,65 @@ export function cooldownLeft(sentAt, now, cooldownMs = EMOTE_COOLDOWN_MS) {
 export function bubbleAge(at, now, ttl = EMOTE_BUBBLE_MS) {
   const age = Number.isFinite(at) && Number.isFinite(now) ? now - at : 0;
   return age > 0 ? Math.min(age, Math.max(0, ttl)) : 0;
+}
+
+/**
+ * 游戏内文字聊天 draft. Module scope on purpose: closing the panel (or leaving and re-entering the game screen) must
+ * not lose what the player was typing — the panel is a view over this value, not its owner. It is never persisted to
+ * localStorage, so a line never survives a reload into another match.
+ */
+let chatDraft = '';
+
+/** The draft as the input shows it. */
+export const chatDraftValue = () => chatDraft;
+
+/** Replace the draft (the input's onInput). Anything that is not a string is an empty draft; over-long input is cut. */
+export function setChatDraft(v) {
+  chatDraft = typeof v === 'string' ? v.slice(0, CHAT_MAX_LEN) : '';
+  return chatDraft;
+}
+
+/** The X button: one click empties the input. */
+export function clearChatDraft() {
+  chatDraft = '';
+  return chatDraft;
+}
+
+/** A line may be sent when it still has content after trimming and fits the cap (the match re-checks both). */
+export function chatSendable(text) {
+  const t = typeof text === 'string' ? text.trim() : '';
+  return t.length > 0 && t.length <= CHAT_MAX_LEN;
+}
+
+/**
+ * The input's value after a send attempt. Only an accepted line clears it: a line the 1 s chatCD refused (or a send
+ * that never left because the socket was down) stays in the box for another try instead of vanishing.
+ */
+export function chatDraftAfterSend(text, accepted) {
+  return accepted ? '' : (typeof text === 'string' ? text : '');
+}
+
+/** How many lines the 历史对话 view lists (main.js keeps at least this many in `store.chats`). */
+export const CHAT_LOG_MAX = 80;
+
+/**
+ * The 历史对话 lines: the last `max` chat messages, oldest first, each with the sender's display name (`nameOf`; an id
+ * that resolves to nothing keeps the line, without a name). A blank line is dropped — the server refuses one, so that
+ * is only ever the defensive case.
+ * @param {Array<{seq:number, playerId:string, text:string}>|null|undefined} chats
+ * @param {(playerId:string)=>string} [nameOf]
+ * @param {number} [max]
+ */
+export function chatLogLines(chats, nameOf, max = CHAT_LOG_MAX) {
+  if (!Array.isArray(chats)) return [];
+  const cap = Math.max(1, Math.trunc(max) || CHAT_LOG_MAX);
+  const out = [];
+  for (const c of chats.slice(-cap)) {
+    const text = typeof c?.text === 'string' ? c.text.trim() : '';
+    if (!text) continue;
+    out.push({ seq: c.seq, playerId: c.playerId, text, name: nameOf ? nameOf(c.playerId) || '' : '' });
+  }
+  return out;
 }
 
 /** Neutral stand-in for a missing emote picture (a glyph, never text). */
