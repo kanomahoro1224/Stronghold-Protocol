@@ -5,6 +5,7 @@ import { net } from '../net.js';
 import { announcementLive } from '../../../shared/announcements.js';
 import { PHASE } from '../../../shared/constants.js';
 import { t } from '../../../shared/i18n.js';
+import { SponsorQr } from './sponsor.js';
 
 /** Constant pixel speed for long and short notices; the animation travels across the measured viewport. */
 export function announcementScroll(viewport, textWidth) {
@@ -68,10 +69,15 @@ export function AnnouncementButton({ class: cls, variant = 'secondary', size = '
 export function AnnouncementContent({ notice }) {
   if (!notice) return html`<p class="modal__text">${t('暂无公告')}</p>`;
   return html`<div class="announcement-content">
-    <p class="modal__text">${notice.text}</p>
+    <div class="notice__layout">
+      <div class="notice__main">
+        <p class="modal__text">${notice.text}</p>
     ${notice.url ? html`<a class="announcement-content__link" href=${notice.url} target="_blank" rel="noopener noreferrer">
       <${Icon} name="link" />${t('查看详情')}<span class="announcement-content__url">${notice.url}</span>
-    </a>` : null}
+      </a>` : null}
+      </div>
+      <aside class="notice__side"><${SponsorQr} /></aside>
+    </div>
   </div>`;
 }
 

@@ -518,6 +518,8 @@
   "生效中的效果": "Active effects",
   "表情": "Emote",
   "交流": "Chat",
+  "赞助码（支付宝）": "Sponsorship code (Alipay)",
+  "本服务器不要求赞助　扫码纯属自愿": "This server does not ask for sponsorship — scanning the code is entirely voluntary",
   "正在下载：{names}": "Downloading: {names}",
   "（等待重试）": "(waiting to retry)",
   "本局暂无聊天记录": "No chat in this match yet",

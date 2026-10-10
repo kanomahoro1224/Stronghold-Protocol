@@ -1147,3 +1147,25 @@
   --bk-c: var(--red-premium);
 }
 .crash__box h2 { font-size: calc(.3 * var(--t)); }
+
+/* ---- 赞助 (support; js/ui/sponsor.js)：公告面板的两栏布局，文字在左、赞助二维码在右 ---- */
+/* ---- 赞助 (support; js/ui/sponsor.js) -------------------------------------------------------------- */
+/* The 公告 dialog is two columns: the operator's text on the left, the sponsorship QR on the right. The QR is the
+   operator's own screenshot (two panels side by side), scaled to its column and never cropped or distorted; on a
+   narrow screen the dialog stacks again, text first. The column is wide on purpose (operator, 2026-10-07: 「图片大一点，
+   太小了」) — the dialog width in ui/notice.js is sized so the text column does not lose anything to it. */
+.notice__layout { display: flex; align-items: flex-start; gap: .32rem; }
+.notice__side { flex: 0 0 5.6rem; min-width: 0; }
+.sponsor { display: flex; flex-direction: column; gap: .12rem; }
+.sponsor__qr {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: .06rem;
+  background: #fff; /* the QR is drawn on white in the screenshot; keep the edges clean while it loads */
+}
+.sponsor__hint { margin: 0; font-size: .15rem; line-height: 1.7; color: var(--text-md); text-align: center; }
+@media (max-width: 760px) {
+  .notice__layout { flex-direction: column; }
+  .notice__side { flex: none; width: 100%; max-width: 6.6rem; }
+}
