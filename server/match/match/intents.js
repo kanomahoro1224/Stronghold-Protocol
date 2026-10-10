@@ -1,13 +1,14 @@
 import { msg } from '../../../shared/i18n.js';
 import { CONSOLE_ROUND_LIMIT, CONSOLE_TOTAL_LIMIT } from '../../../shared/constants.js';
 // server/match/match/intents.js — Match methods: the g.* / b.* intent router (_handle: the prep intents go to
-// PlayerState, the drafts, watching, the pause and the battle reports to the match), emotes, AI 托管 (setAutoplay,
+// PlayerState, the drafts, watching, the pause and the battle reports to the match), emotes and 局内文字聊天 (chat),
+// AI 托管 (setAutoplay,
 // kickBot) and g.unitStats (the stats the board's units start their next battle with: a preview battle, started, read
 // and dropped).
 // Installed on Match.prototype by server/match/Match.js (a method container: never instantiated; `this` is the match).
 
 import { unitStatsEntry } from '../../../shared/protocol.js';
-import { PHASE, ERR, EMOTES, EMOTE_COOLDOWN_MS, GEO } from '../../../shared/constants.js';
+import { PHASE, ERR, EMOTES, EMOTE_COOLDOWN_MS, CHAT_MAX_LEN, GEO } from '../../../shared/constants.js';
 import { deriveSeed } from '../../sim/rng.js';
 import { OK, fail } from './common.js';
 import { onHumanEmote } from '../botEmotes.js';
@@ -42,6 +43,7 @@ export class MatchIntents {
         : this.pickCard(ps, msg.idx);
       case 'g.ready': return ps.setReady(!!msg.ready);
       case 'g.emote': return this.emote(ps, msg.id);
+      case 'g.chat': return this.chat(ps, msg.text);
       // playerId: the player tapped (a shared field names two) — the watch preference (item 56)
       case 'g.watch': return this.watch(ps, msg.fieldId, msg.playerId ?? null);
       case 'g.autoplay': return this.setAutoplay(ps, !!msg.on);
@@ -64,6 +66,22 @@ export class MatchIntents {
     this.broadcast({ t: 'm.emote', playerId: ps.playerId, id });
     // an AI teammate can react to a human's emote (enabled by default: server/match/botEmotes.js, SP_BOT_EMOTES=0 silences it)
     onHumanEmote(this, ps.playerId, id);
+    return OK;
+  }
+
+  /**
+   * 游戏内文字聊天: relayed exactly like an emote, and it shares the emote's 1 s chatCD (one cooldown for both, so a
+   * line and an emote cannot be alternated to double the traffic). `validateC2S` already bounded the length; the line is
+   * trimmed here and a line that is empty after trimming is refused, so nobody can send a blank bubble. The text is
+   * broadcast verbatim as a plain string — every client renders it as a text node, never as markup.
+   */
+  chat(ps, text) {
+    const line = typeof text === 'string' ? text.trim() : '';
+    if (!line || line.length > CHAT_MAX_LEN) return fail(ERR.BAD_MSG, 'bad chat line');
+    const now = this.sched.now();
+    if (now - ps.lastEmoteAt < EMOTE_COOLDOWN_MS) return fail(ERR.RATE);
+    ps.lastEmoteAt = now;
+    this.broadcast({ t: 'm.chat', playerId: ps.playerId, text: line });
     return OK;
   }
 
