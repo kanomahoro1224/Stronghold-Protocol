@@ -20,11 +20,17 @@ const MAX_URL_LENGTH = 4096;
 /**
  * The GET /healthz body.
  * @param {{ startedAt: number, network: import('../net.js').Network, registry: import('../net.js').SessionRegistry,
- *           lobby: import('../lobby.js').Lobby }} health
+ *           lobby: import('../lobby.js').Lobby, memStats?: (() => object) | null }} health
+ * @param {(() => object) | null} [memStats] RSS / used heap in MB (`server/index.js` `memStats`)
  */
-export function healthReport({ startedAt, network, registry, lobby }, counters = lobby.stats(), build = buildTag()) {
+export function healthReport({ startedAt, network, registry, lobby }, counters = lobby.stats(), build = buildTag(), memStats = null) {
+  // `mem` is the load signal an operator reads first (RSS / used heap in MB, whole numbers, one
+  // `process.memoryUsage()` per poll). Never takes /healthz down: any throw is a null.
+  let mem = null;
+  try { mem = typeof memStats === 'function' ? memStats() : null; } catch { mem = null; }
   return {
     ok: true, version: PROTOCOL_VERSION, app: APP_VERSION, uptimeSec: Math.round((Date.now() - startedAt) / 1000),
+    mem,
     // the runtime the server is serving right now (public/js/ui/buildGuard.js): a page whose own build is
     // older than this reloads itself, so a deploy reaches clients that never reload
     build,
@@ -37,7 +43,7 @@ export function healthReport({ startedAt, network, registry, lobby }, counters =
  * existing rooms refresh within one second. Cheap counts and uptime remain current.
  * The monotonic expiry is independent of wall-clock corrections.
  */
-export function createHealthBody(health, { now = () => performance.now(), maxAgeMs = 1000 } = {}) {
+export function createHealthBody(health, { now = () => performance.now(), maxAgeMs = 1000, memStats = null } = {}) {
   const { network, registry, lobby } = health;
   const build = buildTag();
   let counters = null, expiresAt = -Infinity;
@@ -61,7 +67,7 @@ export function createHealthBody(health, { now = () => performance.now(), maxAge
     const currentSessions = registry.size;
     const currentUptime = Math.round((Date.now() - health.startedAt) / 1000);
     if (!body || changed || currentSockets !== sockets || currentSessions !== sessions || currentUptime !== uptimeSec) {
-      const report = healthReport(health, counters, build);
+      const report = healthReport(health, counters, build, memStats);
       // Use the values already read, including one wall-clock sample for uptime.
       report.sockets = sockets = currentSockets;
       report.sessions = sessions = currentSessions;
@@ -79,8 +85,8 @@ export function createHealthBody(health, { now = () => performance.now(), maxAge
  *           health: Parameters<typeof healthReport>[0], log: object }} deps
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void}
  */
-export function createRequestHandler({ serveStatic, health, serveApi = null, diagnostics = {}, log }) {
-  const healthBody = createHealthBody(health);
+export function createRequestHandler({ serveStatic, health, serveApi = null, diagnostics = {}, log, memStats = null }) {
+  const healthBody = createHealthBody(health, { memStats });
   function serveHealth(req, res) {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.setHeader('Allow', 'GET, HEAD');

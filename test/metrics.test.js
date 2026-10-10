@@ -21,7 +21,11 @@ test('healthz retains metadata and all headline counters; metrics collects the d
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   const health = await response.json();
-  assert.deepEqual(Object.keys(health).sort(), ['ok', 'version', 'app', 'uptimeSec', 'build', ...COUNTERS].sort());
+  // `mem` (RSS / used heap in MB) is the load signal /healthz now carries beside the headline counters
+  // (M4, ported from the fork's health reading).
+  assert.deepEqual(Object.keys(health).sort(), ['ok', 'version', 'app', 'uptimeSec', 'build', 'mem', ...COUNTERS].sort());
+  assert.ok(Number.isInteger(health.mem.rss) && health.mem.rss > 0, 'healthz carries the resident set in MB');
+  assert.ok(Number.isInteger(health.mem.heap) && health.mem.heap > 0, 'healthz carries the used heap in MB');
   assert.equal(health.ok, true);
   assert.equal(health.app, APP_VERSION);
   assert.equal(health.version, PROTOCOL_VERSION);

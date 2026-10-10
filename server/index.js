@@ -172,7 +172,7 @@ export async function startServer(opts = {}) {
   resetBuildTag();
   buildTag(ROOT, { clientBuild });
 
-  const server = http.createServer(createRequestHandler({ serveStatic, health: { startedAt, network, registry, lobby }, serveApi,
+  const server = http.createServer(createRequestHandler({ serveStatic, memStats, health: { startedAt, network, registry, lobby }, serveApi,
     diagnostics: { persister, workerPool, matchWorkerPool, announcements, wsCompression, assetsCdn, dataCdn, serveStatic }, log }));
   server.on('clientError', answerClientError);
   const wss = attachWebSocket(server, { network, log, wsCompression, announcements });
@@ -259,3 +259,15 @@ export async function startServer(opts = {}) {
 
 // `node server/index.js` / npm start: listen, print the banner, stop on SIGINT / SIGTERM (http/boot.js).
 if (isProcessEntry(import.meta.url)) runMain(startServer);
+
+/**
+ * Process memory for `/healthz.mem`, reduced to two small numbers in MB: the resident set (what the box pays
+ * for) and the used heap (what the GC will hand back). One `process.memoryUsage()` call is cheap and /healthz
+ * is polled every 60 s by every open page, so nothing more verbose (no heap spaces, no external/arrayBuffers)
+ * goes over the wire. Ported from the fork's `/healthz` mem reading.
+ */
+export function memStats() {
+  const m = process.memoryUsage();
+  const mb = (bytes) => Math.round((Number(bytes) || 0) / 1048576);
+  return { rss: mb(m.rss), heap: mb(m.heapUsed) };
+}
