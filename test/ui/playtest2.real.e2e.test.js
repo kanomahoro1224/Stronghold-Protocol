@@ -224,7 +224,7 @@ describe('user playtest #2 item 6 — 前往查看 → 返回战场 in combat (r
       await c.click('.diff-card', '标准模拟');
       await c.click('.create-box button', '创建同盟');
       await c.waitFor((s) => !!s.room?.code, 'room created');
-      await c.click('button', '添加 AI 队友');
+      await c.send('room.addBot');
       await sleep(500);
       await c.click('.room-bar__right button', '开始模拟', { timeout: 20000 });
       await c.waitFor((s) => s.phase === 'INFO_CHECK', 'briefing', 30000);

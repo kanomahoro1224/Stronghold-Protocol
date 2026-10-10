@@ -155,7 +155,7 @@ async function coopMatch(P, base, { bots = 1, prefix }) {
   await host.click('.create-box button', '创建同盟');
   const room = (await host.waitFor((s) => !!s.room?.code, 'room created')).room;
   for (let i = 0; i < bots; i++) {
-    await host.click('button', '添加 AI 队友');
+    await host.send('room.addBot');
     await sleep(600);
   }
   await guest.open(`?room=${room.code}`);

@@ -463,7 +463,7 @@ describe('real server + real browsers', { skip: !ENABLED && 'set SP_REAL_E2E=1 (
       await host.click('.diff-card', '险境模拟');
       await host.click('.create-box button', '创建同盟');
       const room = (await host.waitFor((s) => !!s.room?.code, 'room created')).room;
-      await host.click('button', '添加 AI 队友');
+      await host.send('room.addBot');
       await guest.open(`?room=${room.code}`);
       await guest.enter('阿米娅');
       await guest.waitFor((s) => s.room?.code === room.code, 'guest joined via invite link');

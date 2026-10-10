@@ -1,6 +1,12 @@
 // Room screen (同盟等待室): 4 seat cards (avatar frame, name, ready state, AI badge, host crown),
-// host controls (difficulty picker, add/remove AI in co-op, optional teammate matchmaking), invite code with copy
+// host controls (difficulty picker, remove AI in co-op, optional teammate matchmaking), invite code with copy
 // code / copy link, ready toggle and leave.
+//
+// An empty seat has no 添加 AI 队友 button any more (owner request 2026-10-06: 「把bot禁用掉，添加ai队友的按钮也禁掉」
+// → 「直接隐藏添加ai队友按钮就行」, ported from the fork): the host can no longer fill the alliance with AI by hand, so
+// the seat shows 空位 and the room waits for real doctors. `room.addBot` still exists on the server (the pool's own
+// fill-up, 同盟模拟's AI and every protocol test use it) — only this button is gone, so a co-op room can never be
+// AI-completed from the UI, while an AI teammate already seated can still be removed (the host's ✕).
 //
 // Start rule (server/lobby.js): without matchmaking, room.start needs every *other* human connected and ready; the
 // host's start counts as the host's ready. With matchmaking selected, the same 立即开始 action sends match.join
@@ -100,10 +106,9 @@ export function inviteLink(code) {
  */
 export { copyText };
 
-function SeatCard({ seat, index, room, facts, myId, busy, onAddBot, onRemoveBot, onKick }) {
-  const coop = room.mode !== 'solo';
+function SeatCard({ seat, index, room, facts, myId, busy, onRemoveBot, onKick }) {
   if (!seat) {
-    const canAdd = coop && facts.isHost;
+    // An empty seat is nobody's to fill by hand any more: the 添加 AI 队友 button is gone (owner request 2026-10-06).
     return html`<article class="seat seat--empty" style=${`--seat-i:${index}`}>
       <header class="seat__head"><span class="seat__no num">P${index + 1}</span><${MicroLabel}>SEAT ${String(index + 1).padStart(2, '0')}<//></header>
       <div class="seat__art seat__art--empty">
@@ -112,9 +117,7 @@ function SeatCard({ seat, index, room, facts, myId, busy, onAddBot, onRemoveBot,
         <${MicroLabel}>AWAITING DOCTOR<//>
       </div>
       <footer class="seat__foot">
-        ${canAdd
-          ? html`<${Button} variant="secondary" size="sm" icon="robot" block=${true} loading=${busy === `add`} onClick=${onAddBot}>${t('添加 AI 队友')}<//>`
-          : html`<span class="seat__state t-dim">${t('空位')}</span>`}
+        <span class="seat__state t-dim">${t('空位')}</span>
       </footer>
     </article>`;
   }
@@ -286,7 +289,6 @@ export function RoomScreen() {
     ? net.request('match.join', { mode: 'coop', difficulty: room.difficulty, fillBots })
     : net.request('room.start', {}));
   const cancelQueue = () => run('cancel-match', () => net.request('match.leave', {}));
-  const addBot = () => run('add', () => net.request('room.addBot', {}));
   const removeBot = (seat) => run(`rm${seat}`, () => net.request('room.removeBot', { seat }));
   // the host removes a human before the match (community report #17): asked first; the player may join again. The
   // confirmed player's id goes along: if they left and someone else took the seat meanwhile, the server refuses it.
@@ -377,7 +379,7 @@ export function RoomScreen() {
 
     <main class=${`seats${coop ? '' : ' seats--solo'}`}>
       ${facts.seats.map((s, i) => html`<${SeatCard} key=${s ? `p${s.playerId}` : `e${i}`} seat=${s} index=${i} room=${room} facts=${facts}
-        myId=${me.playerId} busy=${busy} onAddBot=${addBot} onRemoveBot=${removeBot} onKick=${kick} />`)}
+        myId=${me.playerId} busy=${busy} onRemoveBot=${removeBot} onKick=${kick} />`)}
       ${coop ? null : html`<aside class="solo-brief brackets">
         <${MicroLabel} tone="mint">BRIEFING<//>
         <h2>${DIFFICULTY_NAMES[room.difficulty] ? t(DIFFICULTY_NAMES[room.difficulty]) : ''}<span class="num t-dim"> ${info.code}</span></h2>

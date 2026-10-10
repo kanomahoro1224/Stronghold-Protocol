@@ -44,7 +44,7 @@ describe('spectator seats (community report #26, real server)', { skip: !ENABLED
       await host.click('.diff-card', '标准模拟');
       await host.click('.create-box button', '创建同盟');
       const room = (await host.waitFor((s) => !!s.room?.code, 'room created')).room;
-      await host.click('.seat--empty button', '添加 AI 队友');
+      await host.send('room.addBot');
 
       // the lobby's 观战 entry
       await spec.open();
