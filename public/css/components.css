@@ -1169,3 +1169,8 @@
   .notice__layout { flex-direction: column; }
   .notice__side { flex: none; width: 100%; max-width: 6.6rem; }
 }
+
+/* fork 的按行正文（js/ui/announcement.js 的 .notice__body/.notice__line；字号取自 fork 的
+   css/screens/title.css:322 的 .notice__line { font-size: .16rem; }） */
+.notice__body { display: flex; flex-direction: column; gap: .1rem; }
+.notice__line { margin: 0; font-size: .16rem; line-height: 1.7; color: var(--text-md); }

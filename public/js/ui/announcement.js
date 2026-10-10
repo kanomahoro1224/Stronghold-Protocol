@@ -68,10 +68,14 @@ export function AnnouncementButton({ class: cls, variant = 'secondary', size = '
 
 export function AnnouncementContent({ notice }) {
   if (!notice) return html`<p class="modal__text">${t('暂无公告')}</p>`;
+  // fork 的呈现：正文按行渲染（一个字符串也按换行拆），空行丢弃。数据仍是 upstream 的 notice.text。
+  const lines = String(notice.text ?? '').split(/\r?\n/).filter((l) => l.trim() !== '');
   return html`<div class="announcement-content">
     <div class="notice__layout">
       <div class="notice__main">
-        <p class="modal__text">${notice.text}</p>
+        <div class="notice__body">
+          ${lines.map((line, i) => html`<p class="notice__line" key=${i}>${line}</p>`)}
+        </div>
     ${notice.url ? html`<a class="announcement-content__link" href=${notice.url} target="_blank" rel="noopener noreferrer">
       <${Icon} name="link" />${t('查看详情')}<span class="announcement-content__url">${notice.url}</span>
       </a>` : null}
