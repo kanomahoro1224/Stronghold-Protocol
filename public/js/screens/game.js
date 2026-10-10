@@ -67,7 +67,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from '../../vendor/hooks.module.js';
 import { PHASE, GEO } from '../../../shared/constants.js';
 import { html, Spinner, PhaseBanner, ResultDialog, Icon, Button, confirmDialog, closeAllDialogs, useTicker } from '../ui/components.js';
-import { useGameData, GIcon } from '../ui/gameComponents.js';
+import { useGameData, GIcon, GAME_FILES } from '../ui/gameComponents.js';
 import { useFieldView } from '../ui/fieldHost.js';
 import { TopBar, liveLp, ownLeaks, uniteRemaining, tempInfo, tempReadyReason } from '../ui/hud.js';
 import { BondStrip, BondPopup } from '../ui/bondStrip.js';
@@ -97,7 +97,7 @@ import { pieceTile } from '../render/drag.js';
 import {
   phaseMode, phaseBanner, isCombatPhase, showDeadPill, isBossPhase, placementContext, canPlace, boardTargets, dropIntent,
   battleOverSfx, uniteResultBox, battleResultBox,
-  snapHud, activeBubbles, shortcutFor, shortcutBlocked, closesOnFieldPress, phaseTotalSeconds, homeFieldId, ownFieldId, normalizeSp, normalizePersonalChoice, sortedPlayers,
+  snapHud, activeBubbles, activeChatBubbles, shortcutFor, shortcutBlocked, closesOnFieldPress, phaseTotalSeconds, homeFieldId, ownFieldId, normalizeSp, normalizePersonalChoice, sortedPlayers,
   terrainInfo, deviceInfo, deviceTipAt, noteDeviceUnits,
   countdownState, shopBlockReason, stageOverrides, effectiveStage, watchTarget, dropFailureReason,
   previewEnemyKey, prepCamera, prepCameraFor, foldCamera, deployFieldOf, fieldTile, panelSide, panelSlots, bondPopupPlace, unitLoadout, deployedRecord,
@@ -122,6 +122,9 @@ import { MatchEnded, PausedOverlay } from './game/overlays.js';
 import { inspectRange } from './game/range.js';
 import { t, tParts } from '../../../shared/i18n.js';
 
+/** After this long on the data-loading screen the player is told which files are still missing (see LoadingScreen). */
+export const SLOW_HINT_MS = 6000;
+
 /** Router for the in-match screens. */
 export function GameScreen() {
   const pub = useStore((s) => s.match.public);
@@ -130,12 +133,7 @@ export function GameScreen() {
   const away = useStore((s) => s.away, Object.is, awayStore);
   const autoplay = useStore((s) => !!(Array.isArray(s.match.public?.players) && s.match.public.players.find((p) => p && p.playerId === s.me.playerId)?.autoplay));
   const gd = useGameData();
-  if (!pub || !gd.ready) {
-    return html`<div class="screen gload">
-      <${Spinner} size="lg" label=${pub ? 'LOADING DATA' : 'ENTERING SIMULATION'} />
-      <p class="t-lo">${pub ? t('正在载入模拟数据…') : t('正在进入模拟…')}</p>
-    </div>`;
-  }
+  if (!pub || !gd.ready) return html`<${LoadingScreen} pub=${pub} />`;
   const mode = phaseMode(pub.phase);
   let body;
   if (hasResult || mode === 'result') body = html`<${ResultScreen} />`;
@@ -145,6 +143,36 @@ export function GameScreen() {
   return html`${body}
     ${(away || autoplay) && !hasResult && mode !== 'result' && !ended ? html`<${AwayOverlay} />` : null}
     ${ended && !hasResult && mode !== 'result' ? html`<${MatchEnded} />` : null}`;
+}
+
+/**
+ * The match screen opens only once every data file of the match UI (GAME_FILES) is settled: no text may appear late.
+ * A *stalled* download (a dropped tunnel, a half-open connection) would otherwise hold the player here forever with
+ * nothing to act on — and in 同盟匹配 (DESIGN §27) the match has already started, so the player cannot tell whether
+ * the game is broken or just slow. After SLOW_HINT_MS the files that are still missing are named, with 重试 (refetch
+ * them; data.js times a stalled step out and retries) and 刷新页面 as the way out.
+ */
+function LoadingScreen({ pub }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!pub) return undefined;
+    const timer = setTimeout(() => setSlow(true), SLOW_HINT_MS);
+    return () => clearTimeout(timer);
+  }, [pub]);
+  // Re-rendered on every data update (GameScreen's useGameData), so this list is live.
+  const pending = GAME_FILES.filter((n) => data.status(n) === 'loading');
+  const retry = () => { for (const n of pending) data.invalidate(n); };
+  return html`<div class="screen gload">
+    <${Spinner} size="lg" label=${pub ? 'LOADING DATA' : 'ENTERING SIMULATION'} />
+    <p class="t-lo">${pub ? t('正在载入模拟数据…') : t('正在进入模拟…')}</p>
+    ${slow && pub
+      ? html`<div class="gload__slow">
+          <p class="t-dim">${t('正在下载：{names}', { names: pending.length ? pending.join('、') : t('（等待重试）') })}</p>
+          <${Button} variant="ghost" size="sm" icon="refresh" onClick=${retry}>${t('重试')}<//>
+          <${Button} variant="ghost" size="sm" icon="chevronLeft" onClick=${() => location.reload()}>${t('刷新页面')}<//>
+        </div>`
+      : null}
+  </div>`;
 }
 
 // ---- match screen ----------------------------------------------------------------------------------------
@@ -160,6 +188,7 @@ function MatchScreen() {
   const myId = useStore((s) => s.me.playerId);
   const conn = useStore((s) => s.connection, shallowEqual);
   const emotes = useStore((s) => s.emotes);
+  const chats = useStore((s) => s.chats);
   const roomSolo = useStore((s) => s.room?.mode === 'solo');
   const spectator = useStore((s) => isSpectating(s.room, s.me.playerId));
   const roomConsole = useStore((s) => !!s.room?.consoleEnabled);
@@ -736,9 +765,14 @@ function MatchScreen() {
     prevActive.current = activeBonds;
   }, [activeBonds]);
 
-  // emote bubbles (and a sound for teammates' emotes)
+  // emote + 游戏内文字聊天 bubbles (and a sound for teammates' emotes). One bubble slot per player: the newer of the
+  // two wins it (`seq` is one counter for both), so a line and an emote can never overlap beside the same avatar.
   const bubbleMs = (gd.config?.timers?.chatBubble ?? 3) * 1000;
   const bubbles = activeBubbles(emotes, Date.now(), bubbleMs);
+  for (const [pid, c] of activeChatBubbles(chats, Date.now(), bubbleMs)) {
+    const e = bubbles.get(pid);
+    if (!e || e.seq < c.seq) bubbles.set(pid, { seq: c.seq, at: c.at, chat: true, text: c.text });
+  }
   useTicker(bubbles.size ? 500 : 0); // re-render only while a bubble is showing (to expire it)
   const lastEmote = useRef(emotes.length ? emotes[emotes.length - 1].seq : 0);
   useEffect(() => {
@@ -1307,6 +1341,7 @@ function MatchScreen() {
   // the observing pill names the player whose bonds the strip shows (the same teammate as the strip's "👁 name" tag)
   const observingName = cc && combat && watchedFid ? (!strip.self && stripFid === watchedFid ? strip.name : (players.find((p) => p.fieldId === watchedFid || ownFieldId(p.playerId) === watchedFid)?.name || t('队友'))) : null;
   const watchedP = watchingOther ? (players.find((p) => p.playerId !== myId && (watching === ownFieldId(p.playerId) || (watching === p.fieldId && String(watching).startsWith('n:')))) || null) : null;
+  const nameOfPlayer = (pid) => players.find((p) => p.playerId === pid)?.name || '';
   const watchedName = watchingOther ? (watchedP?.name || players.find((p) => watching === p.fieldId)?.name || t('队友')) : null;
   const stripBonds = strip.bonds;
   // a popup opened from the strip closes when the strip changes hands (another teammate scouted / a ‹ › half / back to
@@ -1468,6 +1503,7 @@ function MatchScreen() {
 
       <div class="gm__corner">
         ${metricsOpen && !spectator ? html`<${CombatMetricsPanel} myId=${myId} onClose=${() => setMetricsOpen(false)} />` : null}
+        ${spectator ? null : html`<${EmoteWheel} open=${emoteOpen} onToggle=${setEmoteOpen} onSend=${(id) => actions.emote(id)} onChat=${(text) => actions.chat(text)} chats=${chats} nameOf=${nameOfPlayer} disabled=${conn.status !== 'online'} />`}
         ${spectator ? null : html`<${EmoteWheel} open=${emoteOpen} onToggle=${setEmoteOpen} onSend=${(id) => actions.emote(id)} disabled=${conn.status !== 'online'} />`}
         ${spectator ? null : html`<button type="button" class="gm__gear gm__metrics" aria-label=${t('作战统计')} title=${t('作战统计')} aria-expanded=${metricsOpen}
           aria-controls="combat-metrics-panel" onKeyDown=${(e) => { if (e.key === ' ') e.stopPropagation(); }} onClick=${() => {
