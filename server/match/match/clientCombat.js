@@ -207,6 +207,8 @@ export class MatchClientCombat {
       f.resultSource = 'server';
       f.timeline = run.timeline;
       f.endGt = Number(run.battle.time) || 0;
+      // P2: the finished battle graph is released now, not at the phase end (see _releaseFieldBattle)
+      this._releaseFieldBattle(f, run);
       this._armRelease(f);
     };
     if (!Number.isFinite(this.headlessSliceMs)) {
@@ -241,6 +243,23 @@ export class MatchClientCombat {
       this._progressTimer = this.later(1000, tick);
     };
     this._progressTimer = this.later(1000, tick);
+  }
+
+  /**
+   * Release a server-run field's finished battle graph (M3, ported from the fork's P2). Called from
+   * `complete()` the moment the field's `HeadlessJob` is done: the job was the only thing stepping it, and
+   * everything the match still reads travels beside it — `f.result` (settlement / LP / lastResults),
+   * `f.timeline` (the teammates' progress UI on the field clock), `f.endGt` (what `_armRelease` waits for)
+   * and `f.battleErrors` (the engine-error records `_collectSimErrors` folds into `m.simErrorLog`).
+   * Keeping the whole graph until the phase end — `f.result` is released at the battle's natural end on the
+   * field clock, up to a whole battle's length later — costs one bot seat ~100 KB at R1 and ~200-400 KB at
+   * R7/R13 per match. A field run in a worker already leaves `f.battle` null for its whole life, so every
+   * reader tolerates this. Overridable (a test keeps the graph to compare the two paths); it changes no
+   * recorded value.
+   */
+  _releaseFieldBattle(f, run) {
+    f.battleErrors = Array.isArray(run.battle && run.battle.errors) ? run.battle.errors : null;
+    f.battle = null;
   }
 
   /** A field has its final result. */

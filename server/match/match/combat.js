@@ -115,7 +115,11 @@ export class MatchCombat {
   /** Aggregate a finished field's content/engine errors (battle.errors: unique records) for diagnostics. */
   _collectSimErrors(f, res) {
     this.simErrors += Number(res && res.errors) || 0;
-    const list = f && Array.isArray(f.workerErrors) ? f.workerErrors : f && f.battle && Array.isArray(f.battle.errors) ? f.battle.errors : [];
+    // A released field (M3, `_releaseFieldBattle`): the battle graph is gone, its error records were kept
+    // on the field. A field run in a worker carries them as `f.workerErrors` (same records, same order).
+    const list = f && Array.isArray(f.workerErrors) ? f.workerErrors
+      : f && Array.isArray(f.battleErrors) ? f.battleErrors
+        : f && f.battle && Array.isArray(f.battle.errors) ? f.battle.errors : [];
     for (const e of list) {
       if (!e || typeof e !== 'object') continue;
       const key = `${e.label}|${e.who || ''}|${e.message}`;

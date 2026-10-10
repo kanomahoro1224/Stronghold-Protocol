@@ -31,6 +31,10 @@ test('① 机器人战场 (mode server, 无上报): 胶囊读该战斗自己的�
   // no FakeBattle: the bot's field runs the real sim on the server (HeadlessJob + timeline), and nobody reports b.progress
   const h = makeMatch({ mode: 'coop', difficulty: 'NORMAL', humans: 1, bots: 1, seed: 7, instant: false, clientCombat: true, clients: false }).start();
   const m = h.m;
+  // This test compares the capsule's numbers against the battle itself, so it keeps the graph: the release
+  // (M3, `_releaseFieldBattle`) is covered by test/match/field-battle-release.test.js. Same override idiom the
+  // fork's own release test uses for its retained-vs-released comparison.
+  m._releaseFieldBattle = () => {};
   h.toPrep(1);
   m.handle('p_0', { t: 'g.ready', ready: true });
   h.run(() => m.phase === PHASE.COMBAT);
