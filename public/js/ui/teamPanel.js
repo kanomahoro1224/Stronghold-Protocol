@@ -22,7 +22,7 @@ import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
 import { PHASE } from '../../../shared/constants.js';
 import { html, Icon, Tooltip } from './components.js';
 import { PlayerAvatar, LpTower, GIcon, LocalSprite } from './gameComponents.js';
-import { EmoteBubble, ChatBubble } from './emotes.js';
+import { EmoteBubble } from './emotes.js';
 import { STATUS_META, sortedPlayers, teamFrameIds } from './gameLogic.js';
 import { MissTag, uniteRemaining } from './hud.js';
 import { localAsset } from '../data.js';
@@ -110,7 +110,7 @@ export function rowLpTip(lp, cap = 10) {
 }
 
 /**
- * @param {{ pub:any, myId:string, watching:string|null, bubbles: Map<string,{id:string,seq:number}>, onWatch:(p:any)=>void,
+ * @param {{ pub:any, myId:string, watching:string|null, bubbles: Map<string,{id?:string,text?:string,seq:number,at?:number}>, onWatch:(p:any)=>void,
  *   compact?: boolean, teamLp?: number|null, self?: { lp?: number|null, pending: number, unite: boolean, left?: number|null } | null,
  *   cap?: number, uniteLocal?: Record<string, number> | null,
  *   observe?: null | { canObserve: (p:any) => { fieldId?: string, reason?: string|null, back?: boolean }, observing: boolean, onBack: () => void } }} props
@@ -196,10 +196,7 @@ export function TeamPanel({ pub, myId, watching, bubbles, onWatch, compact = fal
           ${back ? html`<button type="button" class="btn btn--secondary btn--sm team__back"
             onClick=${() => observe.onBack()}><span class="btn__label">${t('返回战场')}</span></button>` : null}
         </div>
-        ${bubble ? (bubble.chat
-          // 游戏内文字聊天 and an emote share the one slot beside the avatar: game.js hands over whichever is newer
-          ? html`<${ChatBubble} key=${bubble.seq} text=${bubble.text} at=${bubble.at} class="team__bubble team__bubble--text" />`
-          : html`<${EmoteBubble} key=${bubble.seq} id=${bubble.id} class="team__bubble" />`) : null}
+        ${bubble ? html`<${EmoteBubble} key=${bubble.seq} id=${bubble.id} text=${bubble.text} at=${bubble.at} class="team__bubble" />` : null}
       </div>`;
     })}
   </aside>`;

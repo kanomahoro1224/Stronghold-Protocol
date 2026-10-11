@@ -5,7 +5,7 @@ import { N_ } from './i18n.js';
 export const PROTOCOL_VERSION = 1;
 /** Release version shown to players (title screen, server banner, /healthz). Kept equal to package.json "version"
  * (test/version.test.js); PROTOCOL_VERSION above is the separate wire-format number. */
-export const APP_VERSION = '0.2.3';
+export const APP_VERSION = '0.2.4';
 /** A development build (the public `dev` branch): the title screen, the boot banner and the README say so, and
  * tools/package.mjs refuses to build a release zip from it without --allow-dev. */
 export const DEV_BUILD = /-dev$/.test(APP_VERSION);
@@ -132,6 +132,7 @@ export const ERR = Object.freeze({
   BAD_MSG: 'BAD_MSG',             // malformed / unknown message
   SESSION_IN_USE: 'SESSION_IN_USE', // a local recovery candidate cannot replace the connected holder
   NAME_REJECTED: 'NAME_REJECTED',
+  CHAT_REJECTED: 'CHAT_REJECTED',
   RATE: 'RATE',                   // rate limited
   NOT_IN_ROOM: 'NOT_IN_ROOM',
   ROOM_NOT_FOUND: 'ROOM_NOT_FOUND',
@@ -160,6 +161,7 @@ export const ERR = Object.freeze({
 export const ERR_TEXT = {
   SESSION_IN_USE: N_('此对局仍在其他窗口中，或当前浏览器无法安全恢复。请关闭原窗口后重试。'),
   NAME_REJECTED: N_('该名称不可用'),
+  CHAT_REJECTED: N_('该内容不可用'),
   BAD_MSG: N_('无效的请求'), RATE: N_('操作过于频繁'), NOT_IN_ROOM: N_('你不在房间中'), ROOM_NOT_FOUND: N_('未找到该同盟密钥对应的房间'),
   ROOM_FULL: N_('房间已满'), ROOM_STARTED: N_('模拟已开始'), NOT_HOST: N_('只有房主可以操作'), NOT_READY: N_('仍有玩家未就绪'),
   WRONG_PHASE: N_('当前阶段无法进行该操作'), NO_FUNDS: N_('资金不足'), HAND_FULL: N_('整备区已满'), BOARD_FULL: N_('已达到部署上限'),
@@ -250,5 +252,3 @@ export const emoteArtGroup = (id) => { const e = emoteInfo(id); return e ? `emot
 export const emoteArtPath = (id) => { const e = emoteInfo(id); return e ? `/assets/local/emoticon/${e.dir}/${e.picId}.png` : null; };
 export const EMOTE_COOLDOWN_MS = 1000; // activity_table autoChessData.constData.chatCD (s)
 export const EMOTE_BUBBLE_MS = 3000;   // constData.chatTime (s): how long a bubble stays up
-/** 游戏内文字聊天（表情面板下方的输入框）单条上限，按字符计；服务端与客户端共用同一个值。 */
-export const CHAT_MAX_LEN = 40;

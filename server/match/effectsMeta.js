@@ -354,7 +354,8 @@ export class EffectDispatcher {
         const repeat = hook === 'onGain' ? this.investRepeat(ps) : 1;
         const loc = ps.find(self.uid);
         const where = loc ? (loc.area === 'board' ? 'board' : loc.area) : 'trigger';
-        this._call(ps, key, h, hook, { kind: 'garrison', key, piece: self, garrisonId: gid, garrison: g, bb: g.bb || {}, bbStr: g.bbStr || {}, where, trigger: true, triggeredBy }, ev, repeat);
+        this._call(ps, key, h, hook, { kind: 'garrison', key, piece: self, copiedFrom: asPiece ? piece : null,
+          garrisonId: gid, garrison: g, bb: g.bb || {}, bbStr: g.bbStr || {}, where, trigger: true, triggeredBy }, ev, repeat);
         n++;
       }
     } finally {
@@ -568,6 +569,8 @@ export function makeCtx(m, ps, source, hook, ev = null) {
         source: opts.source || source.key || 'effect',
         toTemp: !!opts.toTemp,
         deferMerge: ps._deferItemMerge > 0,
+        // Includes copied/triggered traits and prep-end gifts. Other effects retain ordinary shared stock.
+        fromPool: source.kind !== 'garrison',
       });
       return p ? view(p) : null;
     },
@@ -582,9 +585,9 @@ export function makeCtx(m, ps, source, hook, ev = null) {
         return typeof opts.filter === 'function' ? !!opts.filter(id) : true;
       };
       const extra = typeof ps.diyStockEntries === 'function' ? ps.diyStockEntries() : null;
-      return m.pool.roll(m.rngMeta, { maxTier: Number.isInteger(opts.maxTier) ? opts.maxTier : 6, tier: Number.isInteger(opts.tier) ? opts.tier : null, filter: f, extra });
+      return m.pool.roll(m.rngMeta, { maxTier: Number.isInteger(opts.maxTier) ? opts.maxTier : 6, tier: Number.isInteger(opts.tier) ? opts.tier : null, filter: f, extra, ignoreCounts: opts.ignoreCounts === true });
     },
-    rollItem: (opts = {}) => m.rollItemId(opts),
+    rollItem: (opts = {}) => m.rollItemId({ ...opts, ignoreStock: source.kind === 'garrison' }),
     /**
      * Roll a choices.json pool: equip pools → { kind: 'item', id }; chess pools (items / weighted / shopEligible with
      * tier, minTier, bond, golden) → { kind: 'chess', id, golden } (a pool chess needs a free copy). null when empty.
@@ -594,6 +597,7 @@ export function makeCtx(m, ps, source, hook, ev = null) {
       // a shared-pool draw also takes the player's 自选 stock, its bonds read through the player's view (rollChess)
       extra: typeof ps.diyStockEntries === 'function' ? ps.diyStockEntries() : null, chessOf: (id) => gd.chess(id),
       ...opts,
+      ignoreItemStock: source.kind === 'garrison',
     }),
     /**
      * Run another owned chess's 特质 of `eventType` now (SERVER_GAIN / SERVER_PREP_START / SERVER_PREP_FIN /

@@ -112,6 +112,7 @@ import { restoreMatch as applyMatchCheckpoint } from './match/snapshot.js';
 import { createRngFromState } from './sim/rng.js';
 import { KITTED_CHARS } from './sim/content/kits/index.js';
 import { t } from '../shared/i18n.js';
+import { validChatText } from '../shared/chat.js';
 
 /** Room code alphabet: uppercase letters without I and O (and no digits, so no 0/1). */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -266,15 +267,19 @@ export class Lobby {
    *   options?: Partial<typeof LOBBY_DEFAULTS>,
    *   workerPool?: object | null,
    *   matchWorkerPool?: object | null,
+   *   nameModeration?: { checkChat?: Function } | null,
    * }} opts
    */
-  constructor({ registry, log = noopLog, MatchClass = DefaultMatch, getData = defaultGetData, now = Date.now, seedFn, options = {}, workerPool = null, matchWorkerPool = null }) {
+  constructor({ registry, log = noopLog, MatchClass = DefaultMatch, getData = defaultGetData, now = Date.now, seedFn, options = {}, workerPool = null, matchWorkerPool = null, nameModeration = null }) {
     this.registry = registry;
     this.log = log;
     this.MatchClass = MatchClass;
     this.getData = getData;
     this.workerPool = workerPool;
     this.matchWorkerPool = matchWorkerPool;
+    this.nameModeration = nameModeration;
+    this.chatReviews = new WeakMap();
+    this.shuttingDown = false;
     this.now = now;
     this.seedFn = seedFn || (() => randomInt(2 ** 32));
     this.opts = { ...LOBBY_DEFAULTS, ...options };
@@ -493,6 +498,7 @@ export class Lobby {
    * @param {string} [reason]
    */
   shutdown(reason = 'shutdown') {
+    this.shuttingDown = true;
     this.stopMatchmaking();
     for (const entry of [...new Set(this.queueByPlayer.values())]) this.cancelMatchQueue(entry, reason);
     for (const room of [...this.rooms.values()]) this.disposeRoom(room, reason);
@@ -676,7 +682,7 @@ export class Lobby {
         consoleEnabled: false, aiPicksLast: !!checkpoint.aiPicksLast, seed: Number(checkpoint.seed) >>> 0, matchNo: room ? Math.max(1, room.matchCount) : 1,
         data: this.safeData(), workerPool: this.workerPoolFor(room?.code || roomCode), log: this.log, now: this.now,
         send: (playerId, msg, encoded) => (ctx.live ? this.queueMatchSend(ctx, playerId, msg, encoded) : false),
-        broadcast: (msg) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
         onEnd: (summary) => this.onQueuedMatchEnd(ctx, summary),
       });
       ctx.match = match;
@@ -729,7 +735,7 @@ export class Lobby {
       }, {
         created: (match) => this.attachQueuedWorker(ctx, room, match),
         send: (playerId, msg, encoded) => { if (ctx.live) return this.queueMatchSend(ctx, playerId, msg, encoded); return false; },
-        broadcast: (msg) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
         end: (summary) => this.onQueuedMatchEnd(ctx, summary),
       }, checkpoint, departedPlayerIds);
       if (ctx.disposed || room?.disposed || (room && room.matchCtx !== ctx)) {
@@ -1424,7 +1430,7 @@ export class Lobby {
           room.matchKey = key;
         },
         send: (playerId, msg, encoded) => { if (ctx.live) return this.matchSend(room, ctx, playerId, msg, encoded); return false; },
-        broadcast: (msg) => { if (ctx.live) this.matchBroadcast(room, ctx, msg); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.matchBroadcast(room, ctx, msg, encoded); },
         end: (summary) => this.onMatchEnd(room, ctx, summary),
       }, checkpoint, departedPlayerIds);
       if (ctx.disposed || room.disposed || room.matchCtx !== ctx) {
@@ -1495,7 +1501,7 @@ export class Lobby {
         log: this.log,
         now: this.now,
         send: (playerId, msg, encoded) => (ctx.live ? this.matchSend(room, ctx, playerId, msg, encoded) : false),
-        broadcast: (msg) => { if (ctx.live) this.matchBroadcast(room, ctx, msg); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.matchBroadcast(room, ctx, msg, encoded); },
         onEnd: (summary) => this.onMatchEnd(room, ctx, summary),
       });
       ctx.match = match;
@@ -1582,7 +1588,7 @@ export class Lobby {
           if (room) room.matchKey = this.registry.byId(room.hostId)?.limitKey || null;
         },
         send: (playerId, msg, encoded) => { if (ctx.live) return this.queueMatchSend(ctx, playerId, msg, encoded); return false; },
-        broadcast: (msg) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
         end: (summary) => this.onQueuedMatchEnd(ctx, summary),
       });
       if (ctx.disposed || ctx.ended || room?.disposed || (room && room.matchCtx !== ctx)
@@ -1641,7 +1647,7 @@ export class Lobby {
         matchNo: room ? room.matchCount + 1 : 1,
         data: this.safeData(), workerPool: this.workerPoolFor(matchCode), log: this.log, now: this.now,
         send: (playerId, msg, encoded) => (ctx.live ? this.queueMatchSend(ctx, playerId, msg, encoded) : false),
-        broadcast: (msg) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
         onEnd: (summary) => this.onQueuedMatchEnd(ctx, summary),
       });
       ctx.match = match;
@@ -1686,13 +1692,13 @@ export class Lobby {
     if (!p || p.isBot || p.left) return false;
     const session = this.registry.byId(playerId);
     if (!session || !session.connected || session.activeMatchCtx !== ctx) return false;
-    if (msg?.t === 'm.result') ctx.results.set(playerId, encode(msg));
+    if (msg?.t === 'm.result') ctx.results.set(playerId, encoded ?? encode(msg));
     return sendSession(session, msg, encoded);
   }
 
-  queueMatchBroadcast(ctx, msg) {
+  queueMatchBroadcast(ctx, msg, encoded = null) {
     if (!ctx || ctx.disposed) return null;
-    const data = encode(msg);
+    const data = encoded ?? encode(msg);
     if (data == null) return null;
     if (msg?.t === 'm.public') ctx.lastPublic = data;
     else if (msg?.t === 'm.result') ctx.sharedResult = data;
@@ -1752,15 +1758,15 @@ export class Lobby {
   /** Match unicast; m.result frames are also kept for the replay. */
   matchSend(room, ctx, playerId, msg, encoded = null) {
     if (msg && msg.t === 'm.result') {
-      const data = encode(msg);
+      const data = encoded ?? encode(msg);
       if (data != null) ctx.results.set(playerId, data);
     }
     return this.sendToPlayer(room, playerId, msg, encoded);
   }
 
   /** Match broadcast; the latest m.public and a broadcast m.result are also kept for the replay. */
-  matchBroadcast(room, ctx, msg) {
-    const data = this.broadcastRoom(room, msg);
+  matchBroadcast(room, ctx, msg, encoded = null) {
+    const data = this.broadcastRoom(room, msg, encoded);
     if (data == null) return;
     if (msg.t === 'm.public') ctx.lastPublic = data;
     else if (msg.t === 'm.result') ctx.sharedResult = data;
@@ -1865,6 +1871,37 @@ export class Lobby {
 
   /** Route a 'g.*' intent to the running match. */
   routeGame(session, msg) {
+    if (msg.t === 'g.chat' && this.nameModeration?.checkChat) {
+      if (!validChatText(msg.text)) return fail(ERR.BAD_MSG);
+      const active = this.activeMatchOf(session);
+      const room = this.roomOf(session);
+      const match = active?.match || room?.match;
+      if (!match || (room && room.spectatorOf(session.playerId))) return this.routeGameUnchecked(session, msg);
+      if (this.chatReviews.has(session)) return fail(ERR.RATE);
+      const socket = session.ws;
+      const text = msg.text.trim();
+      // Bind the reviewed bytes to this session, socket and Match generation. A late verdict
+      // must never follow a player into a new game, a replacement tab or a reconnect.
+      const review = Promise.resolve().then(() => this.nameModeration.checkChat(text, session.limitKey || '?'))
+        .catch(() => ({ allowed: true }));
+      this.chatReviews.set(session, review);
+      return review.then((result) => {
+        const current = this.activeMatchOf(session);
+        if (this.shuttingDown || !session.connected || this.registry.byId(session.playerId) !== session
+          || session.ws !== socket || current?.match !== match || current.disposed || current.ended
+          || match.disposed || match.ended) return fail(ERR.WRONG_PHASE);
+        if (result?.allowed !== true && [ERR.NAME_REJECTED, ERR.BAD_MSG].includes(result?.code)) {
+          // Never log message content/identity, attempts, approvals, format errors or fail-open results.
+          if (result.code === ERR.NAME_REJECTED) this.log.info?.('[chat] moderation rejected in-match message');
+          return fail(result.code === ERR.BAD_MSG ? ERR.BAD_MSG : ERR.CHAT_REJECTED);
+        }
+        return this.routeGameUnchecked(session, { ...msg, text });
+      }).finally(() => { if (this.chatReviews.get(session) === review) this.chatReviews.delete(session); });
+    }
+    return this.routeGameUnchecked(session, msg);
+  }
+
+  routeGameUnchecked(session, msg) {
     const active = this.activeMatchOf(session);
     const room = this.roomOf(session);
     const match = active?.match || room?.match;
@@ -2157,9 +2194,9 @@ export class Lobby {
   }
 
   /** Match broadcast: encode once, send to every connected member. @returns {string | null} the encoded frame */
-  broadcastRoom(room, msg) {
+  broadcastRoom(room, msg, encoded = null) {
     if (room.disposed) return null;
-    const data = encode(msg);
+    const data = encoded ?? encode(msg);
     if (data == null) { this.log.error(`[lobby] ${room.code} unserializable broadcast ${msg && msg.t}`); return null; }
     for (const session of this.memberSessions(room)) sendSession(session, msg, data);
     return data;

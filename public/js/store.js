@@ -84,8 +84,7 @@ export const initialState = Object.freeze({
   match: emptyMatch(),
   ticker: [],
   emotes: [],
-  // 游戏内文字聊天: the same shape as `emotes` ({ seq, playerId, text, at }), newest last
-  chats: [],
+  chatHistory: [],
   announcement: null,
   popupAnnouncement: null,
   clock: { offset: 0, rtt: null, synced: false },

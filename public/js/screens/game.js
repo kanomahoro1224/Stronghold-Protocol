@@ -97,8 +97,8 @@ import { pieceTile } from '../render/drag.js';
 import {
   phaseMode, phaseBanner, isCombatPhase, showDeadPill, isBossPhase, placementContext, canPlace, boardTargets, dropIntent,
   battleOverSfx, uniteResultBox, battleResultBox,
-  snapHud, activeBubbles, activeChatBubbles, shortcutFor, shortcutBlocked, closesOnFieldPress, phaseTotalSeconds, homeFieldId, ownFieldId, normalizeSp, normalizePersonalChoice, sortedPlayers,
-  terrainInfo, deviceInfo, deviceTipAt, noteDeviceUnits,
+  snapHud, activeBubbles, shortcutFor, shortcutBlocked, closesOnFieldPress, phaseTotalSeconds, homeFieldId, ownFieldId, normalizeSp, normalizePersonalChoice, sortedPlayers,
+  terrainInfo, deviceInfo, deviceTipAt, noteDeviceUnits, deviceUnitsForEntry,
   countdownState, shopBlockReason, stageOverrides, effectiveStage, watchTarget, dropFailureReason,
   previewEnemyKey, prepCamera, prepCameraFor, foldCamera, deployFieldOf, fieldTile, panelSide, panelSlots, bondPopupPlace, unitLoadout, deployedRecord,
   mergeTarget, modeOffBonds, readyFundsPrompt, readyShopFold, ownerBandId, ownDiyRecord, ownStandIn,
@@ -188,7 +188,7 @@ function MatchScreen() {
   const myId = useStore((s) => s.me.playerId);
   const conn = useStore((s) => s.connection, shallowEqual);
   const emotes = useStore((s) => s.emotes);
-  const chats = useStore((s) => s.chats);
+  const chatHistory = useStore((s) => s.chatHistory);
   const roomSolo = useStore((s) => s.room?.mode === 'solo');
   const spectator = useStore((s) => isSpectating(s.room, s.me.playerId));
   const roomConsole = useStore((s) => !!s.room?.consoleEnabled);
@@ -441,8 +441,22 @@ function MatchScreen() {
   live.current.deviceBattle = !!shownField && !shownField.prep;
   const staleFieldRef = useRef(null);
   const enteredFieldRef = useRef(null);
+  const enteredViewRef = useRef(null);
   const pressSel = useRef(null);                         // the selected piece when the current field press began
   useEffect(() => {
+    // Read before a view change clears the refs. A later refresh of this same field (g.watch / reshow replaces the
+    // field object) must still know which battle the device units already noted belong to.
+    const previousFieldId = lastFieldRef.current;
+    const previousDevices = deviceUnitsRef.current;
+    if (enteredViewRef.current !== view) {
+      // A replacement engine has no field, even when the match's m.field object did not change. While it loads,
+      // buffer frames instead of sending them to a null/destroyed view; its subscription below asks for fresh meta.
+      enteredViewRef.current = view;
+      enteredFieldRef.current = null;
+      lastFieldRef.current = null;
+      viewModeRef.current = null;
+      reentryRef.current = null;
+    }
     if (!view) return;
     if (showPrep) {
       if (field?.prep) staleFieldRef.current = field; // a prep scouting board is never a battle to enter
@@ -475,10 +489,18 @@ function MatchScreen() {
     reentryRef.current = null;
     viewModeRef.current = 'battle';
     snapUnitsRef.current = new Map();
-    view.enterBattle(field);
     const early = evBufRef.current.get(field.fieldId);
     evBufRef.current.delete(field.fieldId);
-    deviceUnitsRef.current = noteDeviceUnits(new Map(), { units: field.units, events: early });
+    // Crates and turrets are absent from a start-of-battle meta and arrive once, as spawn events. Re-entering the
+    // same field from a refresh that repeats that meta (the subscription below asks for one) must not drop them.
+    const noted = noteDeviceUnits(new Map(), { units: field.units, events: early });
+    deviceUnitsRef.current = deviceUnitsForEntry(previousDevices, noted, previousFieldId != null && previousFieldId === field.fieldId);
+    // The renderer clears its unit metadata on entry too. Restore known devices there as well as in the card lookup;
+    // otherwise their next HP tuple becomes an unknown enemy whose pieceClick consumes the device's tileClick.
+    const units = Array.isArray(field.units) ? [...field.units] : [];
+    const ids = new Set(units.map((u) => u?.id));
+    for (const [id, info] of deviceUnitsRef.current) if (!ids.has(id)) units.push(info);
+    view.enterBattle({ ...field, units });
     const earlySnap = snapBufRef.current.get(field.fieldId);
     snapBufRef.current.delete(field.fieldId);
     // a scouted prep board frames like the own prep with the shop folded (the bench row included, app.js camRect);
@@ -598,6 +620,15 @@ function MatchScreen() {
     };
     const offs = [net.on('m.field', onFieldMeta), net.on('b.snap', onSnap), net.on('b.ev', onEv)];
     if (battleRunner) offs.push(battleRunner.on('field', onFieldMeta), battleRunner.on('snap', onSnap), battleRunner.on('ev', onEv), battleRunner.on('result', onResult));
+    // Metadata must include enemies/tokens spawned before this renderer existed, not only events buffered during
+    // loading. Subscribe first so the reshow's metadata and snapshot take the ordinary buffered re-entry path.
+    if (view && !showPrep && field?.fieldId) {
+      if (field.local) battleRunner?.reshow();
+      else if (combat || watchingOther) {
+        const who = watchWho?.fieldId === field.fieldId ? watchWho.playerId : null;
+        net.request('g.watch', { fieldId: field.fieldId, ...(who ? { playerId: who } : {}) }).catch(() => {});
+      }
+    }
     return () => { for (const off of offs) { try { off(); } catch { /* ignore */ } } clearTimeout(pending); };
   }, [view]);
 
@@ -765,14 +796,10 @@ function MatchScreen() {
     prevActive.current = activeBonds;
   }, [activeBonds]);
 
-  // emote + 游戏内文字聊天 bubbles (and a sound for teammates' emotes). One bubble slot per player: the newer of the
-  // two wins it (`seq` is one counter for both), so a line and an emote can never overlap beside the same avatar.
+  // emote bubbles — chat lines included: main.js mirrors m.chat into `emotes` (one `seq` counter for both), so a line
+  // and an emote can never overlap beside the same avatar.
   const bubbleMs = (gd.config?.timers?.chatBubble ?? 3) * 1000;
   const bubbles = activeBubbles(emotes, Date.now(), bubbleMs);
-  for (const [pid, c] of activeChatBubbles(chats, Date.now(), bubbleMs)) {
-    const e = bubbles.get(pid);
-    if (!e || e.seq < c.seq) bubbles.set(pid, { seq: c.seq, at: c.at, chat: true, text: c.text });
-  }
   useTicker(bubbles.size ? 500 : 0); // re-render only while a bubble is showing (to expire it)
   const lastEmote = useRef(emotes.length ? emotes[emotes.length - 1].seq : 0);
   useEffect(() => {
@@ -1503,7 +1530,8 @@ function MatchScreen() {
 
       <div class="gm__corner">
         ${metricsOpen && !spectator ? html`<${CombatMetricsPanel} myId=${myId} onClose=${() => setMetricsOpen(false)} />` : null}
-        ${spectator ? null : html`<${EmoteWheel} open=${emoteOpen} onToggle=${setEmoteOpen} onSend=${(id) => actions.emote(id)} onChat=${(text) => actions.chat(text)} chats=${chats} nameOf=${nameOfPlayer} disabled=${conn.status !== 'online'} />`}
+        ${spectator ? null : html`<${EmoteWheel} open=${emoteOpen} onToggle=${setEmoteOpen} onSend=${(id) => actions.emote(id)}
+          onChat=${actions.chat} history=${chatHistory} myId=${myId} disabled=${conn.status !== 'online'} />`}
         ${spectator ? null : html`<button type="button" class="gm__gear gm__metrics" aria-label=${t('作战统计')} title=${t('作战统计')} aria-expanded=${metricsOpen}
           aria-controls="combat-metrics-panel" onKeyDown=${(e) => { if (e.key === ' ') e.stopPropagation(); }} onClick=${() => {
             setMetricsOpen(!metricsOpen);

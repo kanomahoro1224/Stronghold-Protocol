@@ -5,7 +5,7 @@
 ## 上游合并优先级
 
 - 本仓库是上游的服务端优化分支。后端、网络、WebSocket、房间/匹配、持久化、监控、Worker、部署、CDN 服务端和高并发优化以本仓库为准；上游删除或重写这些能力时不接受直接删除。
-- 游戏逻辑以上游为准：干员、敌人、技能、特性、数值、战斗规则、模拟实现及对应客户端玩法更新应合入 `v0.2.3` 指定版本，不因后端分支差异而回退。
+- 游戏逻辑以上游为准：干员、敌人、技能、特性、数值、战斗规则、模拟实现及对应客户端玩法更新应合入用户指定版本（当前为 `v0.2.4`），不因后端分支差异而回退。用户指定的上游仓库为 `https://github.com/xinhai-ai/Stronghold-Protocol`（2026-10-11 指定；其 `master` 已包含原 `sganggs/Stronghold-Protocol` 的 `v0.2.4`，因此以它为准可一次覆盖两者）。
 - 本仓库特色功能必须保留并逐段适配，包括局内聊天、房间 Worker、状态增量、监控接口、持久化恢复、公告、CDN、资源预载、作战统计、自定义快捷键及其他本文件记录的分支行为。
 - 共享文件按职责逐段处理：游戏规则片段以上游为准，协议/服务端/状态所有权片段以本仓库为准；禁止用整文件 `ours`/`theirs` 解决冲突。上游删除的测试、文档或工具若对应本仓库后端能力，也保留本仓库版本并补做上游玩法适配。
 
@@ -41,6 +41,8 @@
 
 ## 本分支游戏规则
 
+- 0.2.4 共享干员/装备库存按上游规则：同盟共享干员池为单人两倍，自选库存仍为个人独立 8/5 份。拟态物质等超额授予保持有符号剩余份数，对外可用数归零；Redis 检查点和完整 Match Worker 恢复不得截掉负数，否则归还时会错误释放库存。装备库存由已恢复的手牌、临时区、装备槽实时推导，不另存一份可漂移计数。保留旧检查点兼容，跨版本进行中对局的容量变化仍需部署验证。
+- 干员被动/特质赠送装备不占用、不受共享装备库存限制，包括缪尔赛思、耶拉等固定赠送、随机赠送、复制/再次触发的特质及休整期赠送。通过服务端特质上下文识别来源，不能按装备名称一概豁免，也不改变商店、机变、奖励、策略/物品效果或控制台的普通获取。装备实例的可选 `itemPoolCopies` 记录实际占用：赠送为 0，赠送与普通各一份合成进阶为 1，纯普通进阶为 2；合成、装备、回收、消耗、销毁、淘汰及 Redis/Match Worker 恢复均保持来源计数。赠送装备直接升级仍为 0；旧存档缺少来源字段按原普通/进阶 1/2 份解释，不能猜测或批量免除同名旧装备。新增行为有 `test/match/passive-item-stock.test.js` 和真实 Redis 回归。
 - 模式的 `inactiveBondIds` 与开局随机盟约 ban 继续参与干员池过滤：仅当干员的所有盟约都在两者并集中时才 ban 该干员。保留 `drawDisabledBonds()`、干员池和本局禁用干员的现有行为。
 - 模式名单不再禁止盟约激活或效果触发；保留下来的干员及装备赋予的盟约照常计数、激活并进入战斗输入。界面将模式名单和随机 ban 都解释为阵容不完整，不标注“该盟约不会激活”；AI 不按模式名单排除盟约，机变候选继续按实际干员池判断。
 - 最终攻势及隐秘核心的 Boss 共享血量池：单人 `bloodPoint × 1`，多人 `bloodPoint × 4 × min(存活人数, 4) / 4`，存活人数取每个 Boss 回合开始时的值。模式及全局配置均启用 `aliveScaling`，保留模式优先、人数上限和未传人数按满队计算的行为；普通敌人倍率不变。
@@ -48,6 +50,14 @@
 - 联防保留本回合战场的地形、围栏、阻隔工事及平台，并继续应用每位援助者自己的设备改造效果。`escaped_single` / `escaped_multi` 用于漏怪重入批次与路线，不替换成平坦地图；仅在当前战场数据缺失时使用模板地图回退。援助者左右顺序、携带状态、联防归责与禁用战斗叠层规则不变。客户端 BattleSpec、服务器模拟和观战元数据须使用同一 stageId，保留 `test/match/feedback5-unite-map.test.js` 对 #282 的阻挡物和双方模拟回归。
 
 ## 本分支界面与素材取舍
+
+- 局内“交流”弹出面板左侧提供“表情 / 历史”SVG 图标切换按钮，复用 `GIcon` 图标系统，用 `title` 和 `aria-label` 保留文字提示及无障碍名称；两种内容复用同一显示区，不再并排展示历史。每次打开默认显示六个表情，历史按钮显示条数，历史列表独立纵向滚动。文字输入固定在两种视图的下方，切换不清空草稿；保留动态视口高度和安全区域限制。
+
+- “交流”采用小尺寸组件：桌面面板宽度最多 260px、表情格高 44px；移动端宽度最多 220px、表情格高 32px。表情区与翻页区使用正常网格布局，不用固定小高度或绝对定位叠在一起；图片限制在各格的可用区域，完整显示两行表情，翻页触控范围不能覆盖表情。历史视图使用与表情区相同高度。输入与发送控件保持单行，固定 24px border-box 高度、20px 行高及 1px 纵向内边距，避免继承的大行高撑开组件；输入区纵向内边距为 2px。更窄视口遵循安全区域限制；移动端文字输入字号为 16px，避免输入时自动放大。保留发送冷却期间的输入焦点。
+
+- 文字聊天发送及冷却期间不禁用输入框、不丢失其焦点；点击发送保持输入焦点及移动端键盘，冷却只阻止发送，仍可继续编辑。发送成功只清除仍与本次提交相同的草稿，不能清掉等待回复期间新输入的下一条消息。若启用审核，聊天正文在服务端转发给对局前审核；不记录审核触发、通过或降级日志，仅明确拒绝时记录不含正文、昵称、令牌和地址的日志标记。
+
+- 局内“交流”保留表情，并提供最多 20 个 Unicode 码点的单行文字聊天（中文或普通 emoji 各计一字，组合 emoji 按码点计数），客户端和服务端均校验，拒绝空白、控制字符及无效 Unicode。文字与表情共用 1 秒冷却，仅当前局玩家可发送，观战席不可发送；服务端广播可信发送者身份。头像旁显示文字气泡，“交流”内可回看当前页面接收到的本局最近 100 条文字消息（姓名、时间、正文）；不上传聊天历史、不持久化，换局或退出清空，页面刷新不恢复，滚动回看时不强制跳到底部。文字仅按纯文本渲染，不解析 HTML。启用名称审核器时，聊天审核使用同一双审核配置，任一明确拒绝会返回“该内容不可用”，服务异常按 fail-open 继续发送。每个玩家最多一个待审核消息；审批绑定原会话、连接及对局，退出、换局、重连或关闭后不转发旧消息。
 
 - 0.1.4 合并时确立的取舍继续适用于后续合并，除非用户明确调整：排除上游快捷键实现，保留本仓库可自定义快捷键、默认按键、提示文字及浏览器持久化设置。当前默认 W 查看怪物、S 冻结、R 刷新、C 准备、X 出售、Q 撤退、G 升级、空格暂停/继续；不要恢复上游固定 R/F/D/Space 方案。
 - 不合并 3D 棋盘贴图改用 WebP 的提取、加载、文档和测试改动，继续使用 PNG。其他棋盘材质、地形提示及渲染修复可正常合并；保留 `boardArt.js` 对裁切表素材路径的 CDN 改写。
@@ -87,6 +97,7 @@
 - 棋盘资源 JSON 仅放行 `/assets/local/map/fx/materials.json`、`prefab.json` 及 `/assets/local/map/autochess/materials.json`、`tiles.json`（兼容素材 CDN 前缀），作为必备地图资源参与预载、指纹和 ZIP 导入导出，不泛化放行游戏数据或语言 JSON。`tiles.json` 从已列出的 `TX_autochessi_D.png` 同目录推导，存在本地文件或服务器哈希表记录时纳入；本地裁切表内容用于生成真实指纹，其大小/mtime 参与清单失效。带方括号的资源 URL 统一 `%5B`/`%5D`，服务器清单、磁盘路径、缓存键及 ZIP 身份一致，兼容旧 ZIP 原始方括号路径和旧缓存读取。`tools/asset-hashes.mjs` 同步此 JSON 白名单和路径规则。新增 shared/resourcePaths.js 属于 SW 依赖，生产 build 标识须覆盖，部署后更新 SW。
 
 - HTML 保持 `no-cache`；`/build/assets/` 下带内容哈希的 JS/CSS 使用 `public, max-age=31536000, immutable`。运行时配置和非指纹代码不能套用此长期缓存。
+- 资源清单缓存命中仅 stat 三个源清单和已发现的棋盘裁切表，不重读 JSON 正文、CDN 改写或全资源遍历；只合并进行中的检查/重建，后续请求重新校验。源清单及裁切表出现、删除、size/mtime 变化仍失效；失败不伪装旧数据，reset 后旧任务不覆盖新缓存。保持指纹、JSON 白名单、ETag/gzip/304/GET/HEAD，验证 `test/resources/manifest.test.js`。
 - 保留 gzip、ETag/304、HEAD 和原有素材 Range 行为。
 - 素材预载 SW 的 scope 为 `/`，但 `/build/` 必须直接放行，不调用 `respondWith()`。即使 Cache Storage 已有旧构建文件，也不能用它响应代码请求。
 - `public/js/resources/common.js` 和 `server/resources.js` 均明确排除 `/build/`。原有规则会匹配路径任意位置的 `/assets/`，用于兼容 CDN 前缀；不能因 Vite 也使用 assets 目录而再次误匹配，也不要直接改为只匹配根 `/assets/` 而破坏 CDN。
@@ -100,6 +111,8 @@
 - 高并发延迟优化须保留：全服广播/心跳分批让出事件循环及广播 FIFO 顺序、跨房间共享本地模拟续步预算、私有状态编码复用，以及保持原有组队规则的按队伍大小 FIFO 匹配。`/metrics.websocket.diagnostics` 的事件循环、消息耗时与发送采样仅在服务端聚合，不记录地址或正文；统计为启动以来累计，发送完成不等于客户端 RTT。`/healthz` 不增加详细诊断字段。压缩开关与原有背压阈值继续保持兼容。
 - 房间 Worker 化第一阶段可通过 `SP_ROOM_WORKERS` 或 `startServer({ roomWorkers })` 启用：保留同一 `/ws` 和主线程 Match，仅将每个房间/独立匹配的战斗与 bot 预演任务固定到按活跃房间数选择的独立模拟 Worker lane；`workers` 是全 lane 总线程预算，不能让每个 lane 各自复制完整默认线程数。默认 `0` 保持单一共享池，释放房间时清理 lane 归属；这不是完整 Match 跨线程迁移，仍须继续验证主线程状态生成和发送耗时。
 - 完整 Match Worker 可通过 `SP_MATCH_WORKERS` 或 `startServer({ matchWorkers })` 启用：房间/公共匹配的 Match 实例、计时器、AI、状态视图和对局生命周期在 lane Worker 中运行，主线程保留 `/ws`、身份、房间目录和消息发送；Worker 通过 `captureMatch` 提供与原 Redis 文档相同的检查点，恢复等待异步 Worker 完成后再继续启动。`/metrics.workers` 保留模拟任务池，`/metrics.matchWorkers` 单独报告 Match Worker；默认 `0` 保持旧路径。启用前必须验证多房间公共匹配、观战、重连、退出、连续重启和真实 Redis。
+- 完整 Match Worker 的游戏数据每 lane 首次使用只传一次，安装线程数据源后再导入游戏模块；同 lane 的 Match 共用深冻结快照，不共用玩家库存、池或 RNG，不恢复为每局复制完整数据。Worker 编码的单播/广播 JSON 由主线程发送及回放复用，未提供编码的旧路径仍可用。初始化代理元数据全量，后续只发变化字段，连接/退出、阶段及战斗序号仍同步，IPC 失败不推进元数据基线；每个对局实例基线独立。状态增量仍由主线程管理，可靠入队基线、FIFO 及确认语义不变。验证 `test/match-worker-hotpaths.test.js`、生命周期、状态增量与持久化测试；`tools/match-workerbench.mjs` 仅为 IPC 微基准，不能当作真实对局容量或主线程 CPU 实测。
+- 完整 Match Worker 的有效下行消息仅传类型和编码，不重复复制完整消息对象；主线程按需为旧回调解码，状态增量仍从编码建立独立快照，不能信任回调可变对象作为基线。原始 capture 在 Match Worker 内序列化为独占字节缓冲，主线程只转交所有权，由持久化 Worker 解码并执行原 `encodeMatchCapture`；保持 Maps、波次隐藏排期、检查点代际、失败保留及旧对象路径，IPC 字节格式不写入 Redis、不作为跨版本存档。验证 `test/encoded-message.test.js`、持久化/生命周期及真实 Redis 重启测试。
 
 - 在线人数 `presence` 每 10 秒最低优先级刷新，人数不变仍可更新；`welcome.online` 即时提供。周期任务独立延后、分批处理，只保留最新待发快照，普通广播/心跳优先；连接已有任何发送积压时跳过本轮，下一周期再更新，不排队补发。不改变游戏状态/回复的可靠 FIFO、背压或压缩参数；已进入 WS/TCP 的字节无法抢占。关停时取消周期及待发任务，保留标题页未认证连接的周期在线人数展示。验证 `test/presence.test.js`、`test/ws-latency.test.js`。
 
@@ -155,10 +168,12 @@
 - 确认差异来源后才运行 `npm run golden:update`，审查并提交受影响基线，同时在 `test/golden/README.md` 记录规则差异和验证依据。不能通过更新全部基线掩盖未知回归，也不能为迎合上游基线恢复用户明确排除的行为。
 - 0.1.4 合并参考：`9f0e80c` 合入上游 `9f93096`，当时独立副本仅还原本分支 Boss/盟约规则后全部 133 场景与上游一致；本分支基线变化为 7 个 roster、20 个 Boss/隐秘核心 fields、10 个 matches，bonds 不变。这是历史证据，后续版本须按当次场景和实现重新核实。
 - 0.2.0 合并参考：标签指向 `1303321`；技能注册表 `server/sim/content/kits/index.js` 逐文件使用明确导入回调。HTTP、Match、PlayerState、渲染器和 UI 逻辑拆分后，本分支行为迁入相应子模块。Redis 检查点保留补位、自选编队及独立库存，恢复时重建数据视图和库存方法；旧检查点缺少新增字段时使用兼容默认。新增界面支持中文和英文，日语、韩语、繁体中文保留上游译文，本分支新增文本通过英文回退。独立副本还原本分支 Boss/盟约策略后全部 283 个场景与标签一致；本分支基线变化 7 个 roster、3 个 matches、2 个 standins，其他族不变。泡泡与“余音”互相反伤递归及“碎铳之簧”无来源反伤在本分支修正，保留回归测试。
+- 0.2.4 合并参考：用户指定的上游 `upstream/master` @ `1cf48618`（含 `v0.2.4` = `bc50cac0`）合入本分支 `700cfbdb`，12 个冲突文件逐段解决，共 189 个文件。局内聊天改用上游实现（左侧“表情 / 历史”切换、20 码点单行、最近 100 条历史、审核 fail-open），本分支原先并行的 `chats` / `ChatBubble` / `chatLogLines` / `activeChatBubbles` / `CHAT_MAX_LEN`=40 管线已删除，`test/ui/emotes.test.js` 中对应的结构断言改由上游 `test/chat.test.js` 覆盖。`public/js/ui/emotes.js` 与 `teamPanel.js` 采用上游整文件：这两个文件里本分支的内容（rail 面板、`ChatBubble`、草稿辅助函数）已被上游同一功能的更新完全取代，逐段取上游侧等同于全取，其余文件均按块取上游侧。合并未删除任何文件，Boss 共享血量池（单人 `bloodPoint × 1`）、`inactiveBondIds` 盟约 ban、自定义快捷键默认值、PNG 棋盘与发行 ZIP 排除均保留。
 
 ## 合并后的验证
 
 - 0.2.1 合并标签为 `c2a2ef7`。独立副本只还原 Boss/盟约/AI 规则与两处反伤修复后完整 283 个场景与标签一致；本次分支基线新增差异为 7 个 roster、3 个 matches、1 个 fields，standins 保留此前 2 个差异，bonds 与 diy 不变。联防当前战场优先及缺失数据回退、援助者设备改造、Vite 明确导入、加载期 pending battle 与本机统计兼容回归均须保留。
+- 0.2.4 合并验证（2026-10-11，工作树 `700cfbdb` + `upstream/master`）：依赖未变（`package.json` 仅版本号 0.2.3→0.2.4），因此未运行 `npm ci`；`npm run build` 成功；`node tools/i18n.mjs check --all --strict` 全部 0 error；三组指定测试分别 119、149、102 个用例全通过；`npm run golden` 全部 287 个场景 match；全量 `node --test` 为 6491 个用例、6459 通过、12 失败、20 跳过。12 个失败均与本次合并无关：素材/研究数据缺失 7 项（`public/assets`、`.cache/gamedata` 本机未拉取），本机 Node 环境 1 项（`test/assets-env-proxy.test.js` 的重启判定），并发负载敏感 4 项（`test/lobby.test.js` 计时、resync 合并、Match Worker 增量、`test/robustness.test.js` 重负载性能）——后两类在合并前 `700cfbdb` 的独立工作树中同样复现，计时类单独运行即全通过。部署前仍须在目标机器上复核素材与数据完整性。
 
 依赖有变化时先运行 `npm ci`。在仓库根目录运行：
 
@@ -236,14 +251,14 @@ Browser suites are off by default and need Chrome: `SP_E2E=1` (UI), `SP_REAL_E2E
 `RENDER_E2E=1`, `SIM_E2E=1` — see CONTRIBUTING.md §2. Battle tests are easiest with the helpers described in
 docs/SIM.md (the test harness section) and the patterns in `test/content/op_siege.test.js`.
 
-## Sensitive-lexicon 用户名审核
-
-- 浏览器发送 hello 前经同源 POST /api/name-moderation 预审；服务端对 hello 独立检查，等待审核结束后才创建、接管或重命名会话。词库明确命中拦截，审核超时/错误/审核预算耗尽按用户要求静默放行且不缓存降级结果；名字格式和原有传输限流不变。登录、改名、重连及直接 WS 请求均须覆盖，保留断线及并发昵称竞态隔离。拦截时仅显示“该名称不可用”，标题页不显示审核说明，不显示审核服务不可用提示。
-- 审核后端使用 konsheng/Sensitive-lexicon 的 dev Docker HTTP 接口 POST /contains，请求 {text}，仅布尔 contains 为有效结果；不要用 /detect 替换，其子串搜索方向不同。SP_NAME_MODERATION=lexicon，SP_NAME_MODERATION_URL 是仅服务端配置的 HTTP(S) 基地址（默认 http://127.0.0.1:8080）；无配置兼容关闭且日志标注 OFF。不再使用 Jev、TypeSafe 密钥、模型或概率阈值。
-- 后端只部署在回环或受控私网，不公开无鉴权的 /reload；浏览器不直连后端。不在日志记录昵称/响应，保持有界短期缓存；更新词库后重启游戏服务清除缓存。词库有误报/漏报，命中属于昵称政策，不等同法律认定。文档 docs/NAME_MODERATION.md，回归 test/name-moderation.test.js。
-
 ## 预载语音范围
 
 - 资源管理直接选择中文、日语、两种语言或不预载语音，浏览器持久化 preloadVoiceLang，独立于播放 voiceLang 和干员个人语音覆盖；旧配置以已保存的播放语言迁移，默认中文。可选资源仍需同时预载开关。
 - 按 /voice/cn/ 与 /voice/jp/ 目录识别（兼容 CDN 前缀），不能按 cn_019 等文件名判语言。保留旧未分语言语音组及不预载时的排除。切换中止旧范围、等待已开始操作，只增量下载最新选择，不删除已有缓存；完成与进度只计算所选可缓存资源。
 - ZIP 内未选择但有效的资源仍须校验并保留，导出仍包含全部有效缓存；仅导入后的缺失下载按范围过滤。分类计数增量维护，不在每个进度更新重扫全清单。更新 common.js 等独立 SW 依赖后部署需更新 SW，并同步 CDN 的 UI 语言 JSON。验证 test/ui/preload-voice.test.js 和现有资源/ZIP/构建测试。
+## 双用户名及聊天审核后端
+
+- `server/nameModeration.js` 同时支持 Sensitive-lexicon 与 Jev：`SP_NAME_MODERATION=lexicon|jev|both|off`；仅设置 URL 自动选 lexicon，仅设置 TYPESAFE_API_KEY 自动选 jev。both 并行调用，任一明确 `NAME_REJECTED` 拦截；任一服务故障/超时/限流/非法响应静默放行，不缓存降级结果。both 缺配置必须启动失败，不可假装双审。
+- Sensitive-lexicon 使用 dev Docker 的 POST `/contains` `{text}` 和布尔 `contains`，不使用 `/detect`；Jev 使用服务端 key 和官方 `/v1/systemone` 单个精简 Noul 违规概率，合并类别以尽可能降低输入至 100 tokens 以下；不截断正文或声明未经实测的计费 token 数。浏览器不接触 Jev key；名称审核只在服务端直连 WS hello 触发，并通过同一 WS 返回不可用。
+- 保持服务端最终校验、同源 HTTP 安全、名字格式、缓存/并发/限流、断线竞态和 fail-open 约定。仅审核明确拒绝以固定日志标记记录，不包含昵称、聊天正文、地址、令牌、响应或 key；不记录审核触发、通过、格式错误、故障降级或审核开关状态日志。昵称拒绝提示“该名称不可用”，聊天拒绝提示“该内容不可用”，标题页无审核说明或服务不可用提示。词库后端只放受控 Docker 网络。文档 `docs/NAME_MODERATION.md`，回归 `test/name-moderation.test.js`、`test/chat-moderation-lifecycle.test.js`。
+- 首次/恢复登录及在线改名收到明确 `NAME_REJECTED` 后都自动返回可编辑昵称标题页，清除 entered 标记并关闭旧对话框；保留原 token、房间及对局，不自动退出或重试被拒名称。在线改名被拒仍保留服务器已批准的昵称和会话，用户手动改名后可继续；`CHAT_REJECTED`、限流及普通对局错误不触发此回退。

@@ -157,7 +157,6 @@ export async function startServer(opts = {}) {
   const announcements = new Announcements({ file: announcementFile ? path.resolve(announcementFile) : null,
     broadcast: (msg) => network.broadcast(msg), log, pollMs: opts.announcementPollMs });
   await announcements.start();
-  log.info(`[names] moderation ${nameModeration ? 'Sensitive-lexicon enabled (fail open)' : 'OFF — set SP_NAME_MODERATION=lexicon and SP_NAME_MODERATION_URL to enable'}`);
   const servePublicApi = createPublicApi({ lobby, announcements, trustProxy: network.opts.trustProxy, sendJson, sendError });
 
   const serveNameReview = createNameModerationRoute({ moderation: nameModeration, trustProxy: network.opts.trustProxy });

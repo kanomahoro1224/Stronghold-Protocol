@@ -865,6 +865,8 @@ export class Network {
         if (generation !== conn.helloReview || conn.closing || this.closed || this.draining || conn.ws.readyState !== WS_OPEN) return;
         conn.reviewPending = false;
         if (result?.allowed !== true && [ERR.NAME_REJECTED, ERR.BAD_MSG].includes(result?.code)) {
+          // Only explicit moderation rejection is audited; no attempts, approvals, format errors or failures.
+          if (result.code === ERR.NAME_REJECTED) this.log.info?.('[names] moderation rejected WebSocket hello');
           this.reply(conn, errorMsg(result.code, rid));
           return;
         }
