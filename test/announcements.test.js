@@ -9,7 +9,8 @@ import { Announcements, ANNOUNCEMENT_MAX_BYTES } from '../server/announcements.j
 import { startServer } from '../server/index.js';
 import { TestClient } from './helpers/wsClient.js';
 import { announcementScroll, announcementDismissKey, announcementUi, syncAnnouncementPopup,
-  openAnnouncement, closeAnnouncement, AnnouncementButton, AnnouncementContent } from '../public/js/ui/announcement.js';
+  openAnnouncement, closeAnnouncement, AnnouncementButton, AnnouncementContent,
+  announcementLineNodes } from '../public/js/ui/announcement.js';
 import { store, emptyMatch } from '../public/js/store.js';
 import { PHASE } from '../shared/constants.js';
 import { OnlineCount, PingPill } from '../public/js/ui/components.js';
@@ -26,7 +27,10 @@ async function fixture(t) {
 test('config validation: timezone, plain text, limits, unique ids and explicit booleans', () => {
   assert.deepEqual(parseAnnouncements(doc()), []);
   const [n] = parseAnnouncements(doc(row({ text: '  临时通知\n请留意  ' })));
-  assert.equal(n.text, '临时通知 请留意');
+  // fork：正文保留作者换行（公告弹窗按行渲染），行内空白仍压缩，连续空行最多留一个。
+  assert.equal(n.text, '临时通知\n请留意');
+  assert.equal(parseAnnouncements(doc(row({ text: '服务说明\n  本站   为纯公益  \n\n\n\n联系\nQQ' })))[0].text,
+    '服务说明\n本站 为纯公益\n\n联系\nQQ');
   assert.equal(n.startAt, BASE);
   assert.equal(n.endAt, BASE + 60000);
   assert.equal(parseAnnouncements(doc(row({ title: '  计划维护  ' })))[0].title, '计划维护');
@@ -373,4 +377,50 @@ test('announcement content remains plain text, links open safely, and online cou
     assert.ok(component.props.class.split(' ').includes('ping'));
     assert.ok([...walk(component)].some((v) => v.props?.class?.split(' ').includes('ping__unit')));
   }
+});
+
+test('notice lines keep the author\u2019s breaks and turn bare http(s) URLs into underlined links', () => {
+  function* walk(v) {
+    if (Array.isArray(v)) { for (const child of v) yield* walk(child); return; }
+    if (!v || typeof v !== 'object') return;
+    yield v;
+    yield* walk(v.props?.children);
+  }
+  const paras = (text) => [...walk(AnnouncementContent({ notice: { text } }))].filter((v) => v.type === 'p');
+  const links = (text) => [...walk(AnnouncementContent({ notice: { text } }))].filter((v) => v.type === 'a');
+
+  const text = '维护公告\n详情见 https://weishu.xiaolubao.com/notice，谢谢。\n备用 http://example.com/a.';
+  const rows = paras(text);
+  assert.equal(rows.length, 3, 'one paragraph per line, blank lines dropped');
+  assert.equal(rows[0].props.children, '维护公告', 'a line without a URL stays a plain string');
+  const anchors = links(text);
+  assert.deepEqual(anchors.map((a) => a.props.href), ['https://weishu.xiaolubao.com/notice', 'http://example.com/a'],
+    'trailing punctuation stays outside the link');
+  for (const a of anchors) {
+    assert.ok(a.props.class.split(' ').includes('notice__link'), 'inline links carry the underlined style hook');
+    assert.equal(a.props.target, '_blank');
+    assert.equal(a.props.rel, 'noopener noreferrer');
+  }
+  assert.equal(rows[1].props.children[0], '详情见 ');
+  assert.equal(rows[1].props.children[2], '，谢谢。');
+  assert.equal(announcementLineNodes('无链接'), '无链接');
+
+  assert.equal(links('javascript:alert(1)').length, 0, 'only http(s) URLs become links');
+  assert.equal(links('<a href="https://example.com">x</a>').length, 1, 'markup is not parsed, only the bare URL links');
+  assert.equal([...walk(AnnouncementContent({ notice: { text: text } }))].every((v) => !v.props?.dangerouslySetInnerHTML), true);
+  assert.equal(paras('A\n\n\nB').length, 2);
+
+  // `[显示文字](地址)` lets the author link a name; `**文字**` is the light-green highlight with no jump.
+  const custom = AnnouncementContent({ notice: { text: 'QQ：**永远喜欢着鹿乃🍓𐂂** 3497593286\nB站：[鹿可可Official](https://space.bilibili.com/426276698)' } });
+  const rows2 = [...walk(custom)].filter((v) => v.type === 'p');
+  const anchors2 = [...walk(custom)].filter((v) => v.type === 'a');
+  const accents = [...walk(custom)].filter((v) => v.type === 'span' && v.props?.class?.split(' ').includes('notice__accent'));
+  assert.deepEqual(anchors2.map((a) => [a.props.href, a.props.children]), [['https://space.bilibili.com/426276698', '鹿可可Official']],
+    'a labelled link keeps the author\u2019s own text as its label');
+  assert.deepEqual(accents.map((s) => s.props.children), ['永远喜欢着鹿乃🍓𐂂'], 'the highlighted nickname is not a link');
+  assert.equal(rows2[0].props.children[0], 'QQ：');
+  assert.equal(rows2[0].props.children[2], ' 3497593286');
+  assert.equal(announcementLineNodes('**未闭合'), '**未闭合', 'an unclosed highlight stays plain text');
+  assert.equal([...walk(AnnouncementContent({ notice: { text: '[x](javascript:alert(1))' } }))].filter((v) => v.type === 'a').length, 0,
+    'a labelled link only accepts http(s)');
 });

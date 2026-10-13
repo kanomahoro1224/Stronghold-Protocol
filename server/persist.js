@@ -15,8 +15,8 @@
 //   * The sockets themselves (every client reconnects and is rebound by its token — that is the point).
 //   * A solo pause (g.pause) and the exact remaining clock of a battle: on restore the phase clock restarts from the
 //     remaining time the checkpoint recorded, with at least 20 s of prep (snapshot.MIN_RECOVER_PREP_SEC).
-//   * A session whose reconnect window elapsed while the server was down (10 min for a co-op room, 24 h for a solo run:
-//     lobby.soloReconnectWindowMs). Its room is dropped too when nobody is left in it; a running match whose human seat
+//   * A session whose reconnect window elapsed while the server was down (10 min by default, 30 min for a session in a
+//     running match — lobby.matchIdleGraceMs, 24 h for a solo run: lobby.soloReconnectWindowMs). Its room is dropped too when nobody is left in it; a running match whose human seat
 //     lost its session leaves the restored match; the other valid identities continue. A checkpoint with no usable
 //     human identity is retained for a later recovery attempt. Latest departures travel separately from checkpoints.
 //

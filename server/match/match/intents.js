@@ -8,7 +8,7 @@ import { CONSOLE_ROUND_LIMIT, CONSOLE_TOTAL_LIMIT } from '../../../shared/consta
 // Installed on Match.prototype by server/match/Match.js (a method container: never instantiated; `this` is the match).
 
 import { unitStatsEntry } from '../../../shared/protocol.js';
-import { PHASE, ERR, EMOTES, EMOTE_COOLDOWN_MS, GEO } from '../../../shared/constants.js';
+import { PHASE, ERR, EMOTE_IDS, EMOTE_COOLDOWN_MS, GEO } from '../../../shared/constants.js';
 import { deriveSeed } from '../../sim/rng.js';
 import { OK, fail } from './common.js';
 import { onHumanEmote } from '../botEmotes.js';
@@ -60,7 +60,9 @@ export class MatchIntents {
   }
 
   emote(ps, id) {
-    if (!EMOTES.includes(id)) return fail(ERR.BAD_MSG, 'unknown emote');
+    // The official 36 plus the server-added sets (shared/constants.js EMOTE_IDS): the wheel offers all of them, so the
+    // whitelist must not be the official table alone (a custom id used to be rejected as "unknown emote").
+    if (!EMOTE_IDS.includes(id)) return fail(ERR.BAD_MSG, 'unknown emote');
     const now = this.sched.now();
     if (now - ps.lastEmoteAt < EMOTE_COOLDOWN_MS) return fail(ERR.RATE);
     ps.lastEmoteAt = now;

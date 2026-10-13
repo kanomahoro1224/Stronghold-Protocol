@@ -21,7 +21,7 @@ export const RESOURCES_FORMAT = 1;
 export const MAX_FILE_BYTES = 24 * 1024 * 1024;
 /** Required visuals: maps, portraits, Spine, fonts, UI and icons. */
 export const TIER_ESSENTIAL = 1;
-/** Optional: voices, sound effects, music and tutorial illustrations. */
+/** Optional: operator skins, voices, sound effects, music and tutorial illustrations. */
 export const TIER_REST = 2;
 export const MANIFEST_URL = '/data/resource-manifest.json';
 export const SW_URL = '/resource-sw.js';
@@ -31,6 +31,7 @@ export const RESOURCE_GROUPS = Object.freeze({
   character: { name: N_('干员与敌人图片'), tier: TIER_ESSENTIAL },
   spine: { name: N_('Spine 模型与特效'), tier: TIER_ESSENTIAL },
   ui: { name: N_('界面、图标与字体'), tier: TIER_ESSENTIAL },
+  skins: { name: N_('干员皮肤'), tier: TIER_REST },
   voice_cn: { name: N_('中文语音'), tier: TIER_REST },
   voice_jp: { name: N_('日语语音'), tier: TIER_REST },
   voice: { name: N_('其他角色语音'), tier: TIER_REST },
@@ -47,6 +48,10 @@ export function resourceGroup(file) {
     if (/\/voice\//.test(path)) return 'voice';
     if (/\/sfx\//.test(path)) return 'sfx';
     if (/\/bgm\//.test(path)) return 'music';
+    // 干员皮肤: the skin avatar tree, and a skin Spine (spine/op/<charId>/<stem>/front|back/…, one directory deeper
+    // than an operator's own spine/op/<charId>/front/…).
+    if (/\/avatar\/skin\//.test(path)) return 'skins';
+    if (/\/spine\/op\/[^/]+\/[^/]+\/(?:front|back)\//.test(path)) return 'skins';
     return 'other';
   }
   if (/\/spine\/|\.(?:skel|atlas)$/.test(path)) return 'spine';

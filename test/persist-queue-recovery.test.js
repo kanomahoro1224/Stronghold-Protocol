@@ -239,7 +239,7 @@ test('two room parties resume one shared match and every token receives its game
     const state = await cs[i].waitFor('room.state');
     codes.push(state.code);
     assert.equal((await cs[i + 1].request({ t: 'room.join', code: state.code })).t, 'ok');
-    assert.equal((await cs[i].request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL', fillBots: true })).t, 'ok');
+    assert.equal((await cs[i].request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
   }
   for (const c of cs) await c.waitFor('m.public', (m) => m.phase === PHASE.INFO_CHECK);
   for (const c of cs) await c.close();

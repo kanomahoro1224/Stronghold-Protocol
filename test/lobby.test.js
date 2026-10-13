@@ -593,8 +593,8 @@ describe('websocket lobby', () => {
     await expectOk(host, { t: 'room.console.enable' });
     const enabled = await host.waitFor('room.state', (s) => s.consoleEnabled === true);
     assert.equal(enabled.consoleEnabled, true);
-    await expectError(host, { t: 'match.join', mode: 'coop', difficulty: 'NORMAL', fillBots: true }, ERR.MATCHING);
-    await expectError(guest, { t: 'match.join', mode: 'coop', difficulty: 'NORMAL', fillBots: true }, ERR.MATCHING);
+    await expectError(host, { t: 'match.join', mode: 'coop', difficulty: 'NORMAL' }, ERR.MATCHING);
+    await expectError(guest, { t: 'match.join', mode: 'coop', difficulty: 'NORMAL' }, ERR.MATCHING);
     await expectOk(host, { t: 'room.console.disable' });
     const disabled = await host.waitFor('room.state', (s) => s.consoleEnabled === false);
     assert.equal(disabled.consoleEnabled, false);
@@ -1213,7 +1213,7 @@ describe('lobby timers and match interface', () => {
   before(async () => {
     srv = await startServer({
       port: 0, host: '127.0.0.1', log: cap.log, MatchClass: RecordingMatch, seedFn: () => 123456789,
-      lobbyGraceMs: GRACE, reconnectWindowMs: WINDOW,
+      lobbyGraceMs: GRACE, reconnectWindowMs: WINDOW, matchIdleGraceMs: WINDOW,
     });
     pool = clientPool(() => `ws://127.0.0.1:${srv.port}/ws`);
   });
@@ -1454,12 +1454,14 @@ describe('lobby timers and match interface', () => {
 
 // ---------------------------------------------------------------------------------------------------
 // Solo runs: 下半 solo has no prep / 机变 timer and may be resumed within singleReconnectTime (24 h, research 01 §1,
-// 06 §17); only co-op sessions expire after the reconnect window (real Match: the untimed solo match waits).
+// 06 §17); every other running match keeps the dropped seat for matchIdleGraceMs (30 min, 用户要求 2026-10-11), so a
+// co-op player who reconnects after the registry's window still finds the room (real Match: the untimed solo waits).
 // ---------------------------------------------------------------------------------------------------
 
-describe('solo resume window', () => {
+describe('solo/co-op resume windows', () => {
   const WINDOW = 300;       // stands in for the 10-minute reconnect window
   const SOLO_WINDOW = 1500; // stands in for singleReconnectTime (24 h)
+  const IDLE_WINDOW = 1200; // stands in for matchIdleGraceMs (30 min)
   let srv;
   let url;
   const open = [];
@@ -1468,7 +1470,7 @@ describe('solo resume window', () => {
   before(async () => {
     srv = await startServer({
       port: 0, host: '127.0.0.1', log: cap.log, MatchClass: RealMatch, seedFn: () => 20260929,
-      reconnectWindowMs: WINDOW, soloReconnectWindowMs: SOLO_WINDOW, lobbyGraceMs: 200,
+      reconnectWindowMs: WINDOW, soloReconnectWindowMs: SOLO_WINDOW, matchIdleGraceMs: IDLE_WINDOW, lobbyGraceMs: 200,
     });
     url = `ws://127.0.0.1:${srv.port}/ws`;
   });
@@ -1512,7 +1514,7 @@ describe('solo resume window', () => {
     assert.notEqual(w3.playerId, a.id);
   });
 
-  test('co-op sessions keep the plain reconnect window; a solo player back in the lobby too', async () => {
+  test('co-op: a running match outlives the reconnect window; the seat expires after the idle grace', async () => {
     const a = await connect();
     const w = await a.hello('Coop');
     a.id = w.playerId;
@@ -1520,12 +1522,25 @@ describe('solo resume window', () => {
     await expectOk(a, { t: 'room.addBot' });
     await expectOk(a, { t: 'room.start' });
     await a.waitFor('m.public', (p) => p.phase === PHASE.INFO_CHECK);
-    const match = srv.lobby.getRoom(st.code).match;
+    const room = srv.lobby.getRoom(st.code);
+    const match = room.match;
     await a.terminate();
-    await delay(WINDOW + 600);
-    assert.equal(match.players.get(a.id).left, true, 'co-op: the window expired → onLeave');
+    await delay(WINDOW + 600); // several sweeps past the co-op reconnect window
+    assert.equal(room.match, match, 'the co-op match still runs (对局没人后至少 30 分钟才清理)');
+    assert.equal(match.players.get(a.id).left, false, 'not treated as a quit');
+
     const b = await connect();
-    assert.equal((await b.hello('Coop', w.token)).resumed, false);
+    const w2 = await b.hello('Coop', w.token);
+    assert.equal(w2.resumed, true, 'back inside the idle grace');
+    assert.equal(w2.playerId, a.id);
+
+    // the extension is set again at every drop, and still ends after the idle grace
+    await b.terminate();
+    await delay(IDLE_WINDOW + 700);
+    assert.equal(match.players.get(a.id).left, true, 'expiry after the idle grace → onLeave');
+    assert.equal(srv.lobby.getRoom(st.code), null, 'empty room disposed');
+    const c = await connect();
+    assert.equal((await c.hello('Coop', w.token)).resumed, false);
 
     // solo room without a running match: no extension (the lobby grace frees the seat anyway)
     const s = await connect();

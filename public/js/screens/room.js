@@ -30,7 +30,7 @@ import { openStats } from './stats.js';
 import { SettingsButton } from '../ui/settings.js';
 import { LoadoutButton } from './loadout.js';
 import { net } from '../net.js';
-import { store, useStore, shallowEqual, emptyMatch, isSpectating, serverNow } from '../store.js';
+import { store, useStore, shallowEqual, emptyMatch, isSpectating } from '../store.js';
 import { difficultyInfo } from './lobby.js';
 import { t, tc } from '../../../shared/i18n.js';
 
@@ -245,7 +245,6 @@ export function RoomScreen() {
   const presence = useStore((s) => s.presence, shallowEqual);
   const [busy, setBusy] = useState(null);
   const [matchTeammates, setMatchTeammates] = useState(false);
-  const [fillBots, setFillBots] = useState(true);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleReadyAt, setConsoleReadyAt] = useState(0);
   const [consoleNow, setConsoleNow] = useState(() => Date.now());
@@ -286,7 +285,7 @@ export function RoomScreen() {
 
   const toggleReady = () => run('ready', () => net.request('room.ready', { ready: !myReady }));
   const start = () => run(matchTeammates ? 'match' : 'start', () => matchTeammates
-    ? net.request('match.join', { mode: 'coop', difficulty: room.difficulty, fillBots })
+    ? net.request('match.join', { mode: 'coop', difficulty: room.difficulty })
     : net.request('room.start', {}));
   const cancelQueue = () => run('cancel-match', () => net.request('match.leave', {}));
   const removeBot = (seat) => run(`rm${seat}`, () => net.request('room.removeBot', { seat }));
@@ -418,14 +417,11 @@ export function RoomScreen() {
         ${facts.isHost
           ? coop
             ? room.matching
-              ? html`<div class="room-match-actions room-match-actions--active"><span class="room-match-state"><${Icon} name="signal" />${t('匹配剩余')} <b class="num">${Math.max(0, Math.ceil((Number(room.matching.deadlineAt) - serverNow()) / 1000))}s</b></span><${Button} variant="danger" size="lg" icon="close" loading=${busy === 'cancel-match'} onClick=${cancelQueue}>${t('取消匹配')}<//></div>`
+              ? html`<div class="room-match-actions room-match-actions--active"><span class="room-match-state"><${Icon} name="signal" />${t('正在匹配中')}</span><${Button} variant="danger" size="lg" icon="close" loading=${busy === 'cancel-match'} onClick=${cancelQueue}>${t('取消匹配')}<//></div>`
               : html`<div class="room-match-actions">
                 <div class="room-match-options">
                   <label class="fill-bots"><input type="checkbox" checked=${matchTeammates} disabled=${!!room.consoleEnabled}
                     onChange=${(e) => setMatchTeammates(e.currentTarget.checked)} /><span>${t('匹配同盟队友')}</span></label>
-                  <label class=${`fill-bots fill-bots--optional${matchTeammates ? '' : ' is-hidden'}`} aria-hidden=${matchTeammates ? 'false' : 'true'}>
-                    <input type="checkbox" checked=${fillBots} disabled=${!matchTeammates} onChange=${(e) => setFillBots(e.currentTarget.checked)} /><span>${t('60 秒后 AI 补齐')}</span>
-                  </label>
                 </div>
                 <${Tooltip} text=${room.consoleEnabled ? t('控制台已启用，不能匹配同盟队友') : matchTeammates || facts.canStart ? null : t('仍有博士未准备就绪')}>
                   <${Button} variant="primary" size="xl" icon=${matchTeammates ? 'users' : 'play'} loading=${busy === (matchTeammates ? 'match' : 'start')}

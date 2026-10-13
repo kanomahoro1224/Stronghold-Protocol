@@ -56,8 +56,10 @@ export class MatchMessaging {
    * A player's state changed: its m.private and (throttled, deduplicated) m.public (level, board, bonds…) — in a boss
    * round's prep also its pair partner's m.private, which shows this board on its other half (bossMate, item 51).
    */
+  // `_privDirty` is created after the player states (the PlayerState constructor may already mark itself dirty —
+  // setSkins does, seat.skins carrying a choice into a new match), so the guard is load-bearing, not defensive
   markPrivate(ps) {
-    if (!ps) return;
+    if (!ps || !this._privDirty) return;
     this._privDirty.add(ps);
     this._pubDirty = true;
     const m = this._bossMateOf(ps);

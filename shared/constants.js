@@ -235,20 +235,62 @@ export const EMOTE_THEMES = Object.freeze([
 ].map((t) => Object.freeze({ ...t, emotes: Object.freeze(t.emotes) })));
 /** Every emote with its theme: `{ id, sortId, picId, label, themeId, dir }`, in wheel order. */
 export const EMOTE_CATALOG = Object.freeze(EMOTE_THEMES.flatMap((t) => t.emotes.map((e) => Object.freeze({ ...e, themeId: t.themeId, dir: t.dir }))));
-/** The 36 official emote ids (protocol whitelist: `EMOTES.includes(id)`). */
+/** The 36 official emote ids (the first six wheel pages; data/emotes.json). */
 export const EMOTES = Object.freeze(EMOTE_CATALOG.map((e) => e.id));
-const EMOTE_INDEX = new Map(EMOTE_CATALOG.map((e) => [e.id, e]));
-/** Catalog record of an emote id, or null (safe for any input, including '__proto__'). */
+
+// ---- server-added emote sets (this fork, 2026-10-11) ----------------------------------------------
+// Two sets the operator added from their own sticker folders (超辉夜姬 and 鹿乃). They are NOT official 盟约 emotes, so
+// they stay out of EMOTE_THEMES / EMOTE_CATALOG / EMOTES: data/emotes.json keeps matching the official tables byte for
+// byte (test/ui/emotes.test.js) and the generated manifests (data/local-assets.json, data/assets.json) are untouched.
+// Their art ships with the server under public/assets/local/emoticon/<dir>/, so `emoteArtPath` resolves it exactly like
+// the official pictures; CUSTOM_EMOTE_ART below is what the preload manifest uses instead of a generated manifest.
+// Adding a set here is the whole change: the wheel pages (ALL_EMOTE_THEMES) and the protocol whitelist (EMOTE_IDS) are
+// derived from this list.
+const cemo = (id, sortId, picId, label) => Object.freeze({ id, sortId, picId, label, custom: true });
+export const CUSTOM_EMOTE_THEMES = Object.freeze([
+  { themeId: 'emoticon_weishu_kaguya', dir: 'kaguya', sortId: 2000, isBasic: false, custom: true,
+    name: N_('表情套组：超辉夜姬'), emotes: [
+      cemo('custom_battle_kaguya_wink', 3001, 'pic_kaguya_01_battle', N_('眨眼')),
+      cemo('custom_battle_kaguya_cheer', 3002, 'pic_kaguya_02_battle', N_('加油')),
+      cemo('custom_battle_kaguya_cute', 3003, 'pic_kaguya_03_battle', N_('可爱')),
+      cemo('custom_battle_kaguya_please', 3004, 'pic_kaguya_04_battle', N_('拜托了')),
+      cemo('custom_battle_kaguya_wipe', 3005, 'pic_kaguya_05_battle', N_('擦泪')),
+      cemo('custom_battle_kaguya_pout', 3006, 'pic_kaguya_06_battle', N_('气鼓鼓')),
+    ] },
+  { themeId: 'emoticon_weishu_kano', dir: 'kano', sortId: 2001, isBasic: false, custom: true,
+    name: N_('表情套组：鹿乃'), emotes: [
+      cemo('custom_battle_kano_01', 3101, 'pic_kano_01_battle', N_('鹿乃 1')),
+      cemo('custom_battle_kano_02', 3102, 'pic_kano_02_battle', N_('鹿乃 2')),
+      cemo('custom_battle_kano_03', 3103, 'pic_kano_03_battle', N_('鹿乃 3')),
+      cemo('custom_battle_kano_04', 3104, 'pic_kano_04_battle', N_('鹿乃 4')),
+      cemo('custom_battle_kano_05', 3105, 'pic_kano_05_battle', N_('鹿乃 5')),
+      cemo('custom_battle_kano_06', 3106, 'pic_kano_06_battle', N_('鹿乃 6')),
+    ] },
+].map((t) => Object.freeze({ ...t, emotes: Object.freeze(t.emotes) })));
+/** Wheel pages: the official six themes, then the server-added sets. */
+export const ALL_EMOTE_THEMES = Object.freeze([...EMOTE_THEMES, ...CUSTOM_EMOTE_THEMES]);
+/** Every emote the wheel offers, official and server-added, in wheel order (`{ id, sortId, picId, label, themeId, dir, custom? }`). */
+export const ALL_EMOTE_CATALOG = Object.freeze(ALL_EMOTE_THEMES.flatMap((t) => t.emotes.map((e) => Object.freeze({ ...e, themeId: t.themeId, dir: t.dir }))));
+/** Protocol whitelist of `g.emote { id }`: the official 36 plus the server-added sets. */
+export const EMOTE_IDS = Object.freeze(ALL_EMOTE_CATALOG.map((e) => e.id));
+
+const EMOTE_INDEX = new Map(ALL_EMOTE_CATALOG.map((e) => [e.id, e]));
+/** Catalog record of an emote id (official or server-added), or null (safe for any input, including '__proto__'). */
 export const emoteInfo = (id) => (typeof id === 'string' && EMOTE_INDEX.get(id)) || null;
 // id-keyed maps without a prototype: a wire id like '__proto__' / 'toString' looks up undefined, never an Object method
 const emoteMap = (pick) => Object.freeze(Object.assign(Object.create(null), Object.fromEntries(EMOTE_CATALOG.map((e) => [e.id, pick(e)]))));
-/** Emote id → theme id. */
+/** Emote id → theme id (official 36; server-added sets are only in `emoteInfo`). */
 export const EMOTE_THEME = emoteMap((e) => e.themeId);
-/** Emote id → our aria-label (never displayed). */
+/** Emote id → our aria-label (never displayed; official 36). */
 export const EMOTE_LABEL = emoteMap((e) => e.label);
-/** data/local-assets.json group of an emote's art (`emoticon/<dir>`), or null. */
+/** data/local-assets.json group of an emote's art (`emoticon/<dir>`), or null. A server-added set has no manifest group. */
 export const emoteArtGroup = (id) => { const e = emoteInfo(id); return e ? `emoticon/${e.dir}` : null; };
-/** Canonical URL of an emote's extracted art (`/assets/local/emoticon/<dir>/<picId>.png`), or null for unknown ids. */
+/** Canonical URL of an emote's art (`/assets/local/emoticon/<dir>/<picId>.png`), or null for unknown ids. Official art is
+ *  extracted from a local client and also mirrored (data/assets.json); a server-added set ships only with the server. */
 export const emoteArtPath = (id) => { const e = emoteInfo(id); return e ? `/assets/local/emoticon/${e.dir}/${e.picId}.png` : null; };
+/** Every art URL of the server-added sets (`/assets/local/emoticon/<dir>/<picId>.png`, 12 files). No generated manifest
+ *  lists them (they are not official art and not in the mirror), so the preload manifest would never fetch them:
+ *  server/resources.js adds these URLs itself, tier essential, and sizes/hashes them from the files on disk. */
+export const CUSTOM_EMOTE_ART = Object.freeze(ALL_EMOTE_CATALOG.filter((e) => e.custom).map((e) => emoteArtPath(e.id)));
 export const EMOTE_COOLDOWN_MS = 1000; // activity_table autoChessData.constData.chatCD (s)
 export const EMOTE_BUBBLE_MS = 3000;   // constData.chatTime (s): how long a bubble stays up

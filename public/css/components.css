@@ -1237,12 +1237,14 @@
 
 /* ---- 赞助 (support; js/ui/sponsor.js)：公告面板的两栏布局，文字在左、赞助二维码在右 ---- */
 /* ---- 赞助 (support; js/ui/sponsor.js) -------------------------------------------------------------- */
-/* The 公告 dialog is two columns: the operator's text on the left, the sponsorship QR on the right. The QR is the
-   operator's own screenshot (two panels side by side), scaled to its column and never cropped or distorted; on a
-   narrow screen the dialog stacks again, text first. The column is wide on purpose (operator, 2026-10-07: 「图片大一点，
-   太小了」) — the dialog width in ui/notice.js is sized so the text column does not lose anything to it. */
-.notice__layout { display: flex; align-items: flex-start; gap: .32rem; }
-.notice__side { flex: 0 0 5.6rem; min-width: 0; }
+/* The 公告 dialog is two columns: the operator's text on the left, the sponsorship QR on the right. The text column
+   must take the free space — without `flex: 1 1 auto` it shrank to its min-content and rendered one character per
+   line (operator, 2026-10-11: 「你给文字部分给弄宽一点」) — and the QR column is capped at a share of the dialog so it
+   can never squeeze the text again. The dialog width in ui/announcement.js is raised for the same reason. Below
+   640px there is genuinely no room, so it stacks: text first, QR centred underneath. */
+.notice__layout { display: flex; align-items: flex-start; gap: .28rem; }
+.notice__main { flex: 1 1 auto; min-width: 0; }
+.notice__side { flex: 0 0 5.6rem; min-width: 0; max-width: 46%; }
 .sponsor { display: flex; flex-direction: column; gap: .12rem; }
 .sponsor__qr {
   display: block;
@@ -1252,12 +1254,19 @@
   background: #fff; /* the QR is drawn on white in the screenshot; keep the edges clean while it loads */
 }
 .sponsor__hint { margin: 0; font-size: calc(.15 * var(--t)); line-height: 1.7; color: var(--text-md); text-align: center; }
-@media (max-width: 760px) {
+@media (max-width: 640px) {
   .notice__layout { flex-direction: column; }
-  .notice__side { flex: none; width: 100%; max-width: 6.6rem; }
+  .notice__main { width: 100%; }
+  .notice__side { flex: none; width: 100%; max-width: 6.6rem; align-self: center; }
 }
 
 /* fork 的按行正文（js/ui/announcement.js 的 .notice__body/.notice__line；字号取自 fork 的
    css/screens/title.css:322 的 .notice__line { font-size: .16rem; }） */
 .notice__body { display: flex; flex-direction: column; gap: .1rem; }
 .notice__line { margin: 0; font-size: calc(.16 * var(--t)); line-height: 1.7; color: var(--text-md); }
+/* 行内链接（operator, 2026-10-11：「点击带有下划线的可跳转」）：正文里的 http(s) 地址是下划线链接，
+   换行处不撑破弹窗，颜色沿用公告里的链接色。 */
+.notice__link { color: var(--mint-400); text-decoration: underline; text-underline-offset: .04rem; overflow-wrap: anywhere; }
+.notice__link:hover, .notice__link:focus-visible { filter: brightness(1.15); text-decoration-thickness: .02rem; }
+/* 公告正文里的 `**文字**`：浅绿强调（不跳转），用于作者想高亮的昵称。 */
+.notice__accent { color: var(--mint-400); }

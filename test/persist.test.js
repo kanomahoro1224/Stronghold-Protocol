@@ -282,7 +282,7 @@ test('a standalone matchmaking match resumes from its last checkpoint', async (t
   const srvA = await boot();
   const clients = await Promise.all(['A', 'B', 'C', 'D'].map((name) => player(srvA.port, name)));
   const tokens = clients.map((c) => c.token);
-  for (const c of clients) assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL', fillBots: true })).t, 'ok');
+  for (const c of clients) assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
   const pub = await clients[0].waitFor('m.public', (m) => m.phase === PHASE.INFO_CHECK);
   assert.equal(pub.players.length, 4);
   const active = srvA.lobby.activeMatchOf(srvA.registry.byId(clients[0].id));
@@ -313,7 +313,7 @@ test('a room matchmaking match resumes from its last checkpoint', async (t) => {
   const servers = [];
   const boot = async () => {
     const srv = await startServer({ port: 0, quiet: true, store, MatchClass: TestMatch,
-      matchmakingWaitMs: 1000, matchmakingTickMs: 10, log: quietLog });
+      matchmakingTickMs: 10, log: quietLog });
     servers.push(srv);
     return srv;
   };
@@ -324,17 +324,22 @@ test('a room matchmaking match resumes from its last checkpoint', async (t) => {
   const token = c.token;
   assert.equal((await c.request({ t: 'room.create', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
   const code = (await c.waitFor('room.state')).code;
-  assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL', fillBots: true })).t, 'ok');
+  assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
+  // a queue only starts on four real players, so the room host's seat needs three public teammates
+  const publics = await Promise.all(['Q1', 'Q2', 'Q3'].map((name) => player(srvA.port, name)));
+  for (const p of publics) assert.equal((await p.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
   const activePub = await c.waitFor('m.public', (m) => m.phase === PHASE.INFO_CHECK, 2500);
   assert.equal(activePub.players.length, 4);
+  assert.equal(activePub.players.filter((p) => p.isBot).length, 0);
   const room = srvA.lobby.getRoom(code);
   assert.ok(room?.match);
-  await c.request({ t: 'g.infoReady' });
+  for (const p of [c, ...publics]) await p.request({ t: 'g.infoReady' });
   until(room.match, () => room.match.phase === PHASE.BAND_DRAFT);
   await srvA.persister.checkpointMatches();
   await srvA.persister.flush('test');
   assert.ok(store.doc.matches[code], 'room matchmaking checkpoint is persisted');
   await c.close();
+  for (const p of publics) await p.close();
   await srvA.close();
 
   const srvB = await boot();

@@ -22,7 +22,7 @@ after(async () => {
 });
 
 before(async () => {
-  srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, MatchClass: StubMatch, matchmakingWaitMs: 1000, matchmakingTickMs: 10 });
+  srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, MatchClass: StubMatch, matchmakingTickMs: 10 });
 });
 
 test('public and room matchmaking retain operator ownership and self-selected picks', async () => {
@@ -35,7 +35,7 @@ test('public and room matchmaking retain operator ownership and self-selected pi
       assert.equal((await c.request({ t: 'room.create', mode: 'coop', difficulty: 'ABYSS' })).t, 'ok');
       await c.waitFor('room.state', (s) => s.code);
     }
-    assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'ABYSS', fillBots: false })).t, 'ok');
+    assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'ABYSS' })).t, 'ok');
     const entry = srv.lobby.queueByPlayer.get(c.id);
     assert.deepEqual(entry.players[0].notOwned, session.notOwned);
     assert.deepEqual(entry.players[0].diy, session.diy);
@@ -47,7 +47,7 @@ test('public and room matchmaking retain operator ownership and self-selected pi
 test('four alliance queue entries start one four-seat preparation match immediately', async () => {
   const cs = await Promise.all(['A', 'B', 'C', 'D'].map(player));
   for (const c of cs) {
-    const reply = await c.request({ t: 'match.join', mode: 'coop', difficulty: 'FUNNY', fillBots: true });
+    const reply = await c.request({ t: 'match.join', mode: 'coop', difficulty: 'FUNNY' });
     assert.equal(reply.t, 'ok');
     if (c === cs[0] && cs.indexOf(c) === 0) {
       const queued = await c.waitFor('match.queue', (m) => m.status === 'queued');
@@ -67,69 +67,47 @@ test('four alliance queue entries start one four-seat preparation match immediat
   assert.equal(srv.lobby.stats().rooms, 0);
 });
 
-test('public teammates start immediately behind a private room ticket over WebSocket', async () => {
-  const host = await player('Private head');
-  const cs = await Promise.all(['Public A', 'Public B', 'Public C', 'Public D'].map(player));
+test('a waiting room ticket is combined with public players and everyone starts', async () => {
+  const host = await player('Room head');
+  const cs = await Promise.all(['Public A', 'Public B', 'Public C'].map(player));
   assert.equal((await host.request({ t: 'room.create', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
-  await host.waitFor('room.state', (s) => s.code);
-  assert.equal((await host.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL', fillBots: false })).t, 'ok');
-  const original = await host.waitFor('match.queue', (m) => m.status === 'queued');
+  const room = await host.waitFor('room.state', (s) => s.code);
+  assert.equal((await host.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
+  const queued = await host.waitFor('match.queue', (m) => m.status === 'queued');
+  assert.equal(queued.count, 1);
+  assert.equal(queued.deadlineAt, undefined, 'the queue carries no countdown');
+  assert.equal(queued.fillBots, undefined, 'and no fill-Bots switch');
   for (const [i, c] of cs.entries()) {
-    assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL', fillBots: true })).t, 'ok');
-    const queued = await c.waitFor('match.queue', (m) => m.status === 'queued');
-    assert.equal(queued.count, i + 1, 'private room is excluded from public group counts');
+    assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
+    const seen = await c.waitFor('match.queue', (m) => m.status === 'queued');
+    assert.equal(seen.count, i + 2, 'every queued party counts toward the same four seats');
   }
-  for (const c of cs) {
-    await c.waitFor('match.queue', (m) => m.status === 'matched');
-    const pub = await c.waitFor('m.public');
-    assert.deepEqual(pub.players.map((p) => p.playerId).sort(), cs.map((c) => c.id).sort());
+  for (const c of [...cs, host]) {
+    const pub = await c.waitFor('m.public', (m) => m.phase === 'INFO_CHECK');
+    assert.deepEqual(pub.players.map((p) => p.playerId).sort(), [host.id, ...cs.map((x) => x.id)].sort());
+    assert.equal(pub.players.filter((p) => p.isBot).length, 0, 'no seat is filled with AI');
   }
-  assert.equal((await host.request({ t: 'match.leave' })).t, 'ok');
-  await host.waitFor('match.queue', (m) => m.status === 'cancelled');
-  const updates = host.log.filter((m) => m.t === 'match.queue' && m.status === 'queued');
-  assert.ok(updates.every((m) => m.count === 1 && m.deadlineAt === original.deadlineAt));
-  assert.ok(!host.log.some((m) => m.t === 'm.public'), 'private head keeps waiting while public match starts');
-});
-
-test('room matchmaking fills AI after the deadline and returns to that room after the result', async () => {
-  const c = await player('Room host');
-  const created = await c.request({ t: 'room.create', mode: 'coop', difficulty: 'FUNNY' });
-  assert.equal(created.t, 'ok');
-  const room = await c.waitFor('room.state', (s) => s.code);
-  const queued = await c.request({ t: 'match.join', mode: 'coop', difficulty: 'FUNNY', fillBots: false });
-  assert.equal(queued.t, 'ok');
-  const q = await c.waitFor('match.queue', (m) => m.status === 'queued');
-  assert.equal(q.fillBots, false);
-  const matching = await c.waitFor('room.state', (s) => s.matching?.queueId === q.queueId);
-  assert.equal(matching.inMatch, false);
-  const pub = await c.waitFor('m.public', (m) => m.phase === 'INFO_CHECK', 2500);
-  assert.equal(pub.players.length, 4);
-  assert.equal(pub.players.filter((p) => p.isBot).length, 3);
-  await c.request({ t: 'g.infoReady' });
-  await c.waitFor('m.result');
-  const back = await c.waitFor('room.state', (s) => s.code === room.code && !s.inMatch);
-  assert.equal(back.code, room.code);
-  assert.ok(back.seats.some((s) => s?.playerId === c.id));
+  const started = await host.waitFor('room.state', (s) => s.code === room.code && s.inMatch);
+  assert.equal(started.matching, null, 'the room leaves the queue for its own match');
 });
 
 function manualQueue(t) {
   let now = 1000;
   const sessions = new Map();
-  const lobby = new Lobby({ registry: { byId: (id) => sessions.get(id) }, now: () => now,
-    options: { matchmakingWaitMs: 60_000 } });
+  const lobby = new Lobby({ registry: { byId: (id) => sessions.get(id) }, now: () => now, options: {} });
   clearInterval(lobby.matchQueueTimer);
   lobby.matchQueueTimer = null;
   t.after(() => lobby.shutdown());
-  const states = [], launched = [];
-  lobby.broadcastState = (room) => states.push({ code: room.code, ...room.matching });
+  const launched = [];
+  lobby.broadcastState = () => {};                 // the manual queue has no real room behind it
   lobby.startQueuedMatch = (owner, players) => launched.push(players);
   let seq = 0;
   return {
-    lobby, states, launched,
+    lobby, launched,
     at(time) { now = time; },
     queueState(entry) { return sessions.get(entry.players[0].playerId).messages.at(-1); },
-    join({ count = 1, difficulty = 'NORMAL', fillBots = true, room = null } = {}) {
-      const entry = lobby.makeQueueEntry({ mode: 'coop', difficulty, fillBots, room,
+    join({ count = 1, difficulty = 'NORMAL', room = null } = {}) {
+      const entry = lobby.makeQueueEntry({ mode: 'coop', difficulty, room,
         players: Array.from({ length: count }, () => {
           const playerId = `queue-test-${++seq}`;
           const messages = [];
@@ -144,26 +122,25 @@ function manualQueue(t) {
 }
 
 for (const scenario of [
-  { name: 'eight humans behind a private ticket', sizes: [1, 1, 1, 1, 1, 1, 1, 1],
-    privateHead: true, counts: [1, 4, 4, 4, 4, 3, 3, 3], matches: 1, remaining: [0, 5, 6, 7] },
-  { name: 'thirteen humans in parties that cannot fit the head', sizes: [3, 2, 2, 2, 2, 2],
-    privateHead: false, counts: [3, 4, 4, 4, 4, 2], matches: 2, remaining: [0, 5] },
+  { name: 'eight single players pair up into two full teams', sizes: [1, 1, 1, 1, 1, 1, 1, 1],
+    counts: [4, 4, 4, 4, 4, 4, 4, 4], matches: 2, remaining: [] },
+  { name: 'parties that cannot fit the head wait, the rest launch', sizes: [3, 2, 2, 2, 2, 2],
+    counts: [3, 4, 4, 4, 4, 2], matches: 2, remaining: [0, 5] },
 ]) {
   test(`queue counts and immediate launches use actual groups: ${scenario.name}`, (t) => {
     const q = manualQueue(t);
-    const entries = scenario.sizes.map((count, i) => q.join({ count, fillBots: i !== 0 || !scenario.privateHead }));
-    const deadlines = entries.map((entry) => entry.deadlineAt);
+    const entries = scenario.sizes.map((count) => q.join({ count }));
     assert.deepEqual(entries.map((entry) => q.queueState(entry).count), scenario.counts);
     assert.ok(entries.every((entry) => q.queueState(entry).capacity === 4));
+    assert.ok(entries.every((entry) => q.queueState(entry).deadlineAt === undefined), 'no countdown is broadcast');
     const otherDifficulty = q.join({ difficulty: 'HARD' });
     assert.equal(q.queueState(otherDifficulty).count, 1);
 
     q.lobby.processMatchQueues();
-    assert.equal(q.launched.length, scenario.matches, 'later full groups start before the head deadline');
+    assert.equal(q.launched.length, scenario.matches, 'only full teams start');
     assert.ok(q.launched.every((players) => players.length === 4 && players.every((p) => !p.isBot)));
     const remaining = scenario.remaining.map((i) => entries[i]);
-    assert.deepEqual(q.lobby.matchQueues.get('coop:NORMAL'), remaining);
-    assert.deepEqual(entries.map((entry) => entry.deadlineAt), deadlines, 'launches do not reset waits');
+    assert.deepEqual(q.lobby.matchQueues.get('coop:NORMAL') || [], remaining);
     for (const entry of remaining) {
       assert.equal(q.queueState(entry).count, scenario.counts[entries.indexOf(entry)]);
       for (const p of entry.players) assert.equal(q.lobby.queueByPlayer.get(p.playerId), entry);
@@ -176,27 +153,52 @@ for (const scenario of [
   });
 }
 
-test('a later expired group fills AI while an earlier group waits for a new teammate', (t) => {
+test('a group smaller than four waits indefinitely and starts once a teammate completes it', (t) => {
   const q = manualQueue(t);
   const first = q.join({ count: 2 });
-  q.at(20_000);
-  const later = q.join({ count: 3 });
-  q.at(50_000);
-  const teammate = q.join();
-  assert.equal(first.deadlineAt, 110_000);
-  assert.equal(teammate.deadlineAt, first.deadlineAt);
-  assert.equal(later.deadlineAt, 80_000);
-  q.at(80_000);
+  q.at(10_000_000);
+  q.lobby.processMatchQueues();
+  assert.equal(q.launched.length, 0, 'waiting never adds AI, however long the queue is open');
+  assert.equal(q.queueState(first).count, 2);
+  const second = q.join({ count: 2 });
+  assert.equal(q.queueState(first).count, 4);
+  assert.equal(q.queueState(second).count, 4);
   q.lobby.processMatchQueues();
   assert.equal(q.launched.length, 1);
-  assert.deepEqual(q.launched[0].filter((p) => !p.isBot).map((p) => p.playerId), later.players.map((p) => p.playerId));
-  assert.equal(q.launched[0].filter((p) => p.isBot).length, 1);
-  assert.deepEqual(q.lobby.matchQueues.get('coop:NORMAL'), [first, teammate]);
-  assert.equal(q.queueState(first).count, 3);
-  assert.equal(first.deadlineAt, 110_000);
+  assert.equal(q.launched[0].length, 4);
+  assert.equal(q.launched[0].filter((p) => p.isBot).length, 0);
+  assert.deepEqual(q.lobby.matchQueues.get('coop:NORMAL'), undefined, 'the queue empties once the team starts');
 });
 
-test('cancelling a party updates only its remaining group count without resetting deadlines', (t) => {
+test('a new teammate grows the group count without starting anything before four', (t) => {
+  const q = manualQueue(t);
+  const room = { code: 'TEST' };
+  const first = q.join({ room });
+  const queuedAt = first.queuedAt;
+  q.at(60_000);
+  const second = q.join();
+  q.at(61_000);
+  q.lobby.processMatchQueues();
+  assert.equal(q.launched.length, 0);
+  assert.equal(q.queueState(first).count, 2);
+  assert.equal(q.queueState(second).count, 2);
+  q.at(90_000);
+  const third = q.join();
+  assert.equal(q.queueState(first).count, 3);
+  q.at(120_000);
+  q.lobby.processMatchQueues();
+  assert.equal(q.launched.length, 0, 'three seats still wait');
+  const fourth = q.join();
+  assert.equal(q.queueState(first).count, 4);
+  assert.equal(first.queuedAt, queuedAt, 'original queue order is preserved');
+  assert.deepEqual(room.matching, { queueId: first.queueId, queuedAt: first.queuedAt }, 'the room state carries no deadline');
+  q.lobby.processMatchQueues();
+  assert.equal(q.launched.length, 1);
+  assert.equal(q.launched[0].filter((p) => p.isBot).length, 0);
+  assert.ok([first, second, third, fourth].every((entry) => q.lobby.queueByPlayer.has(entry.players[0].playerId) === false));
+});
+
+test('cancelling a party updates only its remaining group count', (t) => {
   const q = manualQueue(t);
   const first = q.join({ count: 3 });
   q.at(20_000);
@@ -205,79 +207,54 @@ test('cancelling a party updates only its remaining group count without resettin
   const third = q.join({ count: 2 });
   assert.equal(q.queueState(first).count, 3);
   assert.equal(q.queueState(second).count, 4);
-  const deadline = second.deadlineAt;
   q.lobby.cancelMatchQueue(third);
   assert.equal(q.queueState(third).status, 'cancelled');
   assert.equal(q.queueState(second).count, 2);
   assert.equal(q.queueState(first).count, 3);
-  assert.equal(second.deadlineAt, deadline);
-  assert.equal(first.deadlineAt, 61_000);
+  q.lobby.processMatchQueues();
+  assert.equal(q.launched.length, 0, 'nothing starts without four seats');
 });
 
-test('a new teammate resets the whole compatible team’s AI deadline, broadcasts it to the room and waits the full interval', (t) => {
-  const q = manualQueue(t);
-  const room = { code: 'TEST' };
-  const first = q.join({ room });
-  const queuedAt = first.queuedAt;
-  q.at(60_000);
-  const second = q.join();
-  assert.equal(first.deadlineAt, 120_000);
-  assert.equal(second.deadlineAt, first.deadlineAt);
-  assert.equal(first.queuedAt, queuedAt, 'original queue order is preserved');
-  assert.equal(room.matching.deadlineAt, 120_000);
-  assert.equal(q.states.at(-1).deadlineAt, 120_000, 'room members receive the refreshed deadline');
-  q.at(61_000);
-  q.lobby.processMatchQueues();
-  assert.equal(q.launched.length, 0, 'original deadline does not add AI');
-  q.at(90_000);
-  const third = q.join();
-  assert.ok([first, second, third].every((entry) => entry.deadlineAt === 150_000));
-  q.at(149_999);
-  q.lobby.processMatchQueues();
-  assert.equal(q.launched.length, 0);
-  assert.equal(first.deadlineAt, 150_000, 'scheduler ticks never reset the deadline');
-  q.at(150_000);
-  q.lobby.processMatchQueues();
-  assert.equal(q.launched.length, 1);
-  assert.equal(q.launched[0].filter((p) => p.isBot).length, 1);
-});
-
-test('different difficulties, private tickets and parties exceeding capacity do not reset an unrelated team', (t) => {
+test('other difficulties and parties that do not fit never join a group', (t) => {
   const q = manualQueue(t);
   const first = q.join({ count: 3 });
   q.at(30_000);
   const otherDifficulty = q.join({ difficulty: 'HARD' });
-  const privateEntry = q.join({ fillBots: false });
   const largeParty = q.join({ count: 2 });
-  assert.equal(first.deadlineAt, 61_000);
+  assert.equal(q.queueState(first).count, 3);
+  assert.equal(q.queueState(otherDifficulty).count, 1, 'another difficulty is a separate pool');
+  assert.equal(q.queueState(largeParty).count, 2, 'a party that does not fit waits on its own');
   q.at(40_000);
   const teammate = q.join();
-  assert.equal(first.deadlineAt, 100_000);
-  assert.equal(teammate.deadlineAt, first.deadlineAt);
-  assert.equal(otherDifficulty.deadlineAt, 90_000);
-  assert.equal(privateEntry.deadlineAt, 90_000);
-  assert.equal(largeParty.deadlineAt, 90_000);
+  assert.equal(q.queueState(first).count, 4, 'the single player completes the party of three');
+  assert.equal(q.queueState(largeParty).count, 2);
   q.lobby.processMatchQueues();
-  assert.equal(q.launched.length, 1, 'full team starts without waiting for AI');
+  assert.equal(q.launched.length, 1, 'the full team starts');
   assert.equal(q.launched[0].filter((p) => p.isBot).length, 0);
+  assert.deepEqual(q.lobby.matchQueues.get('coop:NORMAL'), [largeParty]);
+  assert.deepEqual(q.lobby.matchQueues.get('coop:HARD'), [otherDifficulty]);
 });
 
-test('cancellation does not reset the AI wait and deadlines are sent to existing clients', async () => {
+test('queue counts reach existing clients and leaving shrinks the group again', async () => {
   const a = await player('Countdown A'), b = await player('Countdown B');
   const created = await a.request({ t: 'room.create', mode: 'coop', difficulty: 'HARD' });
   assert.equal(created.t, 'ok');
-  await a.waitFor('room.state', (s) => s.code);
-  assert.equal((await a.request({ t: 'match.join', mode: 'coop', difficulty: 'HARD', fillBots: true })).t, 'ok');
+  const room = await a.waitFor('room.state', (s) => s.code);
+  assert.equal((await a.request({ t: 'match.join', mode: 'coop', difficulty: 'HARD' })).t, 'ok');
   const original = await a.waitFor('match.queue', (m) => m.status === 'queued');
-  assert.equal((await b.request({ t: 'match.join', mode: 'coop', difficulty: 'HARD', fillBots: true })).t, 'ok');
+  assert.equal(original.count, 1);
+  const matching = await a.waitFor('room.state', (s) => s.matching?.queueId === original.queueId);
+  assert.deepEqual(matching.matching, { queueId: original.queueId, queuedAt: original.queuedAt });
+  assert.equal((await b.request({ t: 'match.join', mode: 'coop', difficulty: 'HARD' })).t, 'ok');
   const updated = await a.waitFor('match.queue', (m) => m.status === 'queued' && m.count === 2);
+  assert.equal(updated.deadlineAt, undefined);
+  assert.equal(updated.queueId, original.queueId, 'the host keeps its own ticket');
   const joined = await b.waitFor('match.queue', (m) => m.status === 'queued' && m.count === 2);
-  assert.ok(updated.deadlineAt >= original.deadlineAt);
-  assert.equal(joined.deadlineAt, updated.deadlineAt);
-  const room = await a.waitFor('room.state', (s) => s.matching?.deadlineAt === updated.deadlineAt);
-  assert.equal(room.matching.deadlineAt, joined.deadlineAt);
+  assert.notEqual(joined.queueId, updated.queueId, 'each party is its own ticket in the same group');
   assert.equal((await b.request({ t: 'match.leave' })).t, 'ok');
   const left = await a.waitFor('match.queue', (m) => m.status === 'queued' && m.count === 1);
-  assert.equal(left.deadlineAt, updated.deadlineAt, 'leaving does not restart the countdown');
+  assert.equal(left.queueId, updated.queueId, 'the host keeps waiting');
   assert.equal((await a.request({ t: 'match.leave' })).t, 'ok');
+  const cleared = await a.waitFor('room.state', (s) => s.matching === null);
+  assert.equal(cleared.code, room.code);
 });

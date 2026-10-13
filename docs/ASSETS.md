@@ -113,13 +113,17 @@ running; 暂停下载 stops them and 关闭预载 disables automatic downloading
   `hash` — the first 12 hex of the SHA-1 of the file's bytes, written by `tools/asset-hashes.mjs` (fetched assets) and
   `tools/local-extract/extract.py` (local-client art) — plus a `tier`:
   **tier 1 (`essential`, 必备)** — maps and board meshes, operator/enemy/token pictures (including portraits), every
-  Spine model (skel/atlas/textures), local visual effects, fonts, UI and icons; **tier 2 (`optional`, 可选)** — character
-  voices, sound effects, background music and tutorial illustrations. Required files are preloaded by default; the
+  operator/enemy/token Spine model (skel/atlas/textures), local visual effects, fonts, UI and icons; **tier 2
+  (`optional`, 可选)** — 干员皮肤 (docs/SKINS.md), character voices, sound effects, background music and tutorial
+  illustrations. Required files are preloaded by default; the
   同时预载 checkbox opts into optional files, persisted as `settings.preloadOptional` (default false, including old
   settings). Unselected optional files still load normally on demand. Sizes are included
   for the files this install has on disk; a CDN-only install omits them and the client reports progress in files
   instead of bytes. A file without a recorded hash falls back to a synthetic one derived from its source manifest, so
-  such a manifest keeps the old "any rebuild invalidates the set" rule.
+  such a manifest keeps the old "any rebuild invalidates the set" rule. The two server-added emote sets
+  (`shared/constants.js → CUSTOM_EMOTE_ART`, 12 pictures no generated manifest lists) are added by `server/resources.js`
+  as tier 1: their real hash and size when `public/assets/local/emoticon/<dir>/` holds them, otherwise a stable
+  URL-derived hash and no size, so the 交流 panel's extra pages are preloaded like the official ones.
 - **Updating is incremental.** All the files live in one cache (`stronghold-resources-v1-all`) and each entry's hash is
   recorded in an index entry inside it, so a new manifest re-downloads the files whose hash changed and keeps the rest:
   adding the local-client art to an install that already preloaded costs the new files, not the whole set. A cache of

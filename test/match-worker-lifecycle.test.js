@@ -124,16 +124,22 @@ test('failed initialization rolls back the reservation without deleting the prev
 
 test('a failed queued launch closes the old queue UI over WS instead of leaving it waiting forever', async (t) => {
   const srv = await startServer({ host: '127.0.0.1', port: 0, quiet: true, workers: 0, matchWorkers: 1, store: null,
-    matchmakingWaitMs: 1, matchmakingTickMs: 10 });
+    matchmakingTickMs: 10 });
   t.after(() => srv.close());
   await srv.matchWorkerPool.lanes[0].worker.terminate();
-  const c = await TestClient.connect(`ws://127.0.0.1:${srv.port}/ws`);
-  t.after(() => c.close());
-  const identity = await c.hello('Queue fail');
-  assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
-  const closed = await c.waitFor('match.queue', (m) => m.status === 'closed');
-  assert.equal(closed.reason, 'start_failed');
-  assert.equal(srv.lobby.queueByPlayer.has(identity.playerId), false);
+  const cs = [];
+  for (const name of ['Queue fail A', 'Queue fail B', 'Queue fail C', 'Queue fail D']) {
+    const c = await TestClient.connect(`ws://127.0.0.1:${srv.port}/ws`);
+    t.after(() => c.close());
+    await c.hello(name);
+    cs.push(c);
+  }
+  for (const c of cs) assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
+  for (const c of cs) {
+    const closed = await c.waitFor('match.queue', (m) => m.status === 'closed');
+    assert.equal(closed.reason, 'start_failed');
+    assert.equal(srv.lobby.queueByPlayer.has(c.id), false);
+  }
   assert.equal(srv.lobby.activeQueueMatches.size, 0);
 });
 
@@ -165,7 +171,7 @@ for (const remote of [false, true]) {
     a.ops = ops;
     room.seatOf(a.playerId).ops = ops;
     room.aiPicksLast = true;
-    assert.equal(lobby.matchJoin(a, { mode: 'coop', difficulty: 'NORMAL', fillBots: true }).ok, true);
+    assert.equal(lobby.matchJoin(a, { mode: 'coop', difficulty: 'NORMAL' }).ok, true);
     const ticket = a.matchQueue;
     assert.deepEqual(ticket.players[0].ops, ops);
     lobby.removeQueueReferences(ticket);

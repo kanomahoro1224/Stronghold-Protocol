@@ -7,7 +7,8 @@ const messageTypes = new Set(['invalid', 'hello', 'ping', 'g.ready', 'g.rerollVo
   'g.leave', 'g.pause', 'g.autoplay', 'g.console', 'g.destroy', 'g.art', 'g.emote', 'b.result', 'b.progress',
   'room.create', 'room.join', 'room.leave', 'room.ready', 'room.start', 'room.setDifficulty', 'room.setAiPicksLast', 'room.rerollSetup', 'room.cancelReroll', 'room.addBot',
   'room.removeBot', 'room.kick', 'room.loadout', 'room.ownership', 'room.diy', 'room.spectate',
-  'room.removeSpectator', 'room.console.enable', 'room.console.disable', 'match.join', 'match.leave', 'state.resync']);
+  'room.removeSpectator', 'room.console.enable', 'room.console.disable', 'room.skins',
+  'match.join', 'match.leave', 'state.resync']);
 const fields = [
   ['uptime_seconds', 'uptimeSec'],
   ...['sockets', 'sessions', 'rooms', 'matches', 'roomMatches', 'standaloneMatches', 'humans', 'bots', 'spectators', 'queued']

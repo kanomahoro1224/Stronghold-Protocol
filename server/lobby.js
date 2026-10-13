@@ -29,7 +29,9 @@
 //     Solo runs (下半: "休整期及机变阶段没有时间限制…24小时内随时返回", research 01 §1 / 06 §17): a session that drops
 //     while its solo room's match runs stays resumable for the official `config.constants.singleReconnectTime`
 //     (86400 s; option `soloReconnectWindowMs` overrides it) instead of the 10-minute window — the untimed solo match
-//     simply waits (net.js session.resumeWindowMs, set at every disconnect). Only after that does expiry turn into
+//     simply waits (net.js session.resumeWindowMs, set at every disconnect). Any other running match gets
+//     `matchIdleGraceMs` (30 min) instead, so a co-op player who reconnects late still finds their seat (用户要求
+//     2026-10-11: 对局里没人后至少 30 分钟才清理). Only after that does expiry turn into
 //     match.onLeave ('abandoned'). The extension outlives the match, so a run that ended meanwhile (e.g. a server-run
 //     Final Assault) still shows its result on the player's return.
 //     A repeated hello on a live connection is a full resync: room.state goes to the requester only
@@ -120,12 +122,12 @@ export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 /** Tunables. */
 export const LOBBY_DEFAULTS = Object.freeze({
   lobbyGraceMs: 60_000,   // disconnected humans keep their lobby seat this long
+  matchIdleGraceMs: 30 * 60_000, // a running match keeps a dropped human's seat (and checkpoint) this long
   maxRooms: 1000,
   maxRoomsPerAddr: 16,    // rooms created from one client network that may exist at once (0 = unlimited)
   maxMatchesPerAddr: 8,   // matches started from one client network that may run at once (0 = unlimited)
   resyncMinGapMs: 1000,   // heavy resyncs (match state / result replay) per session at most this often on repeated hellos
   soloReconnectWindowMs: null, // a dropped solo run stays resumable this long (null = data singleReconnectTime, 24 h)
-  matchmakingWaitMs: 60_000,   // queue wait before an AI teammate is added
   matchmakingTickMs: 1_000,    // queue scheduling cadence
 });
 
@@ -177,6 +179,27 @@ function freezeDiy(picks) {
   return Object.freeze(out);
 }
 
+/**
+ * Frozen copy of a skin selection, keeping only entries whose chess the game data knows (docs/SKINS.md).
+ *
+ * Deliberately not a `checkLoadout`-style validator: nothing here can be abused. A skinId the client made up, or
+ * one belonging to a different operator, simply fails to resolve in `spineEntry()` and the unit draws its
+ * default model — so the only thing worth filtering is the chess id, exactly as the loadout does.
+ * @param {Record<string, string>} skins `{ [baseChessId]: skinId }`
+ * @param {(id: string) => any} getChess
+ */
+function freezeSkins(skins, getChess) {
+  const out = {};
+  for (const [id, skinId] of Object.entries(skins || {})) {
+    // Keyed by chess id and gated exactly like the loadout (checkLoadout, shared/protocol.js): a base, visible
+    // chess record. NOT `rec.charId === id` — a chess id is `chess_char_1_01_a` while its operator is
+    // `char_498_inside`, so that test would drop every entry.
+    const rec = getChess(id);
+    if (!rec || rec.isGolden || rec.visible === false || rec.isHidden || rec.isDiy || (rec.baseId && rec.baseId !== id)) continue;
+    out[id] = String(skinId);
+  }
+  return Object.freeze(out);
+}
 /** One room: 4 seat slots, host, difficulty, optional running match. */
 export class Room {
   /** @param {string} code @param {'solo'|'coop'} mode @param {string} difficulty @param {number} now */
@@ -211,7 +234,7 @@ export class Room {
     this.ownerKey = null;
     /** @type {string | null} per-network limit key of whoever started the running match */
     this.matchKey = null;
-    /** @type {{ queueId: string, queuedAt: number, deadlineAt: number, fillBots: boolean } | null} */
+    /** @type {{ queueId: string, queuedAt: number } | null} */
     this.matching = null;
     /** Owner opt-in for the in-match developer console. Public matchmaking never has a Room flag. */
     this.consoleEnabled = false;
@@ -439,6 +462,7 @@ export class Lobby {
       case 'room.rerollSetup': return this.rerollSetup(session, msg);
       case 'room.cancelReroll': return this.rerollSetup(session, msg, true);
       case 'room.loadout': return this.loadout(session, msg);
+      case 'room.skins': return this.skins(session, msg);
       case 'match.join': return this.matchJoin(session, msg);
       case 'match.leave': return this.matchLeave(session);
       case 'room.ownership': return this.ownership(session, msg);
@@ -457,9 +481,13 @@ export class Lobby {
     const queued = this.queueByPlayer.get(session.playerId);
     if (queued) this.cancelMatchQueue(queued, 'disconnect');
     const room = this.roomOf(session);
-    // a solo run may be resumed within singleReconnectTime (24 h); everything else keeps the registry's window
-    session.resumeWindowMs = room && room.match && room.mode === 'solo' ? this.soloResumeWindowMs() : null;
     const active = this.activeMatchOf(session);
+    // A solo run may be resumed within singleReconnectTime (24 h); any other running match keeps the dropped seat for
+    // `matchIdleGraceMs` (30 min), so a reconnect after the registry's 10-minute window still finds the room and its
+    // checkpoint. A lobby seat (no running match) keeps the registry's window.
+    const liveMode = room?.match?.mode ?? active?.match?.mode ?? null;
+    session.resumeWindowMs = liveMode === 'solo' ? this.soloResumeWindowMs()
+      : liveMode ? this.matchIdleGraceMs() : null;
     if (!room && !active) return;
     if (!room && active) {
       this.callMatchContext(active, 'onDisconnect', session.playerId);
@@ -777,10 +805,11 @@ export class Lobby {
 
   /**
    * Join the shared matchmaking pool. A player outside a room contributes one seat; a room host contributes the
-   * whole connected party. `fillBots` controls whether other queued parties may be combined, while the 60 s deadline
-   * always fills the remaining seats with AI as required by the game flow.
+   * whole connected party. Queued parties are packed oldest-first into one four-seat team and the match starts as
+   * soon as a group fills all four seats — there is no wait timer and empty seats are never filled with AI
+   * (operator, 2026-10-11: the 60 s AI backfill and its countdown are gone).
    */
-  matchJoin(session, { mode, difficulty, fillBots = true }) {
+  matchJoin(session, { mode, difficulty }) {
     const room = this.roomOf(session);
     const active = this.activeMatchOf(session);
     if (active) return fail(ERR.ROOM_STARTED, 'match already running');
@@ -789,7 +818,7 @@ export class Lobby {
       if (room) return fail(ERR.MATCHING, 'leave the room before solo matchmaking');
       // Compatibility for clients from the first queue rollout. The current UI keeps independent simulation on its
       // solo room path and only sends mode=coop from the in-room teammate-match option.
-      const entry = this.makeQueueEntry({ mode: 'coop', difficulty, fillBots: true, room: null,
+      const entry = this.makeQueueEntry({ mode: 'coop', difficulty, room: null,
         players: [{ ...this.humanSeat(0, session), connected: session.connected }] });
       this.enqueueMatchEntry(entry);
       this.processMatchQueues();
@@ -807,13 +836,13 @@ export class Lobby {
         isBot: !!s.isBot, connected: s.connected !== false, loadout: s.isBot ? null : s.loadout || null,
         ops: s.isBot ? null : s.ops || null,
         notOwned: s.isBot ? null : s.notOwned || null, diy: s.isBot ? null : s.diy || null }));
-      const entry = this.makeQueueEntry({ mode, difficulty: room.difficulty, fillBots: !!fillBots, room, players });
+      const entry = this.makeQueueEntry({ mode, difficulty: room.difficulty, room, players });
       this.enqueueMatchEntry(entry);
       this.broadcastState(room);
       this.processMatchQueues();
       return OK;
     }
-    const entry = this.makeQueueEntry({ mode, difficulty, fillBots: true, room: null,
+    const entry = this.makeQueueEntry({ mode, difficulty, room: null,
       players: [{ ...this.humanSeat(0, session), connected: session.connected }] });
     this.enqueueMatchEntry(entry);
     this.processMatchQueues();
@@ -827,12 +856,12 @@ export class Lobby {
     return OK;
   }
 
-  makeQueueEntry({ mode, difficulty, fillBots, room, players }) {
+  makeQueueEntry({ mode, difficulty, room, players }) {
     const now = this.now();
     const entry = {
       queueId: `Q${(++this.queueSeq).toString(36).toUpperCase()}`,
-      mode, difficulty, fillBots: !!fillBots, room: room || null, players: players.map((p) => ({ ...p })),
-      queuedAt: now, deadlineAt: now + Math.max(1000, Number(this.opts.matchmakingWaitMs) || 60_000),
+      mode, difficulty, room: room || null, players: players.map((p) => ({ ...p })),
+      queuedAt: now,
       removed: false,
     };
     return entry;
@@ -849,37 +878,12 @@ export class Lobby {
       this.queueByPlayer.set(p.playerId, entry);
     }
     if (entry.room) {
-      entry.room.matching = { queueId: entry.queueId, queuedAt: entry.queuedAt, deadlineAt: entry.deadlineAt, fillBots: entry.fillBots };
+      entry.room.matching = { queueId: entry.queueId, queuedAt: entry.queuedAt };
     }
-    // A newly matched human party gives its teammates a fresh AI wait. Use the same packing as processing,
-    // so another difficulty, a private ticket or a party that does not fit cannot extend their deadline.
-    const groups = this.groupMatchEntries(bucket);
-    const selected = groups.find((group) => group.includes(entry));
-    if (selected.length > 1) for (const teammate of selected) {
-      teammate.deadlineAt = entry.deadlineAt;
-      if (teammate.room?.matching) {
-        teammate.room.matching.deadlineAt = teammate.deadlineAt;
-        this.broadcastState(teammate.room);
-      }
-    }
-    this.broadcastQueueCounts(entry.mode, entry.difficulty, groups);
+    this.broadcastQueueCounts(entry.mode, entry.difficulty, this.groupMatchEntries(bucket));
   }
 
-  /** Oldest-first party packing without splitting parties or combining private tickets. */
-  selectMatchEntries(bucket) {
-    const first = bucket[0];
-    const selected = [first];
-    let total = first.players.length;
-    if (first.fillBots) for (let i = 1; i < bucket.length && total < MAX_SEATS; i++) {
-      const next = bucket[i];
-      if (!next || next.removed || !next.fillBots || total + next.players.length > MAX_SEATS) continue;
-      selected.push(next);
-      total += next.players.length;
-    }
-    return selected;
-  }
-
-  /** Use identical groups for counts, AI deadline resets and match launch. */
+  /** Use identical groups for counts and match launch. */
   groupMatchEntries(bucket) {
     const remaining = bucket.filter((entry) => entry && !entry.removed);
     const groups = [];
@@ -890,7 +894,7 @@ export class Lobby {
     const used = new Set();
     for (let i = 0; i < remaining.length; i++) {
       const entry = remaining[i];
-      if (entry.fillBots && entry.players.length > 0 && entry.players.length <= MAX_SEATS) bySize[entry.players.length].push(i);
+      if (entry.players.length > 0 && entry.players.length <= MAX_SEATS) bySize[entry.players.length].push(i);
     }
     for (let i = 0; i < remaining.length; i++) {
       if (used.has(i)) continue;
@@ -898,7 +902,7 @@ export class Lobby {
       const selected = [first];
       used.add(i);
       let total = first.players.length;
-      while (first.fillBots && total < MAX_SEATS) {
+      while (total < MAX_SEATS) {
         let next = Infinity;
         for (let size = 1; size <= MAX_SEATS - total; size++) {
           const candidates = bySize[size];
@@ -924,10 +928,9 @@ export class Lobby {
     }
   }
 
-  /** Process each bucket oldest-first. Full teams start immediately; otherwise AI fills seats after the latest
-   * teammate's fresh wait expires. Regular scheduler ticks never extend that wait. */
+  /** Process each bucket oldest-first. Only a group that fills all four seats starts; anything smaller keeps
+   * waiting for more queued players — no wait timer, no AI backfill (operator, 2026-10-11). */
   processMatchQueues() {
-    const now = this.now();
     for (const [key, bucket] of this.matchQueues) {
       for (let i = bucket.length - 1; i >= 0; i--) {
         if (!bucket[i] || bucket[i].removed) bucket.splice(i, 1);
@@ -935,16 +938,11 @@ export class Lobby {
       for (const selected of this.groupMatchEntries(bucket)) {
         const first = selected[0];
         const total = selected.reduce((n, entry) => n + entry.players.length, 0);
-        if (total < MAX_SEATS && now < first.deadlineAt) continue;
+        if (total < MAX_SEATS) continue;
         for (const entry of selected) {
           this.removeQueueReferences(entry);
         }
         const players = selected.flatMap((entry) => entry.players.map((p) => ({ ...p })));
-        while (players.length < MAX_SEATS) {
-          const seat = players.length;
-          players.push({ seat, playerId: `ai_${randomBytes(4).toString('hex')}`, name: BOT_NAMES[seat % BOT_NAMES.length],
-            isBot: true, connected: true, loadout: null });
-        }
         const owner = selected.find((entry) => entry.room) || first;
         Promise.resolve(this.startQueuedMatch(owner, players, selected)).then((result) => {
           if (result?.error) this.failedQueuedStart(selected);
@@ -1002,8 +1000,7 @@ export class Lobby {
 
   sendQueueState(entry, status = 'queued', reason = null, count = entry.players.filter((p) => !p.isBot).length) {
     const msg = { t: 'match.queue', status, queueId: entry.queueId, mode: entry.mode, difficulty: entry.difficulty,
-      count, capacity: MAX_SEATS, queuedAt: entry.queuedAt,
-      deadlineAt: entry.deadlineAt, fillBots: entry.fillBots, ...(reason ? { reason } : {}) };
+      count, capacity: MAX_SEATS, queuedAt: entry.queuedAt, ...(reason ? { reason } : {}) };
     for (const p of entry.players) if (!p.isBot) {
       const session = this.registry.byId(p.playerId);
       if (session?.connected) sendSession(session, msg);
@@ -1340,6 +1337,37 @@ export class Lobby {
    * room.ownership (0.2.0 补位): keep the droppable chess of the not-owned list, store it on the session and the seat
    * (see the header). A running match never takes it: it keeps the list its seat had at its start.
    */
+  /**
+   * room.skins (docs/SKINS.md): store the player's chosen operator skins on the session and the seat, and hand
+   * them to a running match.
+   *
+   * Unlike room.loadout there is no phase gate. The loadout is frozen at INFO_CHECK because it changes what a
+   * unit *does*; a skin changes only what it looks like, and it is public — a teammate switching model mid-match
+   * is harmless, and the next `m.public` broadcast carries it to everyone.
+   */
+  skins(session, { skins }) {
+    const data = this.safeData();
+    const cleaned = freezeSkins(skins, (id) => lookup('chess', id, data));
+    session.skins = cleaned;
+    const room = this.roomOf(session);
+    if (!room) return OK;
+    const seat = room.seatOf(session.playerId);
+    if (seat) seat.skins = cleaned;
+    if (!room.match) return OK;
+    if (typeof room.match.setSkins !== 'function') return fail(ERR.ROOM_STARTED, 'stored for the next match');
+    let r;
+    try {
+      r = room.match.setSkins(session.playerId, cleaned);
+    } catch (e) {
+      this.log.error(`[lobby] ${room.code} match.setSkins threw`, e);
+      return fail(ERR.INTERNAL);
+    }
+    if (r && typeof r === 'object' && r.error) {
+      return fail(isErrCode(r.error) ? r.error : ERR.INTERNAL, typeof r.detail === 'string' ? r.detail : undefined);
+    }
+    return OK;
+  }
+
   ownership(session, { notOwned }) {
     const data = this.safeData();
     const res = checkNotOwned(notOwned, (id) => lookup('chess', id, data));
@@ -1409,6 +1437,8 @@ export class Lobby {
       : room.seats.filter(Boolean).map((s) => ({
         seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot, connected: s.connected,
         loadout: s.isBot ? null : s.loadout || null, ops: s.isBot ? null : s.ops || null, notOwned: s.isBot ? null : s.notOwned || null, diy: s.isBot ? null : s.diy || null,
+        // 皮肤 (docs/SKINS.md): the seat's choice rides into the Match, where PlayerState publishes it to teammates
+        skins: s.isBot ? null : s.skins || null,
       }));
     const ctx = { live: false, ended: false, disposed: false, match: null, workerKey: room.code,
       lastPublic: null, sharedResult: null, results: new Map() };
@@ -1473,6 +1503,8 @@ export class Lobby {
         seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot, connected: s.connected,
         // DESIGN §16: the human's checked operator loadout (bots fight with the defaults)
         loadout: s.isBot ? null : s.loadout || null, ops: s.isBot ? null : s.ops || null, notOwned: s.isBot ? null : s.notOwned || null, diy: s.isBot ? null : s.diy || null,
+        // 皮肤 (docs/SKINS.md): the seat's choice rides into the Match, where PlayerState publishes it to teammates
+        skins: s.isBot ? null : s.skins || null,
       }));
     // lastPublic / results: the latest m.public broadcast and the m.result frames (encoded), kept for the replay.
     const ctx = { live: !checkpoint, ended: false, disposed: false, match: null, workerKey: room.code,
@@ -2017,6 +2049,16 @@ export class Lobby {
     try { return this.getData(); } catch (e) { this.log.error('[lobby] getData failed', e); return Object.freeze({}); }
   }
 
+  /**
+   * How long a running match keeps a dropped human's seat and checkpoint (ms). Unlike the lobby grace this covers every
+   * mode, so a co-op player who reconnects after the registry's 10-minute window still finds their match (用户要求
+   * 2026-10-11: 对局里没人后至少 30 分钟才清理对局).
+   */
+  matchIdleGraceMs() {
+    const o = this.opts.matchIdleGraceMs;
+    return typeof o === 'number' && Number.isFinite(o) && o > 0 ? o : LOBBY_DEFAULTS.matchIdleGraceMs;
+  }
+
   /** How long a dropped solo run stays resumable (ms): the option, else data singleReconnectTime, else 24 h. */
   soloResumeWindowMs() {
     const o = this.opts.soloReconnectWindowMs;
@@ -2044,6 +2086,8 @@ export class Lobby {
     return {
       seat: idx, playerId: session.playerId, name: session.name, isBot: false, ready: false, connected: session.connected, left: false,
       loadout: session.loadout || null,
+      // 皮肤 (docs/SKINS.md): a seat carries the player's choice into the room and on into Match (PlayerState)
+      skins: session.skins || null,
       ops: session.ops || null,
       notOwned: session.notOwned || null,
       diy: session.diy || null,

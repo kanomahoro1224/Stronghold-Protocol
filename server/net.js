@@ -53,7 +53,8 @@ export const NET_DEFAULTS = Object.freeze({
   abuseDropsPerSec: 400,        // rate-limited messages within one second before the socket is closed (1008)
   heartbeatMs: 30_000,          // ping interval; a socket that missed one full interval is terminated
   helloTimeoutMs: 30_000,       // sockets that never say hello are closed (4002)
-  reconnectWindowMs: 10 * 60_000, // disconnected sessions stay resumable this long
+  reconnectWindowMs: 10 * 60_000, // disconnected sessions stay resumable this long (a running match's session is
+                                  // extended by the lobby: session.resumeWindowMs)
   snapDropBytes: 1 << 20,       // skip b.snap while bufferedAmount exceeds this
   hardBufferBytes: 16 << 20,    // terminate a socket whose send queue exceeds this
   maxConnections: 2000,         // concurrent sockets (enforced by index.js at upgrade time)
@@ -72,7 +73,7 @@ export const NET_DEFAULTS = Object.freeze({
  * (taking a spectator seat in a running match resends its state like a watcher's g.watch — server/lobby.js spectate).
  * state.resync requests a full match recovery; it also uses the lobby's per-session resync coalescing.
  */
-export const HEAVY_TYPES = new Set(['g.watch', 'room.loadout', 'room.ownership', 'room.diy', 'room.spectate', 'state.resync']);
+export const HEAVY_TYPES = new Set(['g.watch', 'room.loadout', 'room.ownership', 'room.diy', 'room.spectate', 'state.resync', 'room.skins']);
 
 /** Close codes (see header). */
 export const CLOSE = Object.freeze({ REPLACED: 4001, HELLO_TIMEOUT: 4002, POLICY: 1008, SHUTDOWN: 1001 });
@@ -118,6 +119,8 @@ export class Session {
     this.resyncAt = -Infinity;
     /** @type {Record<string, { skill: number, module: string|null }> | null} checked operator loadout (lobby-owned, DESIGN §16) */
     this.loadout = null;
+    /** @type {Record<string, string> | null} chosen operator skins (lobby-owned, docs/SKINS.md): PUBLIC, unlike the loadout */
+    this.skins = null;
     /** @type {Readonly<Record<string, { potential: number, cultivate: number }>> | null} checked per-operator 潜能 / 练度 (lobby-owned, 0.2.2; room.loadout `ops`) */
     this.ops = null;
     /** @type {readonly string[] | null} checked not-owned chess ids (干员持有, lobby-owned, 0.2.0 补位) */

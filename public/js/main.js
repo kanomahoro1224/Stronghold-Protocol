@@ -55,6 +55,7 @@ import { LoadoutHost } from './screens/loadout.js';
 import { StatsHost } from './screens/stats.js';
 import { recordResult, installStatsRecorder } from './ui/stats.js';
 import { installLoadoutSync, installOwnershipSync, installDiySync } from './ui/loadoutSync.js';
+import { installSkinsSync } from './ui/skins.js';
 import { startBuildGuard } from './ui/buildGuard.js';
 import { initLang, useLang, tickerText } from './ui/lang.js';
 import { t, N_, translateWire } from '../../shared/i18n.js';
@@ -407,6 +408,9 @@ async function boot() {
   wireNet();
   installStatsRecorder(store); // follows the match on screen, so a 放弃模拟 can be recorded (ui/stats.js)
   installLoadoutSync({ net });
+  // 干员皮肤 (docs/SKINS.md): keeps the server's copy of this browser's skins current, and reloads the asset
+  // manifest when anyone on this server installs one (the section itself is rendered by screens/loadout.js).
+  installSkinsSync({ net });
   installOwnershipSync({ net });
   installDiySync({ net });
   net.attachBrowserHooks();

@@ -340,10 +340,17 @@ test('emotes: relayed as m.emote with a 1 s cooldown; g.watch during prep scouts
   assert.deepEqual(h.lastBc('m.emote'), { t: 'm.emote', playerId: 'p_0', id: 'autochess_battle_happy' });
   assert.equal(m.handle('p_0', { t: 'g.emote', id: 'slug_autochess_battle_thanks' }).error, ERR.RATE);
   h.sched.advance(1000);
-  // only the official emote ids are relayed (defence in depth: handle() may be called without validateC2S)
+  // only the wheel's ids are relayed (defence in depth: handle() may be called without validateC2S) — the official 36
+  // plus this fork's server-added sets (shared/constants.js EMOTE_IDS)
   assert.equal(m.handle('p_0', { t: 'g.emote', id: 'autochess_room_hello' }).error, ERR.BAD_MSG); // room-scene emote
   assert.equal(m.handle('p_0', { t: 'g.emote', id: 'happy' }).error, ERR.BAD_MSG); // v1 short id
   assert.deepEqual(m.handle('p_0', { t: 'g.emote', id: 'slug_autochess_battle_thanks' }), { ok: true });
+  h.sched.advance(1000);
+  assert.deepEqual(m.handle('p_0', { t: 'g.emote', id: 'custom_battle_kaguya_wink' }), { ok: true });
+  assert.deepEqual(h.lastBc('m.emote'), { t: 'm.emote', playerId: 'p_0', id: 'custom_battle_kaguya_wink' },
+    'a server-added set is relayed like an official emote');
+  h.sched.advance(1000);
+  assert.equal(m.handle('p_0', { t: 'g.emote', id: 'custom_battle_kaguya_nope' }).error, ERR.BAD_MSG);
   h.toPrep(1);
   assert.deepEqual(m.handle('p_0', { t: 'g.watch', fieldId: 'n:p_1' }), { ok: true });
   const f = h.lastTo('p_0', 'm.field');

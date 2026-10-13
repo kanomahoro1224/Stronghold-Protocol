@@ -1,7 +1,7 @@
 // Normative message catalogue (DESIGN §8). Used by server (validation) and client (building requests).
 // Every client→server message is `{ t, rid?, ...fields }`. Unknown `t` or invalid fields ⇒ ERR.BAD_MSG.
 
-import { DIFFICULTIES, NAME_MAX_LEN, ROOM_CODE_LEN, MAX_SEATS, EMOTES, GEO } from './constants.js';
+import { DIFFICULTIES, NAME_MAX_LEN, ROOM_CODE_LEN, MAX_SEATS, EMOTE_IDS, GEO } from './constants.js';
 import { isDroppableChess } from './standIn.js';
 import { diySlotIds, validateDiyPicks } from './diy.js';
 import { cultivatedStats, isPotential, isCultivate, POTENTIAL_DEFAULT, CULTIVATE_DEFAULT } from './potential.js';
@@ -69,6 +69,25 @@ export function isBattleResult(v) {
     && optional((x) => isInt(x, 0, 1e9))(v.errors) && optional((x) => isNum(x, 0, BIG))(v.bossHpLeft);
 }
 
+// ---- 干员皮肤 (docs/SKINS.md): room.skins { skins } -----------------------------------------------------------
+
+/**
+ * `room.skins { skins }`: `skins` = `{ [baseChessId]: skinId }` — which installed skin each operator wears. The
+ * ids come from `data/skins.json` (`{ [charId]: [{ id, name, group }] }`).
+ *
+ * Unlike `room.loadout` these are PUBLIC: they ride in `Match.publicView().players[]` so a teammate sees your
+ * skin, which is the whole point of choosing one in a co-op match.
+ *
+ * Validation here is deliberately shallow, and that is safe: an unknown skinId, or one belonging to another
+ * operator, can do nothing worse than fall back to the operator's default model in `spineEntry()`. So only the
+ * shape is checked on the wire; the server matches each id against its chess (`PlayerState.setSkins`) and drops
+ * the entries it does not recognise rather than rejecting the whole selection.
+ */
+export const SKIN_LIMITS = Object.freeze({ entries: 160, idLen: 64 });
+/** A skinId. NOT `isId`: those allow only `[A-Za-z0-9_\-.:]`, and skin ids carry `@` and `#` (`char_002_amiya@winter#1`). */
+export const isSkinId = (v) => typeof v === 'string' && v.length > 0 && v.length <= SKIN_LIMITS.idLen && /^[A-Za-z0-9_@#+.\-]+$/.test(v);
+/** Structural check of `room.skins.skins`. */
+export const isSkinSelection = (v) => isMap(v, SKIN_LIMITS.entries, isId, isSkinId);
 // ---- operator loadout (DESIGN §16): room.loadout { entries } -------------------------------------------------
 
 /**
@@ -402,12 +421,12 @@ export const C2S = {
   'room.console.enable': {},
   'room.console.disable': {},
   // matchmaking: an alliance room host queues the whole party. `mode: solo` remains accepted for older clients;
-  // the current UI always creates a solo room instead, so independent simulation stays a solo room/match.
+  // the current UI always creates a solo room instead, so independent simulation stays a solo room/match. There is
+  // no fill-Bots switch and no wait timer any more (operator, 2026-10-11): a queue only starts once it has four
+  // real players, so the message carries nothing but the mode and the difficulty.
   'match.join': {
     mode: (v) => v === 'coop' || v === 'solo',
     difficulty: (v) => DIFFICULTIES.includes(v),
-    fillBots: isBool,
-    $optional: ['fillBots'],
   },
   'match.leave': {},
   // operator loadout (DESIGN §16): stored per session/seat; accepted until the match leaves INFO_CHECK
@@ -416,6 +435,8 @@ export const C2S = {
   // operator loadout (DESIGN §16): stored per session/seat; accepted until the match leaves INFO_CHECK — `ops` (0.2.2):
   // the per-operator 潜能 / 练度 (absent = none set: every operator at 潜能 6, 精英2 Lv.60)
   'room.loadout': { entries: isLoadoutEntries, ops: isLoadoutOps, $optional: ['ops'] },
+  // 干员皮肤 (docs/SKINS.md): public, so it is accepted in any room phase — no need to freeze it at INFO_CHECK
+  'room.skins': { skins: isSkinSelection },
   // operator ownership (干员持有, 0.2.0 补位): stored per session / seat; a match takes the list its seat had when it
   // started (an out-of-match setting — during a match it is stored for the next one: ROOM_STARTED)
   'room.ownership': { notOwned: isNotOwnedList },
@@ -451,7 +472,8 @@ export const C2S = {
   'g.reward': { idx: (v) => isInt(v, 0, 5) },
   'g.choice': { idx: (v) => isInt(v, 0, 5), choiceId: isId, $optional: ['choiceId'] },
   'g.ready': { ready: isBool },
-  'g.emote': { id: (v) => EMOTES.includes(v) },
+  // EMOTE_IDS = the official 36 + the server-added sets (shared/constants.js); data/emotes.json stays official-only
+  'g.emote': { id: (v) => EMOTE_IDS.includes(v) },
   'g.chat': { text: validChatText },
   // playerId: the player tapped in the team panel (a 联防 / boss pair field shows two) — what an eliminated viewer or a
   // spectator seat follows from then on (Match.watchPref; community report of 2026-10-06, item 56)

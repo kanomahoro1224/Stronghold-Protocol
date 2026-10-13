@@ -50,3 +50,10 @@ desktop.ini
 .idea/
 .vscode/
 .claude/
+
+# --- local scratch on this machine only ------------------------------------------------------------
+.p2tmp/
+.workbuddy/
+community/data/
+community/.shots/
+community/.shots-raw/

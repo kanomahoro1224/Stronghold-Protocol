@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   EMOTES, EMOTE_THEMES, EMOTE_CATALOG, EMOTE_THEME, EMOTE_LABEL, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS,
+  CUSTOM_EMOTE_THEMES, ALL_EMOTE_THEMES, ALL_EMOTE_CATALOG, EMOTE_IDS,
   emoteInfo, emoteArtPath, emoteArtGroup,
 } from '../../shared/constants.js';
 import { CHAT_MAX_LENGTH } from '../../shared/chat.js';
@@ -96,6 +97,73 @@ describe('emote catalog (shared/constants.js)', () => {
     // the client reads the bubble time from config.timers (game.js) and the server rate-limits with the constant
     const timers = tryJson('data/config.json')?.timers;
     if (timers) assert.deepEqual([timers.chatCd * 1000, timers.chatBubble * 1000], [EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS]);
+  });
+});
+
+// The operator's own two sets (2026-10-11): they are not official 盟约 emotes, so they live in CUSTOM_EMOTE_THEMES and
+// leave EMOTE_THEMES / EMOTE_CATALOG / EMOTES (and therefore data/emotes.json, data/local-assets.json, data/assets.json)
+// exactly as generated. Their art ships with the server under public/assets/local/emoticon/<dir>/ and the protocol
+// whitelist is EMOTE_IDS = the official 36 + these.
+describe('server-added emote sets (shared/constants.js CUSTOM_EMOTE_THEMES)', () => {
+  const CUSTOM_IDS = CUSTOM_EMOTE_THEMES.flatMap((t) => t.emotes.map((e) => e.id));
+
+  test('two sets × 6, appended to the wheel after the official six, frozen', () => {
+    assert.deepEqual(CUSTOM_EMOTE_THEMES.map((t) => t.themeId), ['emoticon_weishu_kaguya', 'emoticon_weishu_kano']);
+    for (const t of CUSTOM_EMOTE_THEMES) {
+      assert.equal(t.emotes.length, 6, t.themeId);
+      assert.equal(t.custom, true, t.themeId);
+      assert.equal(t.isBasic, false, t.themeId);
+      const sorts = t.emotes.map((e) => e.sortId);
+      assert.deepEqual(sorts, [...sorts].sort((a, b) => a - b), `${t.themeId} by sortId`);
+      for (const e of t.emotes) assert.match(e.picId, /^pic_.+_battle$/, e.id);
+    }
+    assert.deepEqual(ALL_EMOTE_THEMES.map((t) => t.themeId),
+      [...EMOTE_THEMES.map((t) => t.themeId), ...CUSTOM_EMOTE_THEMES.map((t) => t.themeId)]);
+    assert.equal(ALL_EMOTE_CATALOG.length, 48);
+    assert.deepEqual(EMOTE_IDS.slice(0, EMOTES.length), [...EMOTES], 'the official ids keep their order');
+    assert.deepEqual([...EMOTE_IDS], ALL_EMOTE_CATALOG.map((e) => e.id));
+    assert.ok(Object.isFrozen(CUSTOM_EMOTE_THEMES) && Object.isFrozen(ALL_EMOTE_THEMES)
+      && Object.isFrozen(ALL_EMOTE_CATALOG) && Object.isFrozen(EMOTE_IDS) && Object.isFrozen(CUSTOM_EMOTE_THEMES[0].emotes));
+  });
+
+  test('ids are new (never an official one) and the protocol accepts exactly them', () => {
+    assert.equal(new Set(EMOTE_IDS).size, EMOTE_IDS.length, 'no duplicate id');
+    for (const id of CUSTOM_IDS) {
+      assert.ok(!EMOTES.includes(id), `${id} is not an official id`);
+      assert.match(id, /^custom_battle_[a-z0-9_]+$/, id);
+      assert.equal(validateC2S({ t: 'g.emote', id }), null, id);
+    }
+    for (const bad of ['custom_battle_kaguya_nope', 'custom_battle_', 'custom_battle_kano_07']) {
+      assert.notEqual(validateC2S({ t: 'g.emote', id: bad }), null, bad);
+    }
+  });
+
+  test('art resolves to the file the server ships, and the id is a full catalog record', () => {
+    for (const e of ALL_EMOTE_CATALOG.filter((x) => x.custom)) {
+      assert.equal(emoteArtPath(e.id), `/assets/local/emoticon/${e.dir}/${e.picId}.png`);
+      assert.equal(emoteArtGroup(e.id), `emoticon/${e.dir}`);
+      const info = emoteInfo(e.id);
+      assert.equal(info.label, e.label);
+      assert.equal(info.themeId, e.themeId);
+      assert.equal(typeof e.label, 'string');
+      assert.ok(e.label.length > 0, e.id);
+    }
+  });
+
+  test('the official catalog and its maps are untouched by the added sets', () => {
+    assert.equal(EMOTE_THEMES.length, 6);
+    assert.equal(EMOTE_CATALOG.length, 36);
+    assert.equal(EMOTES.length, 36);
+    assert.equal(Object.keys(EMOTE_THEME).length, 36);
+    assert.equal(Object.keys(EMOTE_LABEL).length, 36);
+    for (const id of EMOTES) {
+      assert.equal(emoteInfo(id).custom, undefined, `${id} stays official`);
+      assert.equal(EMOTE_THEME[id], emoteInfo(id).themeId, id);
+    }
+    for (const id of CUSTOM_IDS) {
+      assert.equal(EMOTE_THEME[id], undefined, `${id} is not in the official map`);
+      assert.equal(EMOTE_LABEL[id], undefined, `${id} is not in the official map`);
+    }
   });
 });
 
@@ -283,7 +351,8 @@ describe('public/js/ui/emotes.js helpers', () => {
 
   test('pager helpers: clamp, swipe threshold, remembered theme', async () => {
     const { clampPage, swipeStep, themeIndex, lastThemeIndex, rememberTheme } = await import('../../public/js/ui/emotes.js');
-    assert.deepEqual([clampPage(-3), clampPage(2), clampPage(99), clampPage('x'), clampPage(2.7)], [0, 2, 5, 0, 2]);
+    assert.deepEqual([clampPage(-3), clampPage(2), clampPage(99), clampPage('x'), clampPage(2.7)],
+      [0, 2, ALL_EMOTE_THEMES.length - 1, 0, 2], 'clamped at the last wheel page (the server-added sets extend it)');
     assert.deepEqual([swipeStep(-60), swipeStep(60), swipeStep(-10), swipeStep(0), swipeStep(-40)], [1, -1, 0, 0, 1]);
     assert.equal(themeIndex('emoticon_foolsday_amiya'), 4);
     assert.equal(themeIndex('nope'), 0);

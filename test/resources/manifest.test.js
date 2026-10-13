@@ -17,6 +17,7 @@ import {
   RESOURCE_MANIFEST_FILE, RESOURCES_FORMAT, TIER_ESSENTIAL, TIER_REST, buildResourceManifest, collectResourceFiles,
   createResourceIndex, isResourcePath, localPathFor, resourceType, tierForPath, validateResourceUrl,
 } from '../../server/resources.js';
+import { CUSTOM_EMOTE_ART } from '../../shared/constants.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -130,7 +131,7 @@ describe('resource manifest building', () => {
     assert.equal(tierForPath('chars.c.voice.attack'), TIER_REST);
     assert.equal(tierForPath('audio.voice.c.1'), TIER_REST);
     const nested = collectResourceFiles({ chars: { c: { sound: '/assets/audio/unknown.mp3' } } }, null);
-    assert.equal(nested[0].tier, TIER_REST);
+    assert.equal(nested.find((f) => f.url === '/assets/audio/unknown.mp3').tier, TIER_REST);
     assert.equal(tierForPath('local.groups.emoticon.e1.path'), TIER_ESSENTIAL);
     // 0.1.2 moved the battle emotes and the 19 玩法说明 pages into the mirror download: the emotes are match UI, the
     // tutorial pages are full screenshots behind their own screen and wait for the background pass.
@@ -155,7 +156,8 @@ describe('resource manifest building', () => {
     assert.equal(files.find((f) => f.url === '/assets/char/avatar/char_002_amiya.png').tier, TIER_ESSENTIAL);
     assert.equal(files.find((f) => f.url === '/fonts/bender-regular.otf').tier, TIER_ESSENTIAL);
     assert.equal(files.find((f) => f.url === '/assets/char/portrait/char_002_amiya_1.png').tier, TIER_ESSENTIAL);
-    assert.equal(collectResourceFiles(null, null).length, 0);
+    assert.equal(collectResourceFiles(null, null).length, CUSTOM_EMOTE_ART.length, 'only the server-added emote art');
+    for (const url of CUSTOM_EMOTE_ART) assert.ok(urls.includes(url), url);
   });
 
   test('a shared file keeps its essential tier (the lowest one wins)', () => {
@@ -354,7 +356,10 @@ describe('the served resource manifest', () => {
     const res = await fetch(`http://127.0.0.1:${srv.address().port}/data/${RESOURCE_MANIFEST_FILE}`);
     assert.equal(res.status, 200);
     const m = await res.json();
-    assert.deepEqual({ format: m.format, count: m.count, files: m.files }, { format: RESOURCES_FORMAT, count: 0, files: [] });
+    // The server-added emote art is the only thing an install without manifests still ships itself.
+    assert.deepEqual(m.files.map((f) => f.url), [...CUSTOM_EMOTE_ART].sort(), 'no manifests ⇒ just the server-added emote art');
+    assert.equal(m.format, RESOURCES_FORMAT);
+    assert.equal(m.count, CUSTOM_EMOTE_ART.length);
   });
 
   test('other /data/ paths are untouched (the manifest name is the only generated one)', async (t) => {
@@ -389,10 +394,10 @@ describe('the resource index cache', () => {
     assert.ok(checks.every((check) => check === checks[0]), 'warm requests share only the ongoing check');
     for (const b of await Promise.all(checks)) assert.equal(b, a);
     assert.equal(reads.length, 0, 'no JSON or tile body read on a cache hit');
-    assert.equal(stats.length, 4, 'only three manifests and the known tile companion');
-    assert.equal(rewrites, 2, 'no CDN rewrite or resource traversal on a cache hit');
+    assert.equal(stats.length, 16, 'only three manifests, the known tile companion and the 12 emote pictures');
+    assert.equal(rewrites, 3, 'no CDN rewrite or resource traversal on a cache hit');
     await index.get();
-    assert.equal(stats.length, 8, 'completed checks are not cached indefinitely');
+    assert.equal(stats.length, 32, 'completed checks are not cached indefinitely');
     index.reset();
     assert.notEqual((await index.get()).body, a.body);
     assert.equal(reads.length, 4);
@@ -418,6 +423,36 @@ describe('the resource index cache', () => {
     assert.ok(!d.manifest.files.some((f) => f.url === atlas));
     fs.writeFileSync(path.join(inst.dataDir, 'local-assets.json'), JSON.stringify({ groups: { map: { new: { path: '/assets/local/map/new.png' } } } }));
     assert.ok((await index.get()).manifest.files.some((f) => f.url === '/assets/local/map/new.png'));
+  });
+
+  test('the server-added emote art is listed as essential, sized from disk and hashed', async (t) => {
+    const art = CUSTOM_EMOTE_ART.map((url) => url.slice(1));
+    const inst = install({ localDoc: null, files: art });
+    t.after(inst.cleanup);
+    const index = createResourceIndex(inst);
+    const first = await index.get();
+    assert.equal(CUSTOM_EMOTE_ART.length, 12, 'two sets of six');
+    for (const url of CUSTOM_EMOTE_ART) {
+      const entry = first.manifest.files.find((f) => f.url === url);
+      assert.ok(entry, `${url} is preloaded`);
+      assert.equal(entry.tier, TIER_ESSENTIAL, 'the 交流 panel needs it during a match');
+      assert.ok(Number.isSafeInteger(entry.size) && entry.size > 0, 'a size is reported from the file on disk');
+      assert.ok(!entry.hash.startsWith('syn-'), 'a real content hash');
+    }
+    assert.ok(first.manifest.totalBytes >= CUSTOM_EMOTE_ART.length);
+
+    // A CDN-only install (the files are not on disk) still lists them, it just cannot size them.
+    const cdn = install({ localDoc: null, files: [] });
+    t.after(cdn.cleanup);
+    const cdnManifest = (await createResourceIndex(cdn).get()).manifest;
+    assert.ok(CUSTOM_EMOTE_ART.every((url) => cdnManifest.files.some((f) => f.url === url && f.size === undefined)));
+
+    // Replacing a picture invalidates the cached manifest, so clients pick the new bytes up.
+    fs.writeFileSync(path.join(inst.publicDir, art[0]), Buffer.alloc(64, 7));
+    const changed = await index.get();
+    const hash = (m) => m.manifest.files.find((f) => f.url === CUSTOM_EMOTE_ART[0]).hash;
+    assert.notEqual(changed.etag, first.etag);
+    assert.notEqual(hash(changed), hash(first));
   });
 
   test('tile revalidation errors are not mistaken for missing files or served as a stale cache hit', async (t) => {

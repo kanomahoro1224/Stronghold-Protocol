@@ -30,6 +30,16 @@ function validTime(value) {
   return month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1] && hour <= 23 && minute <= 59 && second <= 59;
 }
 
+/**
+ * Keep the author's line breaks: the notice dialog renders one line per break (public/js/ui/announcement.js), so a
+ * site notice can keep its sections. Runs of spaces and tabs inside a line still collapse, and three or more breaks
+ * collapse to a single blank line (the dialog drops blank lines; the scrolling banner just shows a wider gap).
+ */
+export function normalizeAnnouncementText(value) {
+  return String(value).split(/\r?\n/).map((line) => line.replace(/[^\S\n]+/g, ' ').trim())
+    .join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 /** Validate the whole document atomically: a half-written edit never replaces the last valid schedule. */
 export function parseAnnouncements(doc) {
   if (!doc || typeof doc !== 'object' || Array.isArray(doc) || !Array.isArray(doc.announcements)
@@ -52,7 +62,7 @@ export function parseAnnouncements(doc) {
     if (typeof level !== 'string' || !own(ANNOUNCEMENT_LEVELS, level) || typeof enabled !== 'boolean') throw new Error(`${id}: invalid level or enabled flag`);
     const at = Date.parse(startAt);
     return { id, ...(type === 'popup' ? { type } : {}), ...options,
-      text: text.trim().replace(/\s+/g, ' '), startAt: at, endAt: at + durationSeconds * 1000, level, enabled };
+      text: normalizeAnnouncementText(text), startAt: at, endAt: at + durationSeconds * 1000, level, enabled };
   });
 }
 

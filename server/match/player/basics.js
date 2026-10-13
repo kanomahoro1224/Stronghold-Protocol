@@ -64,6 +64,32 @@ export class PlayerBasics {
    * @param {any} [ops]
    * @returns {boolean}
    */
+  /**
+   * 皮肤 (docs/SKINS.md): replace this player's skin choices. `{ [chessId]: skinId }`; the ids come from
+   * data/skins.json on the client. Validation is deliberately light — an unknown or mismatched skinId cannot do
+   * anything but fall back to the operator's default model in spineEntry() — so only the shape and the chess id
+   * are checked here, and a malformed entry is dropped rather than rejecting the whole selection.
+   * @param {Record<string, string>|null} skins
+   * @returns {boolean} whether anything was accepted
+   */
+  setSkins(skins) {
+    if (this.isBot) return false;
+    const out = {};
+    if (skins && typeof skins === 'object' && !Array.isArray(skins)) {
+      for (const [id, skinId] of Object.entries(skins)) {
+        if (typeof skinId !== 'string' || !skinId) continue;
+        // Same gate the loadout uses (checkLoadout): a base, visible chess record. The key is the CHESS id
+        // (`chess_char_1_01_a`), which is what board pieces and the prep view carry — not the operator id.
+        const rec = this.gd.chess(id);
+        if (!rec || rec.isGolden || rec.visible === false || rec.isHidden || rec.isDiy || (rec.baseId && rec.baseId !== id)) continue;
+        out[id] = skinId;
+      }
+    }
+    this.skins = Object.freeze(out);
+    // skins are PUBLIC (a teammate sees your skin): dirty() flags both the private and the public view
+    this.dirty();
+    return Object.keys(out).length > 0;
+  }
   setLoadout(loadout, ops = undefined) {
     if (this.isBot) return false;
     let opsRes = null;

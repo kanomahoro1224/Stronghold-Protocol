@@ -66,15 +66,69 @@ export function AnnouncementButton({ class: cls, variant = 'secondary', size = '
     aria-haspopup="dialog" title=${t('公告')} onClick=${() => { onClick?.(); openAnnouncement(); }}>${t('公告')}<//>`;
 }
 
+/**
+ * A notice line may carry links: `[显示文字](https://…)` renders the author's own text as an underlined link, a bare
+ * `http(s)://` URL renders as an underlined link showing the address, and `**文字**` renders in the accent colour (light
+ * green, no link — for a nickname the author wants highlighted). Everything else stays plain text (the notice text is
+ * never parsed as HTML). Trailing punctuation stays outside a bare link, only `http(s)` targets are accepted, and a
+ * line without any markup is returned as the plain string, so `test/announcements.test.js` still sees text.
+ */
+const NOTICE_URL = /https?:\/\/[^\s<>"'`，。、；：！？（）【】「」『』]+/gu;
+const NOTICE_URL_TAIL = /[.,;:!?、。，；：！？)）\]】」》}]+$/u;
+const NOTICE_MD = /\[([^\]\n]{1,120})\]\(\s*(https?:\/\/[^\s<>"'`]+?)\s*\)/gu;
+const NOTICE_ACCENT = /\*\*([^*\n]{1,120})\*\*/gu;
+
+export function announcementLineNodes(line) {
+  const text = String(line ?? '');
+  const out = [];
+  let marked = false;
+  const link = (key, href, label) => {
+    marked = true;
+    out.push(html`<a key=${key} class="notice__link" href=${href} target="_blank" rel="noopener noreferrer">${label}</a>`);
+  };
+  /** Plain run: only bare URLs inside it become links. */
+  const addPlain = (slice) => {
+    let at = 0;
+    for (const match of slice.matchAll(NOTICE_URL)) {
+      const tail = match[0].match(NOTICE_URL_TAIL)?.[0] ?? '';
+      const url = tail ? match[0].slice(0, -tail.length) : match[0];
+      if (!url) continue;
+      if (match.index > at) out.push(slice.slice(at, match.index));
+      link(`u${match.index}`, url, url);
+      at = match.index + url.length;
+    }
+    if (at < slice.length) out.push(slice.slice(at));
+  };
+  /** Run between links: `**文字**` is highlighted, everything else goes through the bare-URL scan. */
+  const addText = (slice) => {
+    let at = 0;
+    for (const match of slice.matchAll(NOTICE_ACCENT)) {
+      if (match.index > at) addPlain(slice.slice(at, match.index));
+      marked = true;
+      out.push(html`<span key=${`a${match.index}`} class="notice__accent">${match[1]}</span>`);
+      at = match.index + match[0].length;
+    }
+    if (at < slice.length) addPlain(slice.slice(at));
+  };
+  let at = 0;
+  for (const match of text.matchAll(NOTICE_MD)) {
+    if (match.index > at) addText(text.slice(at, match.index));
+    link(`m${match.index}`, match[2], match[1]);
+    at = match.index + match[0].length;
+  }
+  if (at < text.length) addText(text.slice(at));
+  return marked ? out : text;
+}
+
 export function AnnouncementContent({ notice }) {
   if (!notice) return html`<p class="modal__text">${t('暂无公告')}</p>`;
-  // fork 的呈现：正文按行渲染（一个字符串也按换行拆），空行丢弃。数据仍是 upstream 的 notice.text。
+  // fork 的呈现：正文按行渲染（一个字符串也按换行拆），空行丢弃；行内的 http(s) 链接渲染成可点的下划线链接。
   const lines = String(notice.text ?? '').split(/\r?\n/).filter((l) => l.trim() !== '');
   return html`<div class="announcement-content">
     <div class="notice__layout">
       <div class="notice__main">
         <div class="notice__body">
-          ${lines.map((line, i) => html`<p class="notice__line" key=${i}>${line}</p>`)}
+          ${lines.map((line, i) => html`<p class="notice__line" key=${i}>${announcementLineNodes(line)}</p>`)}
         </div>
     ${notice.url ? html`<a class="announcement-content__link" href=${notice.url} target="_blank" rel="noopener noreferrer">
       <${Icon} name="link" />${t('查看详情')}<span class="announcement-content__url">${notice.url}</span>
@@ -96,7 +150,7 @@ export function AnnouncementHost() {
   const key = announcementDismissKey(notice);
   useEffect(() => { syncAnnouncementPopup(notice, net.serverNow(), inMatch); }, [key, live, inMatch]);
   return html`<${Modal} open=${open && (!automatic || !inMatch)} title=${live ? notice.title || t('公告') : t('公告')} micro="ANNOUNCEMENT"
-    class="announcement-modal" width="min(7.4rem, 94vw)" onClose=${closeAnnouncement}
+    class="announcement-modal" width="min(11rem, 94vw)" onClose=${closeAnnouncement}
     actions=${html`<${Button} variant="primary" icon="close" data-autofocus onClick=${closeAnnouncement}>${t('关闭')}<//>`}>
     <${AnnouncementContent} notice=${live ? notice : null} />
   <//>`;
