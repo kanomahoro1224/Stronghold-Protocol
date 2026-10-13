@@ -357,7 +357,7 @@ export function ShopBar({ priv, editable, collapsed, refreshBusy = false, onColl
         <${Img} src=${uiUrl(data.get('assets'), frozen ? 'shopPanel/frozen_icon2' : 'shopPanel/frozen_icon')} class="toolbtn__img" fallback=${html`<${Icon} name="snow" />`} />
         <span>${frozen ? t('解冻') : t('冻结')}</span><kbd>${shortcutLabel(shortcuts, 'freeze')}</kbd>
       </button>
-      <button type="button" class="toolbtn toolbtn--amber" disabled=${!!refReason} onClick=${onRefresh} title=${refReason || t('刷新商店 · {0}', { 0: shortcutLabel(shortcuts, 'refresh') })}>
+      <button type="button" class="toolbtn toolbtn--amber" disabled=${!!refReason || refreshBusy} onClick=${onRefresh} title=${refReason || (refreshBusy ? t('正在刷新…') : t('刷新商店 · {0}', { 0: shortcutLabel(shortcuts, 'refresh') }))}>
         <${Img} src=${uiUrl(data.get('assets'), 'shopPanel/refresh_icon')} class="toolbtn__img" fallback=${html`<${Icon} name="refresh" />`} />
         <span>${t('刷新')}</span>
         ${free > 0 ? html`<span class="toolbtn__free">${t('免费 ×{free}', { free })}</span>` : html`<${HexBadge} value=${shop.refreshPrice ?? 1} tone=${refReason ? 'dark' : 'gold'} size="sm" />`}
