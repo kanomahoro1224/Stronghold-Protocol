@@ -136,15 +136,27 @@ const DEFAULT_MELEE_RANGE = [[0, 0], [0, 1]];
 /**
  * Band pick among the strategies the mode offers (gd.bandIds): weighted by starting LP (sturdier strategies are
  * preferred). Alone, a band that withholds the first rounds' funds (老鲤 "资金暂存": no operator in R1–R2, every enemy
- * leaks) is avoided. Mode bans only filter the chess pool, so tied strategies remain selectable.
+ * leaks) is avoided. Mode bans only filter the chess pool, so every band the mode offers stays selectable — this
+ * branch keeps that rule (AGENTS「本分支游戏规则」: the AI does not exclude bonds by the mode list), so upstream's
+ * inactive-bond weight of 0 is not applied.
+ * [ASSUMED] A living teammate's opening strategy soft-reserves the bonds it rides on: the weight stays positive, at a
+ * quarter of the unreserved weight, so the strategy can still be drawn; the reservation ends when that teammate is
+ * eliminated (alivePlayers). A solo match has no teammate to reserve against.
  * One rng draw per call (deterministic per seed).
  */
+const SOFT_BAND_RESERVE = 0.25;
 export function botPickBand(m, ps) {
   const gd = ps?.gd || m.gd;
   const ids = gd.bandIds();
   if (!ids.length) return gd.defaultBandId;
   const lateFunds = (id) => /暂存/.test(String(gd.band(id)?.desc || ''));
-  const pairs = ids.map((id) => [id, Math.max(1, (gd.startLp(id) - 18) ** 2) * (m.isSolo && lateFunds(id) ? 0.02 : 1)]);
+  const reserved = new Set(ps && typeof m.alivePlayers === 'function'
+    ? m.alivePlayers().filter((p) => p !== ps).flatMap((p) => gd.bandBondIds(p.bandId))
+    : []);
+  const pairs = ids.map((id) => {
+    const w = Math.max(1, (gd.startLp(id) - 18) ** 2) * (m.isSolo && lateFunds(id) ? 0.02 : 1);
+    return [id, gd.bandBondIds(id).some((b) => reserved.has(b)) ? w * SOFT_BAND_RESERVE : w];
+  });
   let total = 0;
   for (const [, w] of pairs) total += w;
   let r = m.rngBots() * total;

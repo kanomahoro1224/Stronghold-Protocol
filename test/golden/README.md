@@ -94,4 +94,15 @@ node tools/golden.mjs --twice                   # determinism: the corpus twice 
   hook list is frozen in the tool and the corpus is regenerated only on `golden:update` — but new data records do join
   the corpus there (the roster family enumerates `data/chess.json`).
 
+## 2026-10-13 v0.2.5 合并（本分支 `3bf38fb1`）
+
+用户指定的第二个上游（`sganggs/Stronghold-Protocol`，即 `origin/master` = 标签 `v0.2.5`）合入本分支，23 个冲突文件逐段解决，未用整文件 ours/theirs。`npm run golden:update` 后只有 `matches.json`（20 个场景）与 `roster.json` 变化；`bonds.json`、`fields.json`、`standins.json`、`diy.json` 不变，全部 287 个场景比对通过（`ok · 87919 ms`）。
+
+差异来源已核实，只有两处本分支规则，均为有意保留：
+
+1. **AI 不按模式名单排除盟约**（AGENTS「本分支游戏规则」）：上游 v0.2.5 的 `botPickBand` 让「机制依赖被模式关闭的盟约」的策略权重为 0（`inactive(id)`），本分支**不采纳**该排除，只采纳其队友软预留 `SOFT_BAND_RESERVE = 0.25`（`server/match/bot.js`）。这改变了含 bot 开局策略的场景，是 `matches.json` / `roster.json` 变化的主要来源。
+2. **最终攻势/隐秘核心 Boss 共享血量池**（单人 `bloodPoint × 1`，多人按存活人数缩放）与 `inactiveBondIds` 继续参与干员池过滤，沿用 0.2.4 合并时确立的规则。
+
+`bonds` / `fields` / `standins` / `diy` 四族与上游 v0.2.5 基线逐字一致，说明本次合并没有引入计划外的全局行为变化（RNG 抽取顺序、tick 顺序、共享规则均未移动）。
+
 After the measured shared-stock update (DESIGN §29.8), the original stand-in / DIY seeds remain as outcome regressions even when they field no such operator. Companion seeds `coop2-NORMAL-1-coverage-standins` and `coop2-NORMAL-5-coverage-diy` exercise those full paths; the corpus now contains 287 scenarios.
