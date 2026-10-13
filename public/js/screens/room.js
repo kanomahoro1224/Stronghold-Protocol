@@ -10,7 +10,7 @@
 //
 // Start rule (server/lobby.js): without matchmaking, room.start needs every *other* human connected and ready; the
 // host's start counts as the host's ready. With matchmaking selected, the same 立即开始 action sends match.join
-// for the whole connected party and the queue fills the remaining seats.
+// for the whole connected human party and waits for four real players; rooms with AI must remove it first.
 // Solo rooms show a single seat.
 // Spectator seats (community report #26, a remake feature): a co-op room with spectators shows the 观战席 strip under
 // the seats — names, offline marks, the host's ✕ (room.removeSpectator) — and a spectator's own view swaps the ready
@@ -33,6 +33,16 @@ import { net } from '../net.js';
 import { store, useStore, shallowEqual, emptyMatch, isSpectating } from '../store.js';
 import { difficultyInfo } from './lobby.js';
 import { t, tc } from '../../../shared/i18n.js';
+
+/** Room header utilities use the same compact icon-button treatment in solo and co-op rooms. */
+export function RoomTools({ coop }) {
+  return html`<div class="room-topbar__tools">
+    <${Button} variant="secondary" size="sm" square=${true} icon="chart" class="stats-entry" onClick=${openStats}
+      title=${t('统计数据')} aria-label=${t('统计数据')} />
+    <${SettingsButton} class="room-settings" variant="secondary" square=${true} label=${t('设置')} />
+    <${GuideButton} class="room-guide" variant="secondary" square=${true} label=${t('玩法说明')} />
+  </div>`;
+}
 
 /**
  * Seats padded to the room's capacity (co-op 4, solo 1), each null or a seat record.
@@ -210,7 +220,7 @@ function DifficultyPicker({ room, isHost, busy, onPick }) {
 
 function ConsoleWarning({ open, remaining, busy, onCancel, onConfirm }) {
   const ready = remaining <= 0;
-  return html`<${Modal} open=${open} title=${t('启用控制台')} micro="DEVELOPER CONSOLE" tone="red" closeOnBackdrop=${false}
+  return html`<${Modal} open=${open} title=${t('启用控制台')} micro="DEVELOPER CONSOLE" tone="red" closeOnBackdrop=${false} utility=${true}
       onClose=${onCancel}
       actions=${html`<${Button} variant="secondary" onClick=${onCancel}>${t('取消')}<//>
         <${Button} variant="danger" icon="terminal" loading=${busy} disabled=${!ready} onClick=${onConfirm}>${ready ? t('确定启用') : t('请等待 {remaining} 秒', { remaining })}<//>`}>
@@ -248,15 +258,9 @@ export function RoomScreen() {
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleReadyAt, setConsoleReadyAt] = useState(0);
   const [consoleNow, setConsoleNow] = useState(() => Date.now());
-  const [, tickMatchClock] = useState(0);
   const alive = useRef(true);
   const inFlight = useRef(false); // synchronous guard against double clicks (state updates are async)
   useEffect(() => () => { alive.current = false; }, []);
-  useEffect(() => {
-    if (!room?.matching) return undefined;
-    const id = setInterval(() => tickMatchClock((n) => n + 1), 250);
-    return () => clearInterval(id);
-  }, [room?.matching?.queueId]);
   useEffect(() => {
     if (!consoleOpen) return undefined;
     const id = setInterval(() => setConsoleNow(Date.now()), 200);
@@ -268,6 +272,7 @@ export function RoomScreen() {
   const online = conn.status === 'online';
   const coop = room.mode !== 'solo';
   const facts = roomFacts(room, me.playerId);
+  const hasBots = facts.occupied.some((s) => s.isBot);
   const canManageConsole = facts.isHost || (room.mode === 'solo' && !!facts.mine);
   const myReady = !!facts.mine?.ready;
   const info = difficultyInfo(room.mode, room.difficulty);
@@ -293,7 +298,7 @@ export function RoomScreen() {
   // confirmed player's id goes along: if they left and someone else took the seat meanwhile, the server refuses it.
   const kick = async (seat, name, playerId) => {
     if (inFlight.current) return;
-    const ok = await confirmDialog({ title: t('移出同盟'), text: t('确定将「{name}」移出同盟吗？对方可以凭同盟密钥重新加入。', { name: name || t('博士') }), okText: t('移出'), danger: true });
+    const ok = await confirmDialog({ utility: true, title: t('移出同盟'), text: t('确定将「{name}」移出同盟吗？对方可以凭同盟密钥重新加入。', { name: name || t('博士') }), okText: t('移出'), danger: true });
     if (ok) run(`kick${seat}`, () => net.request('room.kick', { seat, playerId }));
   };
   const setDifficulty = (difficulty) => run('diff', () => net.request('room.setDifficulty', { difficulty }));
@@ -318,7 +323,7 @@ export function RoomScreen() {
     if (inFlight.current) return;
     const othersHere = facts.humans.some((s) => s.playerId !== me.playerId);
     if (facts.isHost && othersHere) {
-      const ok = await confirmDialog({ title: t('离开同盟'), text: t('你是同盟的创建者，离开后创建者身份将移交或同盟解散。确定离开吗？'), okText: t('离开'), danger: true });
+      const ok = await confirmDialog({ utility: true, title: t('离开同盟'), text: t('你是同盟的创建者，离开后创建者身份将移交或同盟解散。确定离开吗？'), okText: t('离开'), danger: true });
       if (!ok) return;
     }
     inFlight.current = true;
@@ -349,7 +354,7 @@ export function RoomScreen() {
         ? html`<span class="t-mint">${t('已就绪 · 等待创建者开始模拟')}</span>`
         : html`<span class="t-lo">${t('准备就绪后，创建者即可开始模拟')}</span>`;
 
-  return html`<div class="screen room-screen">
+  return html`<div class=${`screen room-screen${coop ? ' room-screen--coop' : ''}`}>
     <header class="topbar">
       <div class="topbar__left">
         <${Tooltip} text=${t('离开同盟')} placement="bottom">
@@ -363,9 +368,7 @@ export function RoomScreen() {
           </div>
           <${MicroLabel}>${t('连接状态')}<//>
         </div>
-        <${Button} variant="secondary" size="sm" icon="chart" class="stats-entry" onClick=${openStats} title=${t('统计数据')} aria-label=${t('统计数据')}>${t('统计')}<//>
-        <${SettingsButton} class="room-settings" variant="secondary" label=${t('设置')} />
-        <${GuideButton} class="room-guide" variant="secondary" label=${t('玩法说明')} />
+        <${RoomTools} coop=${coop} />
       </div>
       <div class="topbar__center">
         <${MicroLabel} tone="mint">${coop ? 'ALLIANCE LOBBY' : 'SOLO SIMULATION'}<//>
@@ -420,12 +423,12 @@ export function RoomScreen() {
               ? html`<div class="room-match-actions room-match-actions--active"><span class="room-match-state"><${Icon} name="signal" />${t('正在匹配中')}</span><${Button} variant="danger" size="lg" icon="close" loading=${busy === 'cancel-match'} onClick=${cancelQueue}>${t('取消匹配')}<//></div>`
               : html`<div class="room-match-actions">
                 <div class="room-match-options">
-                  <label class="fill-bots"><input type="checkbox" checked=${matchTeammates} disabled=${!!room.consoleEnabled}
+                  <label class="room-match-toggle"><input type="checkbox" checked=${matchTeammates} disabled=${!!room.consoleEnabled}
                     onChange=${(e) => setMatchTeammates(e.currentTarget.checked)} /><span>${t('匹配同盟队友')}</span></label>
                 </div>
-                <${Tooltip} text=${room.consoleEnabled ? t('控制台已启用，不能匹配同盟队友') : matchTeammates || facts.canStart ? null : t('仍有博士未准备就绪')}>
+                <${Tooltip} text=${room.consoleEnabled ? t('控制台已启用，不能匹配同盟队友') : matchTeammates && hasBots ? t('请先移除 AI 队友，再匹配真人队友') : matchTeammates || facts.canStart ? null : t('仍有博士未准备就绪')}>
                   <${Button} variant="primary" size="xl" icon=${matchTeammates ? 'users' : 'play'} loading=${busy === (matchTeammates ? 'match' : 'start')}
-                    disabled=${(room.consoleEnabled && matchTeammates) || (!matchTeammates && !facts.canStart) || !online} onClick=${start}>${t('立即开始')}<//>
+                    disabled=${(matchTeammates && (room.consoleEnabled || hasBots)) || (!matchTeammates && !facts.canStart) || !online} onClick=${start}>${t('立即开始')}<//>
                 <//>
               </div>`
             : html`<${Tooltip} text=${facts.canStart ? null : t('仍有博士未准备就绪')}>

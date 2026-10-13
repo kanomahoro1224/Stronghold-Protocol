@@ -424,6 +424,7 @@ export const C2S = {
   // the current UI always creates a solo room instead, so independent simulation stays a solo room/match. There is
   // no fill-Bots switch and no wait timer any more (operator, 2026-10-11): a queue only starts once it has four
   // real players, so the message carries nothing but the mode and the difficulty.
+  // Matchmaking is human-only. Legacy `fillBots` is an ignored extra field, never a party-isolation or AI switch.
   'match.join': {
     mode: (v) => v === 'coop' || v === 'solo',
     difficulty: (v) => DIFFICULTIES.includes(v),

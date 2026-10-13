@@ -175,7 +175,12 @@ for (const remote of [false, true]) {
     const ticket = a.matchQueue;
     assert.deepEqual(ticket.players[0].ops, ops);
     lobby.removeQueueReferences(ticket);
-    const seats = [...ticket.players, { seat: 1, playerId: 'ai_test', name: 'AI', isBot: true, connected: true }];
+    const teammates = ['B', 'C', 'D'].map((name) => {
+      const s = lobby.registry.create(name);
+      s.connected = true;
+      return s;
+    });
+    const seats = [...ticket.players, ...teammates.map((s, i) => lobby.humanSeat(i + 1, s))];
     assert.equal((await lobby.startQueuedMatch(ticket, seats, [])).ok, true);
     const cp = remote ? await room.match.snapshot() : snapshotMatch(room.match);
     assert.deepEqual(cp.players.find((p) => p.playerId === a.playerId).ops, ops);

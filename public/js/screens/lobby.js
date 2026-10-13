@@ -91,6 +91,7 @@ const MODE_CARDS = [
     id: 'match', name: N_('同盟匹配'), en: 'ALLIANCE MATCHMAKING', icon: 'signal',
     desc: N_('独自进入公共匹配池，与其他博士组成同盟后开始模拟。'),
     points: [N_('单人加入 · 自动匹配队友')],
+    points: [N_('单人加入 · 自动匹配队友'), N_('仅匹配真人 · 满四人后开始')],
   },
 ];
 
@@ -250,6 +251,7 @@ function MatchQueuePanel({ queue, onCancel }) {
   return html`<section class="match-queue brackets" aria-live="polite">
     <div class="match-queue__scan" aria-hidden="true"></div>
     <div class="match-queue__head"><${Icon} name="signal" /><div><${MicroLabel} tone="mint">ALLIANCE MATCHMAKING<//><strong>${t('正在寻找同盟队友')}</strong></div><span class="match-queue__count num">${queue.count}/${queue.capacity}</span></div>
+    <div class="match-queue__meta"><span>${t('仅匹配真实队友')}</span><span>${t('满四人后开始')}</span></div>
     <${Button} variant="danger" size="sm" icon="close" onClick=${onCancel}>${t('退出匹配')}<//>
   </section>`;
 }

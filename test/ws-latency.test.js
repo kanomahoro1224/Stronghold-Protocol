@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { Network, SessionRegistry } from '../server/net.js';
 import { Lobby } from '../server/lobby.js';
+import { MAX_SEATS } from '../shared/constants.js';
 import { CooperativeQueue } from '../server/cooperative.js';
 import { RealScheduler } from '../server/match/scheduler.js';
 import { MatchMessaging } from '../server/match/match/messaging.js';
@@ -204,9 +205,38 @@ test('private-state deduplication supplies the same encoded bytes without encodi
   assert.equal(messages.length, 1);
 });
 
-test('large match queue starts every full group and broadcasts remaining counts only once', () => {
-  const bucket = Array.from({ length: 2500 }, (_, id) => ({ id, mode: 'coop', difficulty: 'NORMAL',
-    players: [{ playerId: 'p' + id }], removed: false }));
+test('linear human-only party packing matches oldest-first packing for mixed sizes and removed tickets', () => {
+  const oldPacking = (bucket) => {
+    let remaining = bucket.filter((e) => e && !e.removed);
+    const groups = [];
+    while (remaining.length) {
+      const first = remaining[0];
+      const group = [first];
+      let total = first.players.length;
+      for (let i = 1; i < remaining.length && total < MAX_SEATS; i++) {
+        const next = remaining[i];
+        if (!next || next.removed || total + next.players.length > MAX_SEATS) continue;
+        group.push(next);
+        total += next.players.length;
+      }
+      groups.push(group);
+      remaining = remaining.filter((e) => !group.includes(e));
+    }
+    return groups;
+  };
+  let seed = 9327;
+  const random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0);
+  for (let run = 0; run < 100; run++) {
+    const bucket = Array.from({ length: 200 }, (_, id) => ({ id,
+      players: Array.from({ length: 1 + random() % 4 }, () => ({})),
+      fillBots: random() % 3 !== 0, removed: random() % 11 === 0 }));
+    assert.deepEqual(Lobby.prototype.groupMatchEntries(bucket), oldPacking(bucket));
+  }
+});
+
+test('large match queue starts all full groups and broadcasts remaining counts only once', () => {
+  const bucket = Array.from({ length: 2501 }, (_, id) => ({ id, mode: 'coop', difficulty: 'NORMAL',
+    players: [{ playerId: 'p' + id }], fillBots: true, deadlineAt: id === 2499 ? 10000 : 0 }));
   let broadcasts = 0, started = 0;
   const lobby = Object.assign(Object.create(Lobby.prototype), { matchQueues: new Map([['coop:NORMAL', bucket]]),
     removeQueueReferences: (entry) => { entry.removed = true; },
@@ -214,5 +244,6 @@ test('large match queue starts every full group and broadcasts remaining counts 
   lobby.processMatchQueues();
   assert.equal(started, 625);
   assert.equal(broadcasts, 1);
-  assert.equal(lobby.matchQueues.size, 0);
+  assert.equal(lobby.matchQueues.size, 1);
+  assert.deepEqual(lobby.matchQueues.get('coop:NORMAL'), [bucket.at(-1)]);
 });
