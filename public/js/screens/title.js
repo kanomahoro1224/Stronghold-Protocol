@@ -300,7 +300,7 @@ export function TitleScreen() {
     </main>
 
     <div class="title-preload"><${ResourceLauncher} enabled=${settings.preload} onChange=${(v) => updateSettings({ preload: v })} /></div>
-    <${SettingsModal} open=${settingsOpen} onClose=${() => setSettingsOpen(false)} />
+    <${SettingsModal} open=${settingsOpen} onClose=${() => setSettingsOpen(false)} utility=${true} />
 
     <footer class="title-foot">
       <${ResumeMatchButton} />
