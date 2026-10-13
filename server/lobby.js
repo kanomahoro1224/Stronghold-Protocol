@@ -49,9 +49,14 @@
 //     created from one network may exist at once and at most `maxMatchesPerAddr` matches started from one
 //     network may run at once (room.create / room.start → ERR.RATE). Without them a socket loop could fill
 //     `maxRooms` or keep hundreds of unattended matches simulating for the whole reconnect window.
-//     Defaults live in LOBBY_DEFAULTS and can be overridden per startServer option or with the SP_MAX_ROOMS,
-//     SP_MAX_ROOMS_PER_ADDR and SP_MAX_MATCHES_PER_ADDR environment variables (docs/DEPLOY.md §3.4); every refusal
-//     is logged (`room limit (N) reached …` / `match limit (N) reached …`, throttled to one line per 10 s).
+//     Both default to 1 (operator request 2026-10-13: 一个 IP 同时只能有 1 个房间或 1 把对局): an address that
+//     still owns a room — in a match or not — cannot create a second one, and cannot start a second match. A
+//     shared exit (宿舍 / 公司 / CGNAT) must raise the caps explicitly; `0` stays unlimited. Defaults live in
+//     LOBBY_DEFAULTS and can be overridden per startServer option or with the SP_MAX_ROOMS, SP_MAX_ROOMS_PER_ADDR
+//     and SP_MAX_MATCHES_PER_ADDR environment variables (docs/DEPLOY.md §3.4); every refusal is logged
+//     (`room limit (N) reached …` / `match limit (N) reached …`, throttled to one line per 10 s). room.create and
+//     room.start also record the client address (`room created ip …` / `match started ip …`): the address is
+//     written there and nowhere else, never with a nickname, token or chat text.
 //   * Permanent departure during a match (room.leave, g.leave, reconnect window expired): the seat is
 //     marked departed (shown as connected=false), match.onLeave(playerId) is called, and the seat is freed
 //     when the match ends. 'g.leave' is handled here and never reaches match.handle().
@@ -125,8 +130,9 @@ export const LOBBY_DEFAULTS = Object.freeze({
   lobbyGraceMs: 60_000,   // disconnected humans keep their lobby seat this long
   matchIdleGraceMs: 30 * 60_000, // a running match keeps a dropped human's seat (and checkpoint) this long
   maxRooms: 1000,
-  maxRoomsPerAddr: 16,    // rooms created from one client network that may exist at once (0 = unlimited)
-  maxMatchesPerAddr: 8,   // matches started from one client network that may run at once (0 = unlimited)
+  // One room / one match per client network (operator request 2026-10-13); raise or disable (0) for shared exits.
+  maxRoomsPerAddr: 1,     // rooms created from one client network that may exist at once (0 = unlimited)
+  maxMatchesPerAddr: 1,   // matches started from one client network that may run at once (0 = unlimited)
   resyncMinGapMs: 1000,   // heavy resyncs (match state / result replay) per session at most this often on repeated hellos
   soloReconnectWindowMs: null, // a dropped solo run stays resumable this long (null = data singleReconnectTime, 24 h)
   matchmakingTickMs: 1_000,    // queue scheduling cadence
@@ -362,7 +368,7 @@ export class Lobby {
   /**
    * Aggregate per-network room/match usage for /metrics (docs/DEPLOY.md §3.4): how many client networks are already at
    * one of the caps and how close the worst one is. No addresses here — /metrics is public, the refusal logs name the
-   * network (`room limit (16) reached for 203.0.113.7`).
+   * network (`room limit (1) reached for 203.0.113.7`).
    * @returns {{ rooms: number, matches: number, networks: number, worstRooms: number, worstMatches: number,
    *             overRooms: number, overMatches: number }}
    */
@@ -378,6 +384,15 @@ export class Lobby {
       if (r.match) e.matches++;
       per.set(r.ownerKey, e);
     }
+    for (const ctx of this.activeQueueMatches) {
+      if (ctx.room || ctx.disposed || ctx.ended || !ctx.match) continue;
+      matches++;
+      for (const k of ctx.matchKeys || []) {
+        const e = per.get(k) || { rooms: 0, matches: 0 };
+        e.matches++;
+        per.set(k, e);
+      }
+    }
     let worstRooms = 0;
     let worstMatches = 0;
     let overRooms = 0;
@@ -389,6 +404,45 @@ export class Lobby {
       if (this.opts.maxMatchesPerAddr > 0 && e.matches >= this.opts.maxMatchesPerAddr) overMatches++;
     }
     return { rooms: this.rooms.size, matches, networks: per.size, worstRooms, worstMatches, overRooms, overMatches };
+  }
+
+  /** Client networks charged for a queue match, snapshotted at start so a later disconnect cannot drop the charge. */
+  matchKeysOf(ids) {
+    const keys = new Set();
+    for (const id of ids) { const k = this.registry.byId(id)?.limitKey; if (k) keys.add(k); }
+    return [...keys];
+  }
+
+  /**
+   * Running matches charged to one client network: room-bound matches plus standalone queue matches that have no
+   * room (docs/DEPLOY.md §3.4). Both count against `maxMatchesPerAddr`, so one network cannot run a queue match and
+   * a room match at the same time.
+   * @param {string} key
+   * @returns {number}
+   */
+  countMatchesForKey(key) {
+    let n = 0;
+    for (const r of this.rooms.values()) if (r.match && r.matchKey === key) n++;
+    for (const ctx of this.activeQueueMatches) {
+      if (ctx.room || ctx.disposed || ctx.ended || !ctx.match) continue;
+      if ((ctx.matchKeys || []).includes(key)) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Standalone queue matches charged to one client network. A room-bound match is already covered by
+   * `maxRoomsPerAddr` (its room holds the slot), so only the roomless kind needs a separate room.create guard.
+   * @param {string} key
+   * @returns {number}
+   */
+  countStandaloneMatchesForKey(key) {
+    let n = 0;
+    for (const ctx of this.activeQueueMatches) {
+      if (ctx.room || ctx.disposed || ctx.ended || !ctx.match) continue;
+      if ((ctx.matchKeys || []).includes(key)) n++;
+    }
+    return n;
   }
 
   // ---------------------------------------------------------------------------------------------------
@@ -1022,6 +1076,11 @@ export class Lobby {
       return fail(ERR.INTERNAL, 'too many rooms');
     }
     const key = session.limitKey || null;
+    if (key && this.opts.maxMatchesPerAddr > 0 && this.countStandaloneMatchesForKey(key) >= this.opts.maxMatchesPerAddr) {
+      // a standalone queue match owns no room, so the room cap cannot see it: it still occupies this network's slot
+      this.limitWarn(`match limit (${this.opts.maxMatchesPerAddr}) reached for ${session.addr}`);
+      return fail(ERR.RATE, 'too many running matches from your network');
+    }
     if (key && this.opts.maxRoomsPerAddr > 0) {
       // The room being left disappears with this create when the creator is its only human (a spectator is none).
       const leaving = cur && cur.ownerKey === key && cur.activeHumans().length === 1 && !cur.spectatorOf(session.playerId) ? 1 : 0;
@@ -1042,6 +1101,7 @@ export class Lobby {
     session.notice = null;
     session.pendingResult = null;
     this.log.info(`[lobby] ${code} created (${mode}/${difficulty}) by ${session.name}`);
+    this.logAddr('room created', session.addr, code);
     this.broadcastState(room);
     return OK;
   }
@@ -1277,11 +1337,11 @@ export class Lobby {
       return fail(ERR.BAD_MSG, 'invalid seat configuration');
     }
     const key = session.limitKey || null;
-    if (key && this.opts.maxMatchesPerAddr > 0 && this.countRooms((r) => !!r.match && r.matchKey === key) >= this.opts.maxMatchesPerAddr) {
+    if (key && this.opts.maxMatchesPerAddr > 0 && this.countMatchesForKey(key) >= this.opts.maxMatchesPerAddr) {
       this.limitWarn(`match limit (${this.opts.maxMatchesPerAddr}) reached for ${session.addr}`);
       return fail(ERR.RATE, 'too many running matches from your network');
     }
-    return this.startMatch(room, key);
+    return this.startMatch(room, key, session.addr);
   }
 
   /** Host authorization stays in the lobby; the match owns the vote and setup. */
@@ -1414,9 +1474,9 @@ export class Lobby {
   // Match wiring
   // ---------------------------------------------------------------------------------------------------
 
-  /** @param {Room} room @param {string | null} [key] per-network limit key of the starter */
-  startMatch(room, key = null) {
-    return this.startMatchWith(room, key, null);
+  /** @param {Room} room @param {string | null} [key] per-network limit key of the starter @param {string | null} [addr] client address of the starter (logged, see logAddr) */
+  startMatch(room, key = null, addr = null) {
+    return this.startMatchWith(room, key, null, { addr });
   }
 
   /**
@@ -1424,13 +1484,14 @@ export class Lobby {
    * A restored match re-enters the phase of its checkpoint (server/match/snapshot.js) instead of calling start(); its
    * battle ids continue above the interrupted ones. On a restore failure the room simply stays in the lobby.
    * @param {Room} room @param {string | null} key @param {object | null} checkpoint
+   * @param {{ departedPlayerIds?: string[], addr?: string | null }} [opts] `addr` logs the starter's address (a restore has none)
    */
-  startMatchWith(room, key, checkpoint, { departedPlayerIds = [] } = {}) {
-    if (this.matchWorkerPool) return this.startMatchWithWorker(room, key, checkpoint, { departedPlayerIds });
-    return this.startMatchWithLocal(room, key, checkpoint, { departedPlayerIds });
+  startMatchWith(room, key, checkpoint, { departedPlayerIds = [], addr = null } = {}) {
+    if (this.matchWorkerPool) return this.startMatchWithWorker(room, key, checkpoint, { departedPlayerIds, addr });
+    return this.startMatchWithLocal(room, key, checkpoint, { departedPlayerIds, addr });
   }
 
-  async startMatchWithWorker(room, key, checkpoint, { departedPlayerIds = [] } = {}) {
+  async startMatchWithWorker(room, key, checkpoint, { departedPlayerIds = [], addr = null } = {}) {
     if (room.disposed || room.match) return fail(ERR.ROOM_STARTED);
     const host = room.seatOf(room.hostId);
     if (host && !checkpoint) host.ready = true;
@@ -1483,6 +1544,7 @@ export class Lobby {
         this.log.info(`[lobby] ${room.code} match #${room.matchCount} restored in Worker (${room.mode}/${room.difficulty})`);
       } else {
         this.log.info(`[lobby] ${room.code} match #${room.matchCount} starting in Worker (${room.mode}/${room.difficulty}, ${seats.length} seats, seed ${seed})`);
+        this.logAddr('match started', addr, room.code, room.matchCount);
         await match.start();
         if (!ctx.ended && !ctx.disposed) this.notifyMatchStarted(room.code, match);
       }
@@ -1496,7 +1558,7 @@ export class Lobby {
     }
   }
 
-  startMatchWithLocal(room, key, checkpoint, { departedPlayerIds = [] } = {}) {
+  startMatchWithLocal(room, key, checkpoint, { departedPlayerIds = [], addr = null } = {}) {
     const host = room.seatOf(room.hostId);
     if (host && !checkpoint) host.ready = true;
     const seats = checkpoint
@@ -1567,6 +1629,7 @@ export class Lobby {
       room.replay = null;
       room.matchCount++;
       this.log.info(`[lobby] ${room.code} match #${room.matchCount} starting (${room.mode}/${room.difficulty}, ${seats.length} seats, seed ${seed})`);
+      this.logAddr('match started', addr, room.code, room.matchCount);
       this.broadcastState(room);
       match.start();
       this.notifyMatchStarted(room.code, match);
@@ -1613,7 +1676,7 @@ export class Lobby {
     const allHumanIds = seats.filter((p) => !p.isBot).map((p) => p.playerId);
     const matchCode = room?.code || `M${randomBytes(3).toString('hex').toUpperCase()}`;
     const ctx = { live: false, ended: false, disposed: false, queue: true, match: null, workerKey: matchCode, room,
-      members: seats, lastPublic: null, sharedResult: null, results: new Map() };
+      members: seats, matchKeys: this.matchKeysOf(allHumanIds), lastPublic: null, sharedResult: null, results: new Map() };
     let seed = 0;
     try { seed = this.seedFn() >>> 0; } catch { seed = randomInt(2 ** 32); }
     try {
@@ -1672,7 +1735,7 @@ export class Lobby {
     }).sort((a, b) => a.seat - b.seat);
     const allHumanIds = seats.filter((p) => !p.isBot).map((p) => p.playerId);
     const ctx = { live: true, ended: false, disposed: false, queue: true, match: null, workerKey: null, room, members: seats,
-      lastPublic: null, sharedResult: null, results: new Map() };
+      matchKeys: this.matchKeysOf(allHumanIds), lastPublic: null, sharedResult: null, results: new Map() };
     let seed = 0;
     try { seed = this.seedFn() >>> 0; } catch { seed = randomInt(2 ** 32); }
     const matchCode = room?.code || `M${randomBytes(3).toString('hex').toUpperCase()}`;
@@ -1909,6 +1972,16 @@ export class Lobby {
     this.limitLog.at = now;
     this.limitLog.suppressed = 0;
     this.log.warn(`[lobby] ${text}${more}`);
+  }
+
+  /**
+   * Operator request (2026-10-13): record the client network when a room is created and when a match starts, so
+   * /var/log/stronghold.log answers "which IP opened this room / this match" (`grep ' ip ' /var/log/stronghold.log`).
+   * A stable single line with the address and the room code (plus the match number) — never a nickname, token or
+   * chat text. `addr` is the session's client address (net.js `clientAddress`, '?' when unknown).
+   */
+  logAddr(kind, addr, code, matchNo = 0) {
+    this.log.info(`[lobby] ${kind} ip ${addr || '?'} code ${code}${matchNo > 0 ? ` match #${matchNo}` : ''}`);
   }
 
   /** Number of rooms matching a predicate. */

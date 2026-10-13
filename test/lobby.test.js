@@ -1837,12 +1837,13 @@ describe('limit overrides', () => {
   };
   afterEach(() => { clearEnvs(); restoreEnvs(); });
 
-  /** A server that records warnings, plus the client/room helpers of this file. */
+  /** A server that records warnings and info lines, plus the client/room helpers of this file. */
   async function boot(opts = {}) {
     const warns = [];
+    const infos = [];
     const srv = await startServer({
       port: 0, host: '127.0.0.1', MatchClass: Match,
-      log: { info() {}, warn: (...a) => warns.push(a.map(String).join(' ')), debug() {}, error: (...a) => warns.push(`[error] ${a.map(String).join(' ')}`) },
+      log: { info: (...a) => infos.push(a.map(String).join(' ')), warn: (...a) => warns.push(a.map(String).join(' ')), debug() {}, error: (...a) => warns.push(`[error] ${a.map(String).join(' ')}`) },
       ...opts,
     });
     const open = new Set();
@@ -1855,7 +1856,7 @@ describe('limit overrides', () => {
     };
     const metrics = async () => JSON.parse((await httpReq(srv.port, '/metrics')).body.toString());
     const close = async () => { await Promise.all([...open].map((c) => c.terminate().catch(() => {}))); await srv.close(); };
-    return { srv, warns, player, metrics, close };
+    return { srv, warns, infos, player, metrics, close };
   }
 
   test('parseEnvLimit: a value from the environment wins, 0 means unlimited, junk keeps the default', () => {
@@ -1922,11 +1923,11 @@ describe('limit overrides', () => {
       const a1 = await player('a1', A);
       await expectOk(a1, { t: 'room.create', mode: 'coop', difficulty: 'FUNNY' });
       await expectOk(a1, { t: 'room.addBot' });
-      await expectOk(a1, { t: 'room.start' });
       const a2 = await player('a2', A);
       await expectOk(a2, { t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
       const b1 = await player('b1', B);
       await expectOk(b1, { t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
+      await expectOk(a1, { t: 'room.start' });
 
       const h = await metrics();
       assert.deepEqual(h.usage, {
@@ -1996,9 +1997,10 @@ describe('limit overrides', () => {
       const one = await player('one', D);
       await expectOk(one, { t: 'room.create', mode: 'coop', difficulty: 'FUNNY' });
       await expectOk(one, { t: 'room.addBot' });
-      await expectOk(one, { t: 'room.start' }); // a room in a match still counts against the creator's network
       const two = await player('two', D);
       await expectOk(two, { t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
+      // the match starts only after both rooms exist: a network with a running match may not open a room
+      await expectOk(one, { t: 'room.start' }); // a room in a match still counts against the creator's network
       const three = await player('three', D);
       const refused = await three.request({ t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
       assert.equal(refused.t, 'error');
@@ -2015,16 +2017,17 @@ describe('limit overrides', () => {
 
   test('SP_MAX_MATCHES_PER_ADDR limits running matches per network (rooms stay allowed)', async () => {
     process.env.SP_MAX_MATCHES_PER_ADDR = '1';
+    process.env.SP_MAX_ROOMS_PER_ADDR = '0'; // the second room is the point here; the room cap defaults to 1 (see the default tests)
     const { warns, player, close } = await boot();
     try {
       const E = '203.0.113.202';
       const one = await player('one', E);
       await expectOk(one, { t: 'room.create', mode: 'coop', difficulty: 'FUNNY' });
       await expectOk(one, { t: 'room.addBot' });
-      await expectOk(one, { t: 'room.start' });
       const two = await player('two', E);
       await expectOk(two, { t: 'room.create', mode: 'coop', difficulty: 'FUNNY' });
       await expectOk(two, { t: 'room.addBot' });
+      await expectOk(one, { t: 'room.start' });
       const refused = await two.request({ t: 'room.start' });
       assert.equal(refused.t, 'error');
       assert.equal(refused.code, ERR.RATE);
@@ -2035,6 +2038,135 @@ describe('limit overrides', () => {
       await expectOk(other, { t: 'room.create', mode: 'coop', difficulty: 'FUNNY' });
       await expectOk(other, { t: 'room.addBot' });
       await expectOk(other, { t: 'room.start' });
+    } finally { await close(); }
+  });
+
+  // One room / one match per IP (operator request 2026-10-13: 创建和开局记录 IP，每个 IP 同一时间只可有 1 个房间或 1 把对局)
+
+  test('the defaults are one room and one match per IP', async () => {
+    assert.equal(LOBBY_DEFAULTS.maxRoomsPerAddr, 1);
+    assert.equal(LOBBY_DEFAULTS.maxMatchesPerAddr, 1);
+    const { metrics, close } = await boot();
+    try {
+      const l = (await metrics()).limits;
+      assert.equal(l.maxRoomsPerAddr, 1, 'one room per client network by default');
+      assert.equal(l.maxMatchesPerAddr, 1, 'one match per client network by default');
+    } finally { await close(); }
+  });
+
+  test('by default a second room from the same IP is refused (another network and local peers are unaffected)', async () => {
+    const { warns, player, metrics, close } = await boot();
+    try {
+      const F = '203.0.113.210';
+      const one = await player('one', F);
+      await expectOk(one, { t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
+      // its own room is replaced, not doubled: the room being left does not count (maxRoomsPerAddr = 1)
+      await expectOk(one, { t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
+      const two = await player('two', F);
+      const refused = await two.request({ t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
+      assert.equal(refused.t, 'error');
+      assert.equal(refused.code, ERR.RATE);
+      assert.match(refused.detail, /rooms/);
+      assert.ok(warns.some((w) => /room limit \(1\) reached for 203\.0\.113\.210/.test(w)), warns.join(' | '));
+
+      // a room that is in a match still owns the network's one slot
+      const G = '203.0.113.211';
+      const host = await player('host', G);
+      await expectOk(host, { t: 'room.create', mode: 'coop', difficulty: 'FUNNY' });
+      await expectOk(host, { t: 'room.addBot' });
+      await expectOk(host, { t: 'room.start' });
+      const hostTwo = await player('host2', G);
+      const refusedMatchRoom = await hostTwo.request({ t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
+      assert.equal(refusedMatchRoom.t, 'error');
+      assert.equal(refusedMatchRoom.code, ERR.RATE, 'the room in the match still counts');
+
+      const other = await player('other', '198.51.100.90');
+      await expectOk(other, { t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
+      const local = await player('local');
+      await expectOk(local, { t: 'room.create', mode: 'solo', difficulty: 'FUNNY' }, 'a local peer is never limited per network');
+      assert.equal((await metrics()).limits.maxRoomsPerAddr, 1);
+    } finally { await close(); }
+  });
+
+  test('by default a second match from the same IP is refused (SP_MAX_ROOMS_PER_ADDR=0 keeps rooms unlimited)', async () => {
+    process.env.SP_MAX_ROOMS_PER_ADDR = '0'; // rooms stay unlimited, so this isolates the default match cap
+    const { warns, player, metrics, close } = await boot();
+    try {
+      const H = '203.0.113.212';
+      const one = await player('one', H);
+      await expectOk(one, { t: 'room.create', mode: 'coop', difficulty: 'FUNNY' });
+      await expectOk(one, { t: 'room.addBot' });
+      // both rooms exist first: a room may not be opened once the network already runs a match
+      const two = await player('two', H);
+      await expectOk(two, { t: 'room.create', mode: 'coop', difficulty: 'FUNNY' }, '0 = unlimited rooms is still reachable');
+      await expectOk(two, { t: 'room.addBot' });
+      await expectOk(one, { t: 'room.start' });
+      const refused = await two.request({ t: 'room.start' });
+      assert.equal(refused.t, 'error');
+      assert.equal(refused.code, ERR.RATE);
+      assert.match(refused.detail, /matches/);
+      assert.ok(warns.some((w) => /match limit \(1\) reached for 203\.0\.113\.212/.test(w)), warns.join(' | '));
+      const l = (await metrics()).limits;
+      assert.equal(l.maxRoomsPerAddr, 0, 'the environment still overrides the default');
+      assert.equal(l.maxMatchesPerAddr, 1, 'the match cap keeps its default of 1');
+
+      // another network and a local peer can still start their own match
+      for (const [name, ip] of [['other', '198.51.100.91'], ['local', undefined]]) {
+        const c = await player(name, ip);
+        await expectOk(c, { t: 'room.create', mode: 'coop', difficulty: 'FUNNY' });
+        await expectOk(c, { t: 'room.addBot' });
+        await expectOk(c, { t: 'room.start' });
+      }
+    } finally { await close(); }
+  });
+
+  test('a standalone queue match owns the network match slot even though it has no room', async () => {
+    const { warns, srv, player, metrics, close } = await boot();
+    try {
+      const IP = '203.0.113.214';
+      const mine = await player('mine', IP);
+      const others = await Promise.all(['q1', 'q2', 'q3'].map((n, i) => player(n, `198.51.100.${120 + i}`)));
+      for (const c of [mine, ...others]) assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'FUNNY' })).t, 'ok');
+      for (const c of [mine, ...others]) await c.waitFor('m.public', (m) => m.phase === 'INFO_CHECK');
+      assert.equal(srv.lobby.stats().rooms, 0, 'a standalone match owns no room');
+      assert.equal(srv.lobby.stats().standaloneMatches, 1);
+      assert.equal(srv.lobby.countMatchesForKey(IP), 1, 'the standalone match is charged to this network');
+
+      // this network is already in a running match: it may not open a room (the old gap let it run two matches)
+      const refused = await mine.request({ t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
+      assert.equal(refused.t, 'error');
+      assert.equal(refused.code, ERR.RATE);
+      assert.match(refused.detail, /matches/);
+      assert.ok(warns.some((w) => /match limit \(1\) reached for 203\.0\.113\.214/.test(w)), warns.join(' | '));
+      assert.equal(srv.lobby.stats().rooms, 0, 'no room was created');
+
+      // /metrics charges the roomless match to the network too
+      const u = (await metrics()).usage;
+      assert.equal(u.matches, 1, 'usage counts the standalone match');
+      assert.ok(u.overMatches >= 1, 'the network is reported at the match cap');
+
+      // another network is unaffected
+      const free = await player('free', '198.51.100.201');
+      await expectOk(free, { t: 'room.create', mode: 'solo', difficulty: 'FUNNY' });
+    } finally { await close(); }
+  });
+
+  test('room.create and room.start log the client address and the room code, never the nickname', async () => {
+    const { infos, player, close } = await boot();
+    try {
+      const I = '203.0.113.213';
+      const name = 'addr-logger';
+      const c = await player(name, I);
+      const st = await createRoom(c, 'solo', 'FUNNY');
+      const roomLine = infos.find((l) => l.includes('room created ip'));
+      assert.ok(roomLine, `no address line logged: ${infos.join(' | ')}`);
+      assert.equal(roomLine, `[lobby] room created ip ${I} code ${st.code}`);
+      assert.equal(roomLine.includes(name), false, 'the address line never carries the nickname');
+      await expectOk(c, { t: 'room.start' });
+      const matchLine = infos.find((l) => l.includes('match started ip'));
+      assert.ok(matchLine, `no match address line logged: ${infos.join(' | ')}`);
+      assert.equal(matchLine, `[lobby] match started ip ${I} code ${st.code} match #1`);
+      assert.equal(matchLine.includes(name), false, 'the match address line never carries the nickname');
     } finally { await close(); }
   });
 });

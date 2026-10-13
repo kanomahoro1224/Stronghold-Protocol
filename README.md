@@ -142,8 +142,8 @@ npm start          # 启动服务器：http://localhost:3000
 | `SP_ASSETS_CDN` | 空 | 素材 CDN 目录，例如 `https://cdn.example.com/stronghold` 或同源 `/cdn`：素材清单里的 `/assets/…` 改写为该地址；清单从数据 CDN 读取时由浏览器改写（见 [docs/ASSETS.md](docs/ASSETS.md)「CDN」） |
 | `SP_DATA_CDN` | 空 | 数据 CDN 根目录，例如 `https://cdn.example.com/stronghold`：浏览器直接从该目录下的 `data/` 读取静态 JSON（含 `assets.json`、`asset-hashes.json`），上传原文件即可；本地 `data/` 仍须保留，本地素材清单与动态预载清单继续走游戏源站；Node 的 `/data/` 始终提供本地数据，不跳转（见 [docs/DEPLOY.md](docs/DEPLOY.md#32-素材放-cdn)） |
 | `SP_MAX_ROOMS` | `1000` | 全局同时存在的房间数上限（含正在对局的房间）；满了新房间会被拒绝 |
-| `SP_MAX_ROOMS_PER_ADDR` | `16` | 单个客户端网络（IPv4 地址 / IPv6 的 /64）同时拥有的房间数；`0` = 不限制。本地/内网直连不受此限 |
-| `SP_MAX_MATCHES_PER_ADDR` | `8` | 单个客户端网络同时进行的对局数；`0` = 不限制 |
+| `SP_MAX_ROOMS_PER_ADDR` | `1` | 单个客户端网络（IPv4 地址 / IPv6 的 /64）同时拥有的房间数；默认 `1` = 同一 IP 同时只能有 1 个房间（正在对局也算，第二个会被拒为「操作过于频繁」）；`0` = 不限制。本地/内网直连不受此限；**同一出口 IP 多人（宿舍 / 公司 / CGNAT）必须调大或设 0**，否则第二个人开不了房 |
+| `SP_MAX_MATCHES_PER_ADDR` | `1` | 单个客户端网络同时进行的对局数；默认 `1` = 同一 IP 同时只能有 1 把对局，`0` = 不限制 |
 | `SP_MAX_CONNECTIONS` | `2000` | 全局 WebSocket 连接数上限 |
 | `SP_MAX_CONNECTIONS_PER_ADDR` | `64` | 单个客户端网络同时的连接数；`0` = 不限制 |
 | `SP_BOT_REHEARSAL` | `3` | AI 席位在休整期用真实战斗模拟预演几个候选摆位（`0`–`8`，`0` = 只用启发式摆位）。这是**最省 CPU 的旋钮**：预演约占一局服务器 CPU 的 70%，调到 `0` 大约把对局 CPU 降到三分之一（代价是 AI 摆位差一些） |
