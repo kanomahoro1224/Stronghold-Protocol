@@ -345,12 +345,14 @@ function mainCoreBond(m, p) {
  * The bonds the bot builds around (cached per round and owned set): `focus` = the core bond with the best
  * owned members × 10 + reachable members (bondPoolStats, ≤ 4) + layers already banked (≤ 6) + 6 for last round's focus
  * (commit instead of flip-flopping between equal bonds) − 6 when a teammate already builds it (its main core bond on
- * its public bond strip, mainCoreBond — the shop pool is shared); `second` = the other live bond (core or add-on) with
- * the most owned members whose next threshold is within reach (≥ 1 owned member). `ps._botFocusId` keeps the focus
- * across rounds.
+ * its public bond strip, mainCoreBond — the shop pool is shared) or has selected that bond's opening strategy, even
+ * before anyone is deployed. The strategy reservation ends when that teammate is eliminated. `second` = the other live
+ * bond (core or add-on) with the most owned members whose next threshold is within reach (≥ 1 owned member).
+ * `ps._botFocusId` keeps the focus across rounds.
  */
 export function bondPlan(m, ps, owned = ownedBonds(m, ps)) {
-  const key = `${m.round}|${ps.shop.level}|${[...owned.counts.entries()].map(([k, v]) => k + v).join()}`;
+  const livingBands = m.alivePlayers().filter((p) => p !== ps).flatMap((p) => m.gd.bandBondIds(p.bandId)).sort().join();
+  const key = `${m.round}|${ps.shop.level}|${[...owned.counts.entries()].map(([k, v]) => k + v).join()}|${livingBands}`;
   if (ps._botFocus && ps._botFocus.key === key) return ps._botFocus;
   const prev = ps._botFocusId ?? null;
   const mates = new Set();
@@ -358,6 +360,7 @@ export function bondPlan(m, ps, owned = ownedBonds(m, ps)) {
     if (p === ps) continue;
     const b = mainCoreBond(m, p);
     if (b) mates.add(b);
+    for (const id of m.gd.bandBondIds(p.bandId)) mates.add(id);
   }
   let focus = null;
   let bestS = 0;

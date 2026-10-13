@@ -116,7 +116,7 @@ describe('extracted board files (when a local client was extracted)', { skip: !m
     const n = decodePng(readFileSync(onDisk(g.TX_autochessi_N_rgb.path)));
     let zSum = 0, cnt = 0;
     for (let i = 0; i < n.rgba.length; i += 4 * 97) { zSum += n.rgba[i + 2]; cnt++; }
-    assert.ok(zSum / cnt > 230, `mean z ${zSum / cnt}`);
+    assert.ok(zSum / cnt > 230, `mean z ${zSum / cnt} (128 = made by an extract.py that read a DXT5nm map as BC5: re-extract with --only map/autochess)`);
     const m = decodePng(readFileSync(onDisk(g.TX_autochessi_M.path)));
     const r = decodePng(readFileSync(onDisk(g.TX_autochessi_M_rough.path)));
     assert.deepEqual([r.w, r.h], [m.w, m.h]);

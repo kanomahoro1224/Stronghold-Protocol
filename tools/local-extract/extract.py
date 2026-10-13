@@ -51,6 +51,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import scenes  # noqa: E402  (the battlefield scene table and exporter; imports UnityPy only when it runs)
 
 ROOT = Path(__file__).resolve().parents[2]
 HOME = Path.home()
@@ -145,8 +146,8 @@ TOKEN_PACKS = 'pkgrps/btl_pfb_tokens_*.ab'
 TOKEN_SPINE_SUB = 'spine/token'
 
 # Derived three.js maps: (output subdir, source texture, kind, output name). 'normal_rg' rebuilds Z of a two-channel
-# (BC5) normal map into an RGB tangent-space map; 'rough_from_gloss' turns Unity's metallic/gloss map (smoothness in
-# A) into a roughness (G) / metalness (B) map. Written after the job that exported the source texture.
+# (BC5 or DXT5nm) normal map into an RGB tangent-space map; 'rough_from_gloss' turns Unity's metallic/gloss map
+# (smoothness in A) into a roughness (G) / metalness (B) map. Written after the job that exported the source texture.
 DERIVED = [
     ('map/autochess', 'TX_autochessi_N', 'normal_rg', 'TX_autochessi_N_rgb'),
     ('map/autochess', 'TX_autochessi_M', 'rough_from_gloss', 'TX_autochessi_M_rough'),
@@ -371,13 +372,16 @@ def _normal_z_table():
 
 
 def derive_normal_rg(img):
-    """RGB tangent-space normal map from a two-channel (BC5: R = X, G = Y, B unused) one: Z rebuilt per pixel."""
-    from PIL import Image
-    rgb = img.convert('RGB')
-    r, g, _ = rgb.split()
+    """RGB tangent-space normal map from Unity's two-channel one: Z rebuilt per pixel. X and Y are read the way Unity's
+    shaders unpack them (UnityCG.cginc UnpackNormalmapRGorAG: x = R · A, y = G), which covers both layouts a client
+    build holds: BC5 (R = X, G = Y, B unused, no alpha → A = 1) and DXT5nm (R = 1, G = Y, A = X — the map_autochess
+    bundle before the client update of 2026-10)."""
+    from PIL import Image, ImageChops
+    r, g, _, a = img.convert('RGBA').split()
+    x = ImageChops.multiply(r, a)  # exact when either factor is 255
     table = _normal_z_table()
-    z = bytes(table[(x << 8) | y] for x, y in zip(r.tobytes(), g.tobytes()))
-    return Image.merge('RGB', (r, g, Image.frombytes('L', rgb.size, z)))
+    z = bytes(table[(xb << 8) | yb] for xb, yb in zip(x.tobytes(), g.tobytes()))
+    return Image.merge('RGB', (x, g, Image.frombytes('L', img.size, z)))
 
 
 def derive_rough_from_gloss(img):
@@ -648,6 +652,39 @@ def write_spine(objects, sda, sub, name, out_root, manifest, log):
     return len(files) + len(pages)
 
 
+def scene_ids(only):
+    """The stage ids of scenes.SCENES that run under --only (all with no prefix, `scene` or a parent of it)."""
+    return spine_ids(only, scenes.SCENE_SUB, [sid for sid, _deps in scenes.SCENES])
+
+
+def scene_roots(ab_root, extra):
+    """AB roots searched for the scene bundles, in order: the client, --scenes dirs, then every version kept under
+    .cache/official-scenes (newest name first)."""
+    kept = ROOT / '.cache' / 'official-scenes'
+    cached = sorted((p for p in kept.iterdir() if p.is_dir()), reverse=True) if kept.is_dir() else []
+    return [Path(ab_root), *[Path(p) for p in extra], *cached]
+
+
+def export_scenes(ab_root, out_root, manifest, log, ids, roots):
+    """scenes.SCENES (the ids in `ids`) → scene/<stageId>/ (scenes.export_scene); a stage without a scene bundle in
+    any root is skipped."""
+    root = Path(ab_root)
+    shader_deps = dep_bundles(root, {'Material'})
+    n = 0
+    for sid, deps in scenes.SCENES:
+        if sid not in ids:
+            continue
+        src = scenes.find_scene(sid, roots)
+        if src is None:
+            log(f'skip (no scene bundle: off-season client, see --scenes) {scenes.scene_bundle(sid)}')
+            continue
+        try:
+            n += scenes.export_scene(sid, deps, src, root, out_root, manifest, log, material_info, shader_deps)
+        except Exception as e:  # one broken scene must not stop the others
+            log(f'FAIL scene {sid}: {e}')
+    return n
+
+
 def export_enemy_spines(ab_root, out_root, manifest, log, ids=None):
     """ENEMY_SPINES (or `ids`) from the enemy art bundles (each bundle loaded on its own; stops once every model was
     found)."""
@@ -756,6 +793,9 @@ def main():
     ap.add_argument('--manifest', default=str(ROOT / 'data/local-assets.json'))
     ap.add_argument('--only', action='append', default=[], metavar='SUBDIR',
                     help='only run the jobs whose output subdir starts with this prefix (repeatable), e.g. emoticon')
+    ap.add_argument('--scenes', action='append', default=[], metavar='DIR',
+                    help='an AB root holding the battlefield scene bundles of an in-season version (repeatable; '
+                         'searched after --game and before .cache/official-scenes/*)')
     ap.add_argument('--print-jobs', action='store_true', help='print the job table as JSON and exit')
     args = ap.parse_args()
 
@@ -766,7 +806,10 @@ def main():
         print(json.dumps({'emoteThemes': [{'themeId': t, 'dir': d} for t, d in EMOTE_THEMES], 'jobs': jobs,
                           'derived': derived,
                           'enemySpines': {'bundles': ENEMY_ART, 'sub': ENEMY_SPINE_SUB, 'ids': ENEMY_SPINES},
-                          'tokenSpines': {'bundles': TOKEN_PACKS, 'sub': TOKEN_SPINE_SUB, 'ids': TOKEN_SPINES}},
+                          'tokenSpines': {'bundles': TOKEN_PACKS, 'sub': TOKEN_SPINE_SUB, 'ids': TOKEN_SPINES},
+                          'scenes': {'sub': scenes.SCENE_SUB, 'tex': scenes.TEX_SUB,
+                                     'stages': [{'id': sid, 'bundle': scenes.scene_bundle(sid), 'deps': deps}
+                                                for sid, deps in scenes.SCENES]}},
                          ensure_ascii=False))
         return 0
 
@@ -777,7 +820,8 @@ def main():
     jobs = select_jobs(args.only)
     enemy_ids = spine_ids(args.only, ENEMY_SPINE_SUB, ENEMY_SPINES)
     token_ids = spine_ids(args.only, TOKEN_SPINE_SUB, TOKEN_SPINES)
-    if not jobs and not enemy_ids and not token_ids:
+    stage_ids = scene_ids(args.only)
+    if not jobs and not enemy_ids and not token_ids and not stage_ids:
         print(f'--only {args.only}: no job matches', file=sys.stderr)
         return 2
     out_root = Path(args.out)
@@ -790,6 +834,8 @@ def main():
         total += export_enemy_spines(ab_root, out_root, manifest, print, enemy_ids)
     if token_ids:
         total += export_token_spines(ab_root, out_root, manifest, print, token_ids)
+    if stage_ids:
+        total += export_scenes(ab_root, out_root, manifest, print, stage_ids, scene_roots(ab_root, args.scenes))
     old = {}
     if args.only and Path(args.manifest).exists():
         try:

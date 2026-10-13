@@ -10,7 +10,9 @@
 // pointer): there is no ⓘ corner (the official cards have none; user playtest #6 item 10 — on phones its invisible
 // 44 px touch area covered the card's bottom-right quarter, half the strip, and a second tap there only re-opened the
 // detail); a card that cannot be bought right now (the bar is not editable: ready, round start) opens its detail. The
-// D / R / F keys stay one-press shortcuts. There is no drag-to-sell zone: selling is the 出售 +N button of a tapped
+// D / R / F keys stay one-press shortcuts — a 刷新 whose request is still on the wire dims the button and swallows
+// further taps and the R key until the reply lands (GitHub #501; the single-flight lives in ui/gameActions.js
+// onRefreshBusy, ui/shopBar.js only draws it). There is no drag-to-sell zone: selling is the 出售 +N button of a tapped
 // unit's underframe (ui/underframe.js). After a promotion the operator cards are replaced by
 // the 晋升奖励 cards (3 free operators, pick 1 — also two taps) until picked or put off (稍后 → rewardOverlay.js pill);
 // a special refresh (凯瑟琳 定向投放's 3 items, 娜仁图亚, 寻呼模块, 信标, 松果) takes the same place under its own name, an
@@ -287,13 +289,13 @@ export function RewardCards({ offer, priv, editable, onPick, onDetail, onLater, 
 
 /**
  * The bar.
- * @param {{ priv:any, editable:boolean, collapsed:boolean, onCollapse:(c:boolean)=>void,
+ * @param {{ priv:any, editable:boolean, collapsed:boolean, refreshBusy?:boolean, onCollapse:(c:boolean)=>void,
  *   onBuy:(i:number)=>void, onLevel:Function, onRefresh:Function, onFreeze:Function, onDetail:(id:string, kind?:string, hint?:string|null)=>void,
  *   onDetailClose?: () => void, onRefuse?: (reason: string) => void, barRef:any,
  *   reward?: any, onReward?: (idx:number)=>void, onRewardLater?: Function, offBonds?: Set<string>|null }} props — offBonds:
  *   the bonds this mode never activates (gameLogic modeOffBonds), struck through on the operator cards
  */
-export function ShopBar({ priv, editable, collapsed, onCollapse, onBuy, onLevel, onRefresh, onFreeze, onDetail, onDetailClose, onRefuse, barRef,
+export function ShopBar({ priv, editable, collapsed, refreshBusy = false, onCollapse, onBuy, onLevel, onRefresh, onFreeze, onDetail, onDetailClose, onRefuse, barRef,
   reward = null, onReward, onRewardLater, onArm = null, offBonds = null }) {
   const shortcuts = useShortcuts();
   const shop = priv?.shop || {};
