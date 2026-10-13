@@ -7,7 +7,7 @@
 //        same file, or other sounds of the same bank);
 //   { model: '<key>' }  a Spine model (skel + atlas + page PNGs) from plan.models;
 //   literal(value)  a value emitted as it is (no files: enemies[id] / tokens[id].spineLocal).
-// Inputs are the research JSONs (docs/research/03, 05, 07), the official
+// Inputs are the research JSONs (docs/research/03, 05, 07, 08), the official
 // audio_data.json and Ark-Models' models_data.json.
 //
 // Scope (research 07 §1, DESIGN §0): all 138 pool charIds (incl. backup

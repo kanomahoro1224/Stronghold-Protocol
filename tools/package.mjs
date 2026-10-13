@@ -64,8 +64,11 @@ export const FOLDER = 'Stronghold-Protocol';
 export const ROOT_FILES = ['package.json', 'package-lock.json', 'LICENSE', 'NOTICE.md', 'THIRD-PARTY-NOTICES.md', 'README.md', 'CHANGELOG.md'];
 /** The player docs. */
 export const PLAYER_DOCS = ['docs/PLAYING.md', 'docs/DEPLOY.md'];
-/** Research tables read at run time: server/sim/nodeData.js (the Node sim's fallback) and tools/fetch-assets.mjs. */
-export const RUNTIME_RESEARCH = ['docs/research/03-operators.json', 'docs/research/05-enemies.json', 'docs/research/05-maps.json', 'docs/research/07-assets.json'];
+/**
+ * Research tables read at run time: server/sim/nodeData.js (the Node sim's fallback) and tools/fetch-assets.mjs
+ * (07-assets, 03-operators, 05-enemies, 05-maps and the skins table 08-skins.json, docs/SKINS.md).
+ */
+export const RUNTIME_RESEARCH = ['docs/research/03-operators.json', 'docs/research/05-enemies.json', 'docs/research/05-maps.json', 'docs/research/07-assets.json', 'docs/research/08-skins.json'];
 /** The start scripts (scripts/make-windows-bundle.mjs is the maintainer's Windows pack, docs/WINDOWS.md). */
 export const PLAYER_SCRIPTS = ['scripts/install-service-windows.ps1', 'scripts/launch.mjs', 'scripts/open-browser.mjs',
   'scripts/run-server.cmd', 'scripts/start-windows.bat', 'scripts/start-windows.ps1', 'scripts/start.sh'];
@@ -583,6 +586,28 @@ export function zipFolder(cwd, zipPath) {
   if (t.error || t.status !== 0 || !isFile(zipPath)) throw new Error('zipping failed: install `zip` (or a bsdtar `tar`)');
 }
 
+/**
+ * Rewrite the staged package.json (only the npm scripts whose files ship, GitHub #531) and the shipped markdown
+ * (links to files the zip lacks point at the release tag, GitHub #530). The git checkout is not touched. Throws on a
+ * bad link.
+ */
+function rewritePlayerStage(stage, p) {
+  const shipped = new Set([...(p.tracked || []), ...(p.generated || [])]);
+  const pkgPath = path.join(stage, 'package.json');
+  if (isFile(pkgPath)) {
+    const pkg = readJson(pkgPath);
+    if (!pkg) throw new Error('package.json in the stage is not JSON');
+    fs.writeFileSync(pkgPath, `${JSON.stringify(playerPackageJson(pkg, shipped), null, 2)}\n`);
+  }
+  for (const rel of PLAYER_MARKDOWN) {
+    const file = path.join(stage, rel);
+    if (!isFile(file)) continue;
+    const text = fs.readFileSync(file, 'utf8');
+    const next = rewritePlayerDoc(text, rel, shipped, p.version);
+    if (next !== text) fs.writeFileSync(file, next);
+  }
+}
+
 /** Copy the plan into <out>/<name>/Stronghold-Protocol, npm ci, check the stage, zip it. */
 export function build(root, p, { out, install = true, force = false, keepStage = false, env = process.env, log = console.log } = {}) {
   if (p.problems.length) throw new Error('refusing to build: the plan has problems (see the summary)');
@@ -607,6 +632,7 @@ export function build(root, p, { out, install = true, force = false, keepStage =
     fs.copyFileSync(src, to, fs.constants.COPYFILE_FICLONE);
     fs.chmodSync(to, fs.statSync(src).mode & 0o777);
   }
+  rewritePlayerStage(stage, p);
   if (generated.has(GENERATED_PACK_INDEX)) {
     const index = writePackIndex(stage, path.join(stage, GENERATED_PACK_INDEX));
     log(`${GENERATED_PACK_INDEX}: ${index.packs.map((x) => `${x.type} ${x.id}`).join(', ') || 'no pack'}`);
