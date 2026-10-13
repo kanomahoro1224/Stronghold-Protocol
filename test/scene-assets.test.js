@@ -11,7 +11,9 @@ import path from 'node:path';
 import { artPlan, formatSummary, isPlayerFile, isRefused } from '../tools/package.mjs';
 import { localGaps, sceneInstallPlan } from '../tools/setup.mjs';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+// `new URL(...).pathname` keeps a leading slash in front of a Windows drive (`/F:/…`), and `path.resolve` then
+// treats that as a drive-relative root, producing `F:\F:\…`. Strip it so ROOT is the real repository directory.
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
 
 test('sceneInstallPlan: fetch only with a client and extractor deps; otherwise the metal board', () => {
   const present = sceneInstallPlan({ hasScenes: true, client: false });
