@@ -75,11 +75,11 @@ describe('detail card vs a press on the field', () => {
 
 describe('交流 pager touch hit areas (css/devices.css)', () => {
   const css = readFileSync(new URL('../../public/css/devices.css', import.meta.url), 'utf8');
-  test('‹ / › hit areas start under the emote cells and grow outwards; dots only up to half the gap', () => {
+  test('‹ / › hit areas start under the emote cells and grow outwards; the numeric readout takes no hit area', () => {
     assert.match(css, /\.sp-coarse \.ewheel__panel \.ewheel__nav::before \{ top: \.03rem; bottom: -\.15rem; height: auto; transform: none; \}/);
     assert.match(css, /\.sp-coarse \.ewheel__panel \.ewheel__nav\.is-prev::before \{ left: auto; right: 0; \}/);
     assert.match(css, /\.sp-coarse \.ewheel__panel \.ewheel__nav\.is-next::before \{ left: 0; right: auto; \}/);
-    assert.match(css, /\.sp-coarse \.ewheel__dot::before \{ inset: -\.02rem -\.05rem -\.2rem;/);
+    assert.doesNotMatch(css, /ewheel__dot|ewheel__count/, 'the dot row is gone and the readout is not a target');
   });
 });
 

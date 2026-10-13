@@ -394,10 +394,10 @@ describe('the resource index cache', () => {
     assert.ok(checks.every((check) => check === checks[0]), 'warm requests share only the ongoing check');
     for (const b of await Promise.all(checks)) assert.equal(b, a);
     assert.equal(reads.length, 0, 'no JSON or tile body read on a cache hit');
-    assert.equal(stats.length, 16, 'only three manifests, the known tile companion and the 12 emote pictures');
+    assert.equal(stats.length, 40, 'only three manifests, the known tile companion and the 36 emote pictures');
     assert.equal(rewrites, 3, 'no CDN rewrite or resource traversal on a cache hit');
     await index.get();
-    assert.equal(stats.length, 32, 'completed checks are not cached indefinitely');
+    assert.equal(stats.length, 80, 'completed checks are not cached indefinitely');
     index.reset();
     assert.notEqual((await index.get()).body, a.body);
     assert.equal(reads.length, 4);
@@ -431,7 +431,7 @@ describe('the resource index cache', () => {
     t.after(inst.cleanup);
     const index = createResourceIndex(inst);
     const first = await index.get();
-    assert.equal(CUSTOM_EMOTE_ART.length, 12, 'two sets of six');
+    assert.equal(CUSTOM_EMOTE_ART.length, 36, 'six sets of six (one of them .gif)');
     for (const url of CUSTOM_EMOTE_ART) {
       const entry = first.manifest.files.find((f) => f.url === url);
       assert.ok(entry, `${url} is preloaded`);

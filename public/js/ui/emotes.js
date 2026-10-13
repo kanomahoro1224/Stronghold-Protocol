@@ -1,7 +1,8 @@
 // Emotes (交流, research 09 §4): the 36 official in-match emotes of 盟约 — 6 themes × 6 (shared/constants.js
-// EMOTE_THEMES / EMOTES, generated reference data/emotes.json) — followed by the server-added sets this fork carries
-// (shared/constants.js CUSTOM_EMOTE_THEMES: 超辉夜姬, 鹿乃). The wheel pages ALL_EMOTE_THEMES; the protocol whitelist is
-// EMOTE_IDS. Emotes are pictures only: nothing here ever renders an emote's text (our labels are aria-labels only).
+// EMOTE_THEMES / EMOTES, generated reference data/emotes.json) — plus the six server-added sets this fork carries
+// (shared/constants.js CUSTOM_EMOTE_THEMES: 鹿乃, 超辉夜姬, 十年星扉, 十年星扉动态, 星白, 迷迭香). The wheel pages are
+// ALL_EMOTE_THEMES (12 pages: the two interleave, EMOTE_PAGE_ORDER); the protocol whitelist is EMOTE_IDS. Emotes are
+// pictures only: nothing here ever renders an emote's text (our labels are aria-labels only).
 //
 //   EmoteArt    the emote picture: the local-client art (data/local-assets.json → emoticon/<dir>/<picId>) first, else
 //               the copy setup downloads from the public mirror (data/assets.json → ui['emoticon/<dir>/<picId>'];
@@ -15,10 +16,10 @@
 //               seq so a newer emote replaces the old one and pops again, and passes the arrival time (`at`) so a
 //               bubble mounted late resumes its timeline instead of restarting it.
 //   EmoteWheel  bottom-left 交流 button (official emoji_btn / emoji_btn_disable) + panel (emoji_bkg): one page per theme
-//               with 3×2 cells (emoji_cell_bkg), pager dots, swipe / drag / arrow keys / wheel to change the page (the
-//               wheel turns one page per gesture, a plain vertical mouse wheel included, like Unity's ScrollRect). The
-//               panel reopens on the theme of the last emote sent (localStorage). Sending closes the panel and greys
-//               the button for the 1 s cooldown (chatCD), counted from the send so a remount keeps it.
+//               with 3×2 cells (emoji_cell_bkg), a numeric `1/12` page indicator, swipe / drag / arrow keys / wheel to
+//               change the page (the wheel turns one page per gesture, a plain vertical mouse wheel included, like
+//               Unity's ScrollRect). The panel reopens on the theme of the last emote sent (localStorage). Sending closes
+//               the panel and greys the button for the 1 s cooldown (chatCD), counted from the send so a remount keeps it.
 // Official UI sprites come from the local ui/battle extraction when present; CSS draws look-alikes otherwise.
 // Styles: public/css/emotes.css (injected on first use when the page does not link it).
 
@@ -385,10 +386,7 @@ export function EmoteWheel({ onSend, onChat, history = [], myId, open, onToggle,
       </div>
       <div class="ewheel__pager">
       <button type="button" class="ewheel__nav is-prev" aria-label=${t('上一组表情')} disabled=${page <= 0} onClick=${() => go(page - 1)}><${GIcon} name="chevronLeft" /></button>
-      <div class="ewheel__dots" role="tablist" aria-label=${t('表情主题')}>
-        ${ALL_EMOTE_THEMES.map((th, i) => html`<button key=${th.themeId} type="button" role="tab" class=${cx('ewheel__dot', i === page && 'is-on')}
-          aria-selected=${i === page ? 'true' : 'false'} aria-label=${`${t(th.name)} ${i + 1}/${ALL_EMOTE_THEMES.length}`} onClick=${() => go(i)}></button>`)}
-      </div>
+      <span class="ewheel__count" role="status" aria-label=${`${t(theme.name)} ${page + 1}/${ALL_EMOTE_THEMES.length}`}>${page + 1}/${ALL_EMOTE_THEMES.length}</span>
       <button type="button" class="ewheel__nav is-next" aria-label=${t('下一组表情')} disabled=${page >= ALL_EMOTE_THEMES.length - 1} onClick=${() => go(page + 1)}><${GIcon} name="chevronRight" /></button>
       </div>
     </div>

@@ -611,7 +611,7 @@ docker run -d --name stronghold -p 3000:3000 --restart unless-stopped \
 | 灼热 / 炽焰源石虫的官方模型 | 染成橙色 / 红橙色的普通源石虫 |
 | 39 个召唤物的官方模型（多数自选召唤物，以及凯瑟琳的爬行号·防护单元、凛御银灰的风雪之眼；公开镜像没有） | 召唤物头像（菱形底板） |
 
-表情（官方 6 套 × 6 个）和「玩法说明」的 19 页教程图公开镜像也有：`node tools/setup.mjs` 会和其他素材一起下载（约 21 MB），不需要客户端；有本地素材时优先显示本地的。两处的图都会被收进预载清单（本地提取的那份和镜像的那份各一条，客户端照旧本地优先）：36 张战斗表情属于第一批（对局界面要用），19 页「玩法说明」属于后台批次（整屏截图，不急）。本服务器自带的两套表情（`public/assets/local/emoticon/{kaguya,kano}/`，共 12 张）不来自镜像、也不写进生成的清单，部署时须随源码一起上传（AGENTS.md「本分支界面与素材取舍」）；服务器会按 `shared/constants.js` 的 `CUSTOM_EMOTE_ART` 把它们作为必备资源并入 `/data/resource-manifest.json`（有本地文件时带真实大小和指纹，没有时用稳定的 URL 派生指纹），因此上传后资源预载能覆盖这 12 张，删掉文件则只剩指纹、大小缺失。
+表情（官方 6 套 × 6 个）和「玩法说明」的 19 页教程图公开镜像也有：`node tools/setup.mjs` 会和其他素材一起下载（约 21 MB），不需要客户端；有本地素材时优先显示本地的。两处的图都会被收进预载清单（本地提取的那份和镜像的那份各一条，客户端照旧本地优先）：36 张战斗表情属于第一批（对局界面要用），19 页「玩法说明」属于后台批次（整屏截图，不急）。本服务器自带的六套表情（`public/assets/local/emoticon/{kano,kaguya,xingfei,xingfei_anim,xingbai,midiexiang}/`，共 36 张，其中 `xingfei_anim` 是 GIF）不来自镜像、也不写进生成的清单，部署时须随源码一起上传（AGENTS.md「本分支界面与素材取舍」）；服务器会按 `shared/constants.js` 的 `CUSTOM_EMOTE_ART` 把它们作为必备资源并入 `/data/resource-manifest.json`（有本地文件时带真实大小和指纹，没有时用稳定的 URL 派生指纹），因此上传后资源预载能覆盖这 36 张，删掉文件则只剩指纹、大小缺失。
 
 **没有客户端的服务器**想要上表中的官方素材：从**同一版本**的完整包（[Releases](https://github.com/sganggs/Stronghold-Protocol/releases)）里，把 `public/assets/local/` 文件夹和 `data/local-assets.json` 复制到服务器项目目录下的相同位置。服务器每次请求都会重新读取这两处，不必重启，玩家刷新页面即可。一定要用与服务器代码相同版本的完整包：各版本提取的内容和清单可能不同（例如灼热 / 炽焰源石虫的模型是 0.1.0 之后才加入的，召唤物模型是 0.2.0 加入的），混用其他版本的文件会缺图或用错图。复制后 `node tools/doctor.mjs` 会显示本地素材的条目数和「3D 棋盘可用」。
 

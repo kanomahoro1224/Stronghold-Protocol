@@ -19,6 +19,9 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ALL_EMOTE_THEMES } from '../../shared/constants.js';
+
+const TOTAL_PAGES = ALL_EMOTE_THEMES.length;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const OUT = path.join(ROOT, 'test/e2e/out');
@@ -203,7 +206,7 @@ describe('multi-device (Chrome device emulation)', { skip: !ENABLED && 'set SP_E
   }
 
   for (const dev of ['iphone14', 'phone-min', 'pixel7', 'ipad']) {
-    test(`${dev}: 交流 pager — every emote cell, dot and ‹ › is hit at its centre; taps send / change the page`, async () => {
+    test(`${dev}: 交流 pager — every emote cell and ‹ › is hit at its centre; taps send / change the page`, async () => {
       const { page, problems } = await open(dev, 'phase=PREP');
       await page.evaluate(() => localStorage.removeItem('sp.pref.emoteTheme'));
       const tapAt = async (p) => { await page.touchscreen.tap(p.x, p.y); await sleep(350); };
@@ -221,23 +224,29 @@ describe('multi-device (Chrome device emulation)', { skip: !ENABLED && 'set SP_E
           return t?.closest(sel) === el ? null : `${el.getAttribute('aria-label')} → ${t ? `${t.tagName}.${t.className} ${t.getAttribute('aria-label') || ''}` : 'nothing'}`;
         };
         return [...document.querySelectorAll('.ewheel__item')].map((el) => own(el, '.ewheel__item'))
-          .concat([...document.querySelectorAll('.ewheel__dot')].map((el) => own(el, '.ewheel__dot')))
           .concat([...document.querySelectorAll('.ewheel__nav')].map((el) => own(el, '.ewheel__nav')))
           .filter(Boolean);
       });
       assert.deepEqual(hits, [], `${dev}: controls covered by a neighbour's hit area`);
-      // each dot opens its own page — the last one first: dot 1 used to act as ‹ from the last page
-      const dots = await page.$$eval('.ewheel__dot', (els) => els.map((el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }));
-      for (const i of [dots.length - 1, ...dots.keys()]) {
-        await tapAt(dots[i]);
-        assert.equal(await page.$$eval('.ewheel__dot', (els) => els.findIndex((d) => d.classList.contains('is-on'))), i, `${dev}: dot ${i + 1}`);
+      // the numeric pager: › walks forward one page at a time and the readout follows; ‹ walks back and is disabled on page 1
+      const count = () => page.$eval('.ewheel__count', (el) => el.textContent.trim());
+      const navs = await page.$$eval('.ewheel__nav', (els) => els.map((el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }));
+      assert.equal(navs.length, 2, '‹ and ›');
+      assert.equal(await count(), `1/${TOTAL_PAGES}`);
+      for (const i of [2, 3]) {
+        await tapAt(navs[1]);
+        assert.equal(await count(), `${i}/${TOTAL_PAGES}`, `${dev}: › → page ${i}`);
       }
-      await tapAt(dots[0]);
+      await tapAt(navs[0]);
+      assert.equal(await count(), `2/${TOTAL_PAGES}`, `${dev}: ‹ → previous page`);
+      await tapAt(navs[0]);
+      await tapAt(navs[0]);
+      assert.equal(await count(), `1/${TOTAL_PAGES}`, `${dev}: ‹ at the first page stays there`);
       // the bottom corners of page 1 send (they sat under the enlarged ‹ / › hit areas)
       for (const idx of [3, 5]) {
         if (!(await page.$('.ewheel__panel'))) await openWheel();
-        const c = await page.$$eval('.ewheel__item', (els, k) => { const r = els[k].getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, page: document.querySelector('.ewheel__dot.is-on')?.getAttribute('aria-label') }; }, idx);
-        assert.match(c.page, /1\/6/, 'page 1');
+        const c = await page.$$eval('.ewheel__item', (els, k) => { const r = els[k].getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, page: document.querySelector('.ewheel__count')?.getAttribute('aria-label') }; }, idx);
+        assert.match(c.page, new RegExp(` 1/${TOTAL_PAGES}$`), 'page 1');
         await tapAt(c);
         assert.equal(await page.$('.ewheel__panel'), null, `${dev}: a tap on emote #${idx + 1} sends it (the panel closes)`);
         await sleep(1100); // chatCD

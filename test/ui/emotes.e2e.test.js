@@ -2,18 +2,18 @@
 // the UI-kit demo (/dev/uikit.html §13) and the in-match mock harness (/dev/game-mock.html). Opt-in like the other
 // browser suites: SP_E2E=1 node --test test/ui/emotes.e2e.test.js   → screenshots in test/e2e/out/emotes-*.png
 //
-// Asserted: picture-only wheel pages (3×2 per theme) and bubbles (no text anywhere), swipe / arrow keys / dots change
-// the theme, sending closes the panel and greys 交流 for the 1 s cooldown, the panel reopens on the last-used theme,
-// a bubble fades out after 3 s and a newer one replaces it, the neutral glyph fallback when the art is missing, a
-// plate sprite that fails to load falls back to the CSS plate (never bare 交流 text), the bubble sits beside the
-// sender's avatar in the team panel, and zero console errors.
+// Asserted: picture-only wheel pages (3×2 per theme) and bubbles (no text anywhere), swipe / arrow keys / the numeric
+// page readout change the theme, sending closes the panel and greys 交流 for the 1 s cooldown, the panel reopens on the
+// last-used theme, a bubble fades out after 3 s and a newer one replaces it, the neutral glyph fallback when the art is
+// missing, a plate sprite that fails to load falls back to the CSS plate (never bare 交流 text), the bubble sits beside
+// the sender's avatar in the team panel, and zero console errors.
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EMOTE_THEMES } from '../../shared/constants.js';
+import { ALL_EMOTE_THEMES } from '../../shared/constants.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const OUT = path.join(ROOT, 'test/e2e/out');
@@ -30,6 +30,9 @@ const HAS_ART = existsSync(path.join(ROOT, 'public/assets/local/emoticon/fooldoc
 // no official cell, and the wheel draws its own. One assertion below is about that official chrome, so it asks for it
 // separately instead of quietly failing on a fetch-assets-only deployment.
 const HAS_UI = existsSync(path.join(ROOT, 'public/assets/local/ui/battle/emoji_cell_bkg.png'));
+// The first wheel page is a server-added set (鹿乃) whose art ships with the server and is in no manifest: a deployment
+// that only fetched the mirror does not have it, and that page then draws the neutral glyph.
+const HAS_CUSTOM_ART = existsSync(path.join(ROOT, 'public/assets/local/emoticon/kano/pic_kano_01_battle.png'));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (and have Chrome) to run' }, () => {
@@ -95,11 +98,12 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
       // the grid's own text — the chat strip is a sibling of .ewheel__page, so this never sees 发送 / ×
       gridText: (() => { const grid = q('.ewheel__page'); return grid ? grid.textContent.trim() : ''; })(),
       btnDisabled: q('.ewheel__btn')?.disabled ?? null,
-      dotOn: [...document.querySelectorAll(`${root} .ewheel__dot`.trim())].findIndex((d) => d.classList.contains('is-on')),
+      count: q('.ewheel__count')?.textContent.trim() || null,
+      countLabel: q('.ewheel__count')?.getAttribute('aria-label') || null,
     };
   }, root);
 
-  test('UI kit: pager per theme, picture-only, swipe / keys / dots, cooldown, remembered theme, 3 s bubble', { skip: !HAS_ART && 'no official emote art (neither the local extraction nor the fetched copies)' }, async () => {
+  test('UI kit: pager per theme, picture-only, swipe / keys / readout, cooldown, remembered theme, 3 s bubble', { skip: !HAS_ART && 'no official emote art (neither the local extraction nor the fetched copies)' }, async () => {
     const { page, problems } = await open('/dev/uikit.html');
     await page.evaluate(() => localStorage.removeItem('sp.pref.emoteTheme'));
     await page.reload({ waitUntil: 'networkidle0' });
@@ -108,9 +112,12 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await sleep(500);
     const section = await page.evaluateHandle(() => document.querySelector('#emo-stage').closest('section'));
     let s = await wheelState(page, '#emo-stage');
-    assert.equal(s.theme, EMOTE_THEMES[0].themeId, 'first page by default');
+    assert.equal(s.theme, ALL_EMOTE_THEMES[0].themeId, 'first page by default');
+    assert.equal(s.count, `1/${ALL_EMOTE_THEMES.length}`, 'the pager is a numeric readout');
+    assert.match(s.countLabel, new RegExp(` 1/${ALL_EMOTE_THEMES.length}$`), 'named for a screen reader');
     assert.equal(s.items, 6, '3×2 cells');
-    assert.equal(s.imgs, 6, 'official pictures loaded');
+    assert.equal(s.imgs, HAS_CUSTOM_ART ? 6 : 0, 'the first page is a server-added set: its art ships with the server');
+    assert.equal(s.glyphs, HAS_CUSTOM_ART ? 0 : 6, 'and the neutral glyph when that art is not on disk');
     assert.equal(s.gridText, '', 'no text in the emote grid itself');
     // 游戏内文字聊天: the box sits under the grid; Enter and 发送 both send, X clears, and closing the panel keeps the draft
     assert.ok(s.chat, 'the chat box is under the grid');
@@ -141,7 +148,7 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     assert.equal(await page.$eval('#emo-stage .ebubble--text', (b) => b.textContent.trim()), '谢谢', 'the line bubbles');
     await page.click('#emo-stage .ewheel__chat-clear');
     await sleep(50);
-    assert.equal(s.dotOn, 0);
+    assert.equal(s.count, `1/${ALL_EMOTE_THEMES.length}`);
     assert.equal(await page.$$eval('.emo-cat img', (els) => els.filter((i) => i.complete && i.naturalWidth > 0).length), 36, 'all 36 pictures load');
     await section.screenshot({ path: path.join(OUT, 'emotes-uikit.png') });
 
@@ -154,7 +161,7 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await page.mouse.up();
     await sleep(250);
     s = await wheelState(page, '#emo-stage');
-    assert.equal(s.theme, EMOTE_THEMES[1].themeId, 'swipe → next page');
+    assert.equal(s.theme, ALL_EMOTE_THEMES[1].themeId, 'swipe → next page');
     assert.equal(s.open, true, 'a drag is not a send');
     // a short drag is ignored
     await page.mouse.move(box.x + box.width * 0.5, y);
@@ -162,27 +169,22 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await page.mouse.move(box.x + box.width * 0.5 - 20, y, { steps: 3 });
     await page.mouse.up();
     await sleep(150);
-    assert.equal((await wheelState(page, '#emo-stage')).theme, EMOTE_THEMES[1].themeId);
+    assert.equal((await wheelState(page, '#emo-stage')).theme, ALL_EMOTE_THEMES[1].themeId);
     // swipe right at the first page does nothing beyond the edge
     await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('ArrowLeft');
     await sleep(200);
-    assert.equal((await wheelState(page, '#emo-stage')).theme, EMOTE_THEMES[0].themeId, 'arrow keys, clamped at the first page');
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.press('ArrowRight');
-    await sleep(200);
-    assert.equal((await wheelState(page, '#emo-stage')).theme, EMOTE_THEMES[3].themeId);
-    await page.click('#emo-stage .ewheel__dot:nth-child(5)');
+    assert.equal((await wheelState(page, '#emo-stage')).theme, ALL_EMOTE_THEMES[0].themeId, 'arrow keys, clamped at the first page');
+    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
     await sleep(250);
     s = await wheelState(page, '#emo-stage');
-    assert.equal(s.theme, EMOTE_THEMES[4].themeId, 'dot → page');
-    assert.equal(s.dotOn, 4);
+    assert.equal(s.theme, ALL_EMOTE_THEMES[5].themeId, 'arrow keys → page 6 (an official set, so its pictures load)');
+    assert.equal(s.count, `6/${ALL_EMOTE_THEMES.length}`, 'the readout follows the page');
     assert.equal(s.imgs, 6);
-    await section.screenshot({ path: path.join(OUT, 'emotes-uikit-page5.png') });
+    await section.screenshot({ path: path.join(OUT, 'emotes-uikit-page6.png') });
 
     // send: panel closes, bubble beside the avatar (picture only), 交流 greyed for 1 s
-    const sent = EMOTE_THEMES[4].emotes[2].id;
+    const sent = ALL_EMOTE_THEMES[5].emotes[2].id;
     await page.click(`#emo-stage .ewheel__item[data-emote="${sent}"]`);
     await sleep(150);
     s = await wheelState(page, '#emo-stage');
@@ -195,10 +197,10 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     assert.equal((await wheelState(page, '#emo-stage')).btnDisabled, false, 'cooldown over after 1 s');
     await page.click('#emo-stage .ewheel__btn');
     await sleep(200);
-    assert.equal((await wheelState(page, '#emo-stage')).theme, EMOTE_THEMES[4].themeId, 'reopens on the last used theme');
+    assert.equal((await wheelState(page, '#emo-stage')).theme, ALL_EMOTE_THEMES[5].themeId, 'reopens on the last used theme');
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector('#emo-stage .ewheel__panel');
-    assert.equal((await wheelState(page, '#emo-stage')).theme, EMOTE_THEMES[4].themeId, 'remembered across reloads');
+    assert.equal((await wheelState(page, '#emo-stage')).theme, ALL_EMOTE_THEMES[5].themeId, 'remembered across reloads');
 
     // bubble lifetime: gone (faded) after 3 s; a newer emote replaces it and pops again
     await page.click('#emo-stage .ewheel__item:nth-child(1)');
@@ -218,7 +220,7 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await page.waitForSelector('#emo-stage .ewheel__panel');
     await page.$eval('#emo-stage', (el) => el.scrollIntoView({ block: 'center' }));
     await sleep(300);
-    const idx = async () => EMOTE_THEMES.map((t) => t.themeId).indexOf((await wheelState(page, '#emo-stage')).theme);
+    const idx = async () => ALL_EMOTE_THEMES.map((t) => t.themeId).indexOf((await wheelState(page, '#emo-stage')).theme);
     assert.equal(await idx(), 0);
     // a macOS trackpad swipe: 60 wheel events 16 ms apart with a decaying deltaX (≈ 750 px) — v1 skipped to the last theme
     await page.evaluate(async () => {
@@ -324,14 +326,14 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await page.touchscreen.touchEnd();
     await sleep(250);
     let s = await wheelState(page, '#emo-stage');
-    assert.equal(s.theme, EMOTE_THEMES[1].themeId, 'swipe left → next theme');
+    assert.equal(s.theme, ALL_EMOTE_THEMES[1].themeId, 'swipe left → next theme');
     assert.equal(s.open, true);
     const cell = await (await page.$('#emo-stage .ewheel__item:nth-child(4)')).boundingBox();
     await page.touchscreen.tap(cell.x + cell.width / 2, cell.y + cell.height / 2);
     await sleep(200);
     s = await wheelState(page, '#emo-stage');
     assert.equal(s.open, false, 'tap sends and closes');
-    assert.equal(await page.$eval('.emo-row .ebubble', (b) => b.dataset.emote), EMOTE_THEMES[1].emotes[3].id);
+    assert.equal(await page.$eval('.emo-row .ebubble', (b) => b.dataset.emote), ALL_EMOTE_THEMES[1].emotes[3].id);
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -347,7 +349,12 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector('#emo-stage .ewheel__panel');
     await sleep(400);
+    // The first page is a server-added set: its art ships with the server and is in no manifest, so it is the wrong page
+    // for a "the manifests are broken" check. Page 2 is an official set (卫戍协议) — that is the one to read here.
+    await page.keyboard.press('ArrowRight');
+    await sleep(250);
     const s = await wheelState(page, '#emo-stage');
+    assert.equal(s.theme, ALL_EMOTE_THEMES[1].themeId);
     assert.equal(s.items, 6);
     assert.equal(s.imgs, 0);
     assert.equal(s.glyphs, 6, 'unlisted and broken pictures both fall back to the glyph');
