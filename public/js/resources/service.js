@@ -6,6 +6,7 @@
 // pass through this module.
 
 import { CACHE_NAME, CACHE_PREFIX, CONTENT_HASH_RE, absoluteUrl, isResourcePath, mediaCandidates, rangeResponse } from './common.js';
+import { splitHashedPath } from '../../../shared/assetPaths.js';
 
 /**
  * @param {Request} request
@@ -31,7 +32,10 @@ export async function handleResourceRequest(request, { caches = globalThis.cache
 /**
  * The cache keys a request may be answered from. Usually just its own URL — but the game fetches audio through the
  * extension-less `/media/bgm/act1` route (shared/media.js, `server/index.js serveMedia`), and the preload stores the
- * canonical `/assets/audio/….mp3` the manifest lists, so such a request also looks for those.
+ * canonical `/assets/audio/….mp3` the manifest lists, so such a request also looks for those. A `/assets/~<hash>/x.png`
+ * request (the content-hash segment assetViews.js puts into the served manifests) also looks for the plain
+ * `/assets/x.png`: the preload index stores whatever `/data/resource-manifest.json` listed, and both shapes name the
+ * same bytes (shared/assetPaths.js).
  * @param {URL} url
  * @returns {string[]}
  */
@@ -40,7 +44,15 @@ function cacheKeys(url) {
   if (!candidates.length) {
     const key = absoluteUrl(url.href);
     const legacy = key.replace(/%5B/gi, '[').replace(/%5D/gi, ']');
-    return key === legacy ? [key] : [key, legacy];
+    const keys = key === legacy ? [key] : [key, legacy];
+    const plain = splitHashedPath(url.pathname).path;
+    if (plain !== url.pathname) {
+      const bare = new URL(url.href);
+      bare.pathname = plain;
+      const bareKey = absoluteUrl(bare.href);
+      if (bareKey && !keys.includes(bareKey)) keys.push(bareKey);
+    }
+    return keys;
   }
   const keys = [];
   for (const path of candidates) {

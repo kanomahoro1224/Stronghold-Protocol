@@ -3,14 +3,20 @@
 //
 //   http/config.js     ROOT, the served directories, the environment (PORT 3000, HOST '::' dual-stack, TRUST_PROXY auto, DEBUG),
 //                      which startServer() options go to net.js / lobby.js, the console logger
-//   http/websocket.js  session wiring (SessionRegistry → Lobby → Network) and the WebSocket at /ws (maxPayload 64 KB;
-//                      refused at upgrade with 404 / 429 per network / 503)
+//   http/websocket.js  session wiring (SessionRegistry → Lobby → Network) and the WebSocket at /ws (maxPayload 64 KB,
+//                      permessage-deflate from 1 KB; refused at upgrade with 404 / 429 per network / 503)
 //   http/static.js     the static mounts (/ → public/, /data/, /shared/, /sim/ `.js` only), the /data.js browser stand-in,
 //                      the content packs (/packs/index.json, /packs/<id>/<file> — the registry is packs.js)
 //   http/media.js      /media/bgm/act1 → public/assets/audio/bgm/act1.mp3 (audio addressed without its extension)
-//   http/files.js      one file → response: MIME, gzip + memory cache, ETag / Last-Modified / 304, Cache-Control, ranges
+//   http/files.js      one file → response: MIME, brotli / gzip + memory cache, ETag / Last-Modified / 304, Cache-Control, ranges
+//   http/assetIndex.js the content hashes of public/assets and public/fonts (built in the background, cached in
+//                      .cache/asset-hashes.json by path + size + mtime; Spine models share one hash)
+//   http/assetViews.js the served /data/assets.json and /data/local-assets.json: every art URL with its hash segment
+//                      (/assets/~<hash>/…, immutable when the hash matches); the committed files stay unchanged
 //   http/buildTag.js   the build tag of the served browser runtime (/healthz `build`, public/js/ui/buildGuard.js)
 //   http/routes.js     the request listener: security headers, 414 / 400 / 405, GET /healthz → JSON status, else static
+//   http/traffic.js    the traffic counters: bytes sent per category (assets / audio / code / data) and on the
+//                      WebSocket, since the start (GET /healthz?traffic=1)
 //   http/common.js     what every answer shares: security headers, URL split, error page, JSON replies, bare 400
 //   http/boot.js       banner (Local / LAN / tunnel URLs), port-in-use hint, graceful shutdown on SIGINT / SIGTERM
 //
@@ -38,20 +44,23 @@ export { WS_DEFLATE_THRESHOLD } from './http/websocket.js';
 export { rewriteAssetPaths } from '../shared/cdn.js';
 
 import { getData, loadData } from './data.js';
-import { ROOT, listenAddress, bindCandidates, serveDirs, makeLogger, parseTrustProxy } from './http/config.js';
+import { ROOT, listenAddress, bindCandidates, serveDirs, makeLogger, parseTrustProxy, assetIndexOptionsFrom } from './http/config.js';
 import { WS_MAX_PAYLOAD, createSessionStack, attachWebSocket } from './http/websocket.js';
 import { DATA_SHIM_JS, createStaticHandler } from './http/static.js';
 import { createPackRegistry } from './packs.js';
-import { MIME, COMPRESSIBLE, acceptsGzip, parseRange } from './http/files.js';
+import { MIME, COMPRESSIBLE, acceptsGzip, pickEncoding, parseRange } from './http/files.js';
 import { BUILD_INPUTS, computeBuildTag, buildTag, resetBuildTag } from './http/buildTag.js';
 import { createRequestHandler } from './http/routes.js';
+import { createTrafficCounter } from './http/traffic.js';
+import { createAssetIndex } from './http/assetIndex.js';
+import { createManifestViews } from './http/assetViews.js';
 import { answerClientError } from './http/common.js';
 import { lanUrls, displayHost, isProcessEntry, runMain } from './http/boot.js';
 
 // The public API of this module (tests and tools import it from here); the code lives in ./http/.
 export {
   ROOT, WS_MAX_PAYLOAD, DATA_SHIM_JS, MIME, COMPRESSIBLE, BUILD_INPUTS, computeBuildTag, buildTag, resetBuildTag,
-  acceptsGzip, parseRange, createStaticHandler, lanUrls, parseTrustProxy,
+  acceptsGzip, pickEncoding, parseRange, createStaticHandler, lanUrls, parseTrustProxy,
 };
 
 /**
@@ -68,11 +77,14 @@ export {
  *   store?: object | null, resume?: boolean, saveMs?: number, assetsCdn?: string, dataCdn?: string,
  *   workers?: number, roomWorkers?: number, matchWorkers?: number, workerQueue?: number, workerTimeoutMs?: number, workerPool?: SimulationPool | null,
  *   announcementsFile?: string | null, announcementPollMs?: number, wsCompression?: boolean, clientBuild?: boolean,
+ *   assetIndex?: boolean | { cacheFile?: string | null, delayMs?: number },
  * }} [opts]
+ *   assetIndex: the content-hash index (default on; false or SP_ASSET_INDEX=0: off — config.js assetIndexOptionsFrom)
  * @returns {Promise<{ port: number, host: string, url: string, server: http.Server, wss: import('ws').WebSocketServer,
  *                     lobby: import('./lobby.js').Lobby, network: import('./net.js').Network,
  *                     registry: import('./net.js').SessionRegistry, packs: ReturnType<typeof createPackRegistry>,
- *                     close: () => Promise<void> }>}
+ *                     traffic: ReturnType<typeof createTrafficCounter>, assetIndex: ReturnType<typeof createAssetIndex> | null,
+ *                     views: ReturnType<typeof createManifestViews> | null, close: () => Promise<void> }>}
  */
 export async function startServer(opts = {}) {
   const nameModeration = opts.nameModeration !== undefined ? opts.nameModeration : nameModerationFromEnv();
@@ -165,16 +177,22 @@ export async function startServer(opts = {}) {
   // content packs (docs/PACKS.md): scanned now — the start log names them — and again whenever their folders change
   const packs = createPackRegistry({ publicDir, dataDir, packsDir }, { log });
   packs.refresh(true);
-  const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, packsDir, packs, log, cdnBase: assetsCdn, dataCdnBase: dataCdn, clientBuild });
+  // the content hashes of the art (built in the background once listening) and the manifests served with them
+  const indexOptions = assetIndexOptionsFrom(opts, publicDir);
+  const assetIndex = indexOptions ? createAssetIndex({ publicDir, log, ...indexOptions }) : null;
+  const views = assetIndex ? createManifestViews({ dataDir, index: assetIndex, log }) : null;
+  const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, packsDir, packs, log, assetIndex, views, cdnBase: assetsCdn, dataCdnBase: dataCdn, clientBuild });
   const startedAt = Date.now();
   // The tag is per process (see buildTag): read the browser runtime once, here, not on every /healthz.
   resetBuildTag();
   buildTag(ROOT, { clientBuild });
 
-  const server = http.createServer(createRequestHandler({ serveStatic, memStats, health: { startedAt, network, registry, lobby }, serveApi,
-    diagnostics: { persister, workerPool, matchWorkerPool, announcements, wsCompression, assetsCdn, dataCdn, serveStatic }, log }));
+  const traffic = createTrafficCounter();
+  const server = http.createServer(createRequestHandler({ serveStatic, memStats, health: { startedAt, network, registry, lobby, traffic, assetIndex, views }, serveApi,
+    diagnostics: { persister, workerPool, matchWorkerPool, announcements, wsCompression, assetsCdn, dataCdn, serveStatic }, log,
+    trustProxy: network.opts.trustProxy }));
   server.on('clientError', answerClientError);
-  const wss = attachWebSocket(server, { network, log, wsCompression, announcements });
+  const wss = attachWebSocket(server, { network, log, wsCompression, announcements, traffic });
 
   // The address actually bound. The default may fall back to IPv4; the returned host and url follow that.
   let boundHost;
@@ -214,10 +232,12 @@ export async function startServer(opts = {}) {
     lobby.shutdown('shutdown');
     if (ownsWorkerPool) await workerPool?.close();
     if (ownsMatchWorkerPool) await matchWorkerPool?.close();
+    assetIndex?.close();
     throw e;
   }
   server.on('error', (e) => log.error('[http] server error', e));
   persister?.start();
+  assetIndex?.start();
 
   const addr = server.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
@@ -241,6 +261,7 @@ export async function startServer(opts = {}) {
       network.close();
       if (ownsWorkerPool) await workerPool?.close();
       if (ownsMatchWorkerPool) await matchWorkerPool?.close();
+      assetIndex?.close();
       await new Promise((resolve) => {
         server.close(() => resolve());
         server.closeIdleConnections?.();
@@ -253,7 +274,7 @@ export async function startServer(opts = {}) {
   }
 
   return { port: actualPort, host: boundHost, url, server, wss, lobby, network, registry, packs, store: store || null, persister,
-    workerPool, matchWorkerPool, announcements, close };
+    workerPool, matchWorkerPool, announcements, traffic, assetIndex, views, close };
 }
 
 // `node server/index.js` / npm start: listen, print the banner, stop on SIGINT / SIGTERM (http/boot.js).

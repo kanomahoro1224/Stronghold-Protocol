@@ -28,14 +28,26 @@ aklz4.py registers a decoder for it. This script pulls the art the web sources l
     [opt]end_box / [opt]start_fly meshes, their merged additive textures, materials and prefab), the blower's texture
     (arts/maps/common/res.ab → map/common: TX_wind_device of the s_wind_device mesh) and the shared water / noise
     textures (arts/maps/effect.ab → map/water) used for deep-sea / mire / smog tiles
-  - derived PBR maps for three.js (DERIVED): Unity stores the theme's normal map as two channels (BC5: RG = XY, B = 0)
-    and metallic/gloss with the smoothness in A; the board renderer needs an RGB normal map (Z rebuilt) and a
-    roughness map in G (1 − smoothness; metalness B = 0), written next to the source as <name>_rgb.png / _rough.png
+  - derived PBR maps for three.js (DERIVED): Unity stores the theme's normal map as two channels (BC5: RG = XY, B = 0;
+    DXT5nm in an older bundle: AG = XY, R = 1) and metallic/gloss with the smoothness in A; the board renderer needs
+    an RGB normal map (Z rebuilt) and a roughness map in G (1 − smoothness; metalness B = 0), written next to the
+    source as <name>_rgb.png / _rough.png
+  - WebP copies of the 19 guidebook pages (GUIDE_WEBP_*), written next to their PNGs; the manifest lists the copy.
+    The 3D board textures keep their PNGs on this branch (`WEBP` stays empty — the maintainer's decision, see AGENTS.md
+    「本分支界面与素材取舍」), so --webp only rewrites the guide pages here
+  - the official battlefield scenes (scenes.py SCENES: one prebuilt scene per 卫戍协议 battlefield) → scene/<stageId>/
+    scene.json + scene.bin + lightmap pages and scene/tex/ (the materials' albedo textures). The scene bundles ship
+    only while the season runs: they are read from the client when it has them, else from --scenes <dir> (default
+    .cache/official-scenes/*, filled by tools/local-extract/fetch_scenes.py)
 
 Usage:
   python3 -m venv .venv && .venv/bin/pip install -r tools/local-extract/requirements.txt
   .venv/bin/python tools/local-extract/extract.py [--game <AB root>] [--out public/assets/local] [--only <subdir prefix>]
   python3 tools/local-extract/extract.py --print-jobs     (the job table as JSON; needs no dependencies)
+  python3 tools/local-extract/extract.py --webp           (only the WebP copies of the guidebook pages on this branch,
+                                                          from the PNGs already extracted — e.g. the local art copied
+                                                          from a release bundle; needs Pillow)
+  .venv/bin/python tools/local-extract/extract.py --only scene [--scenes <dir of in-season bundles>]
 
 Writes <out>/**.png|.skel|.atlas and data/local-assets.json (manifest of what was extracted). With --only, just the
 jobs whose output subdir starts with one of the prefixes run, and their groups replace those of the existing manifest
@@ -152,6 +164,34 @@ DERIVED = [
     ('map/autochess', 'TX_autochessi_N', 'normal_rg', 'TX_autochessi_N_rgb'),
     ('map/autochess', 'TX_autochessi_M', 'rough_from_gloss', 'TX_autochessi_M_rough'),
 ]
+
+# WebP copies of extracted PNGs: (output subdir, name, mode). Empty on this branch — the 3D board textures every player
+# downloads with the board (public/js/render/board3d/load.js PACK_IMAGES; D / common_D / BG also feed the 2D board art,
+# render/boardArt.js) stay PNG (the maintainer's decision, AGENTS.md「本分支界面与素材取舍」), where upstream v0.2.6
+# writes a WebP copy beside each and lists that instead (≈ 6.7 MB → 2.0 MB per cold start). The mechanism is kept for the
+# guide pages below and so the rows can be restored as they are; the PNG also stays for tools/crop-board-atlas.mjs and
+# setup's check. 'lossy' = colour maps at quality 95 with the alpha lossless and the RGB under transparent texels kept
+# (`exact`: the board material is opaque and samples it); 'lossless' = normal and data maps, whose channels hold
+# independent values that lossy WebP's chroma subsampling would mix (a normal map ends up tens of degrees off). A Pillow
+# without WebP support keeps the PNG.
+WEBP = []
+WEBP_OPTIONS = {
+    'lossy': {'quality': 95, 'method': 6, 'alpha_quality': 100, 'exact': True},
+    'lossless': {'lossless': True, 'quality': 100, 'method': 6, 'exact': True},
+}
+
+# The 19 玩法说明 pages (output subdir guide: 1024², opaque) get a WebP copy — every page PNG of the group, each a
+# 1.2–1.5 MB download whenever a player opens the guide (public/js/ui/guide.js shows the local page first and preloads
+# the next one). Lossy quality 90, the maintainer's choice of 2026-10-12 after a side-by-side comparison at 2× (DESIGN
+# §31.1, docs/history/0.2.6.md): 25.6 MB of PNG → 4.2 MB on the CN client's pages (lossless would be 17.4 MB);
+# `extract.py --webp` rewrites the copies when GUIDE_WEBP_MODE changes. Method 4: method 6 spends about 8 s
+# a page for 0.4 % less.
+GUIDE_WEBP_SUB = 'guide'
+GUIDE_WEBP_MODE = 'lossy'
+GUIDE_WEBP_OPTIONS = {
+    'lossless': {'lossless': True, 'quality': 100, 'method': 4, 'exact': True},
+    'lossy': {'quality': 90, 'method': 4, 'alpha_quality': 100},
+}
 
 # Shader bundles loaded beside every job that exports Materials, only so that the materials' shader references
 # (external CABs) resolve to a name in materials.json (e.g. Torappu/Scene/StandardDirectional); nothing is exported
@@ -417,6 +457,55 @@ def run_derived(out_root, sub, manifest, log):
                                               'kind': 'Derived', 'from': src, 'derive': kind}
         n += 1
     return n
+
+
+def webp_targets(sub, manifest):
+    """(name, mode, Pillow options) of every WebP copy output subdir `sub` gets: its WEBP rows and, for the guide, each
+    page of the group (an image entry: its path ends in .png, or in .webp after an earlier run)."""
+    out = [(name, mode, WEBP_OPTIONS[mode]) for wsub, name, mode in WEBP if wsub == sub]
+    if sub == GUIDE_WEBP_SUB:
+        out += [(name, GUIDE_WEBP_MODE, GUIDE_WEBP_OPTIONS[GUIDE_WEBP_MODE])
+                for name, entry in sorted(manifest.get(sub, {}).items())
+                if isinstance(entry, dict) and str(entry.get('path', '')).endswith(('.png', '.webp'))]
+    return out
+
+
+def run_webp(out_root, sub, manifest, log):
+    """Write the WebP copies of output subdir `sub` from its PNGs and point their manifest entries at them."""
+    n = 0
+    for name, mode, options in webp_targets(sub, manifest):
+        entry = manifest.get(sub, {}).get(name)
+        png = Path(out_root) / sub / f'{name}.png'
+        if not entry or not png.exists():
+            continue
+        dst = png.with_name(f'{name}.webp')
+        try:
+            from PIL import Image
+            with Image.open(png) as img:
+                img.save(dst, 'WEBP', **options)
+        except Exception as e:  # no WebP support in this Pillow, or a broken PNG: the entry keeps the PNG
+            log(f'  warn webp {name}: {e}')
+            continue
+        entry.update(path=f'/assets/local/{sub}/{dst.name}', webp=mode)
+        n += 1
+    return n
+
+
+def webp_only(out_root, manifest_path, log):
+    """--webp: the WEBP copies of an existing extraction (e.g. the local art copied from a release bundle)."""
+    try:
+        doc = json.loads(Path(manifest_path).read_text(encoding='utf-8'))
+    except (OSError, ValueError) as e:
+        print(f'No readable manifest at {manifest_path} ({e}). Extract the local art first.', file=sys.stderr)
+        return 2
+    groups = doc.get('groups') if isinstance(doc, dict) else None
+    if not isinstance(groups, dict):
+        print(f'{manifest_path} has no groups. Extract the local art first.', file=sys.stderr)
+        return 2
+    n = sum(run_webp(out_root, sub, groups, log) for sub in dict.fromkeys([*(s for s, _, _ in WEBP), GUIDE_WEBP_SUB]))
+    Path(manifest_path).write_text(json.dumps(doc, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+    log(f'done: {n} WebP copies, manifest {manifest_path}')
+    return 0 if n else 1
 
 
 def merge_manifest(old_groups, new_groups, ran_subs):
@@ -797,14 +886,20 @@ def main():
                     help='an AB root holding the battlefield scene bundles of an in-season version (repeatable; '
                          'searched after --game and before .cache/official-scenes/*)')
     ap.add_argument('--print-jobs', action='store_true', help='print the job table as JSON and exit')
+    ap.add_argument('--webp', action='store_true',
+                    help='only write the WebP copies of the guidebook pages from the PNGs already under --out and list '
+                         'them in the manifest (needs Pillow, not the client; this branch keeps the board textures PNG)')
     args = ap.parse_args()
 
     if args.print_jobs:
         jobs = [{'bundle': rel, 'sub': sub, 'kinds': sorted(kinds), 'keep': keep.pattern if keep else None}
                 for rel, sub, kinds, keep in map(job_parts, JOBS)]
         derived = [{'sub': sub, 'from': src, 'derive': kind, 'name': name} for sub, src, kind, name in DERIVED]
+        webp = [{'sub': sub, 'name': name, 'mode': mode} for sub, name, mode in WEBP]
         print(json.dumps({'emoteThemes': [{'themeId': t, 'dir': d} for t, d in EMOTE_THEMES], 'jobs': jobs,
-                          'derived': derived,
+                          'derived': derived, 'webp': webp,
+                          'guideWebp': {'sub': GUIDE_WEBP_SUB, 'mode': GUIDE_WEBP_MODE,
+                                        'options': GUIDE_WEBP_OPTIONS[GUIDE_WEBP_MODE]},
                           'enemySpines': {'bundles': ENEMY_ART, 'sub': ENEMY_SPINE_SUB, 'ids': ENEMY_SPINES},
                           'tokenSpines': {'bundles': TOKEN_PACKS, 'sub': TOKEN_SPINE_SUB, 'ids': TOKEN_SPINES},
                           'scenes': {'sub': scenes.SCENE_SUB, 'tex': scenes.TEX_SUB,

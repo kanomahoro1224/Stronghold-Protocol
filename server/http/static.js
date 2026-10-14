@@ -15,9 +15,20 @@
 //     /packs/index.json → the content packs of this server (server/packs.js: the language packs of
 //                public/i18n/ and the pack folders of packs/, re-read when they change; never cached)
 //     /packs/<id>/<file> → a file of a pack folder — only one its manifest names (server/packs.js servable)
+//     /assets/~<hash>/…, /fonts/~<hash>/…, /media/~<hash>/… → the same files: the content-hash segment
+//                (shared/assetPaths.js) is stripped. A hash that names the file's current bytes (assetIndex.js
+//                urlHashOk: its own hash, or its Spine model's) answers `immutable` for a year; any other hash —
+//                an old page, a URL derived from another file's — the current file with `no-cache`
+//     /data/assets.json, /data/local-assets.json → the served manifests (assetViews.js: every art URL with its
+//                content-hash segment) and then the assets CDN rewrite (shared/cdn.js); no-cache, the ETag of the
+//                view. Without an index — or before it is built — the file goes out as it is, rewritten only
+//                when a CDN is configured.
+//     /js/asset-cdn.js → the runtime CDN configuration of this server (never cached; its ETag follows the value)
 //
-// Traversal & dotfile protection, a directory without its trailing slash → 301, 404 page; an absent
-// data/local-assets.json is answered with an empty manifest. Files go out through files.js serveFile.
+// Files under public/assets/ and public/fonts/ get their content hash as ETag when the index has it (a file whose
+// size or mtime changed since asks for a rescan), others size + mtime. Traversal & dotfile protection, a directory
+// without its trailing slash → 301, 404 page; an absent data/local-assets.json is answered with an empty manifest.
+// Files go out through files.js serveFile.
 
 import fsp from 'node:fs/promises';
 import fs from 'node:fs';
@@ -26,9 +37,11 @@ import { rewriteAssetPaths } from '../../shared/cdn.js';
 import { createResourceIndex, RESOURCE_MANIFEST_FILE } from '../resources.js';
 import path from 'node:path';
 import { MEDIA_PREFIX } from '../../shared/media.js';
+import { splitHashedPath } from '../../shared/assetPaths.js';
 import { ROOT, noopLog } from './config.js';
 import { sendError, sendJson } from './common.js';
-import { MIME, GzipCache, isNotModified, serveFile, acceptsGzip } from './files.js';
+import { MIME, CompressCache, isNotModified, serveFile, serveBuffer, acceptsGzip } from './files.js';
+import { ASSET_INDEX_ROOTS, hashedFileOpts } from './assetIndex.js';
 import { serveMedia } from './media.js';
 import { createPackRegistry } from '../packs.js';
 import { PACKS_URL, PACK_INDEX_FILE } from '../../shared/packs.js';
@@ -51,15 +64,26 @@ const SIM_PRIVATE = new Set(['nodedata.js']); // lower-case (compared case-insen
 /** Optional per-machine art manifest (tools/local-extract) and the empty stand-in served when it is absent. */
 const LOCAL_ART_MANIFEST = 'local-assets.json';
 const EMPTY_LOCAL_ART = Buffer.from(JSON.stringify({ version: 1, source: 'none', count: 0, groups: {} }));
+/** The manifests whose served body is rewritten (assetViews.js hashes them, shared/cdn.js may move them to a CDN). */
+const CDN_MANIFESTS = new Set(['assets.json', 'local-assets.json']);
+/** A short, stable ETag suffix for a serving-time rewrite (the CDN base), so a changed base is a new ETag. */
+const rewriteTag = (value) => (value ? Buffer.from(String(value)).toString('hex').slice(0, 12) : '');
 
 /**
  * Create the static request handler.
  * @param {{ publicDir: string, dataDir: string, sharedDir: string, simDir?: string, packsDir?: string,
- *   packs?: ReturnType<typeof createPackRegistry>, log?: object }} dirs
- *   packs: the server's pack registry (default: one over publicDir, dataDir and packsDir — ROOT/packs)
+ *   packs?: ReturnType<typeof createPackRegistry>, log?: object, cdnBase?: string, dataCdnBase?: string,
+ *   clientBuild?: boolean,
+ *   assetIndex?: ReturnType<typeof import('./assetIndex.js').createAssetIndex> | null,
+ *   views?: ReturnType<typeof import('./assetViews.js').createManifestViews> | null }} dirs
+ *   packs: the server's pack registry (default: one over publicDir, dataDir and packsDir — ROOT/packs);
+ *   cdnBase / dataCdnBase: the runtime asset and data CDN of this server (server/index.js, docs/ASSETS.md「CDN」);
+ *   clientBuild: serve public/build/index.html for / and /index.html when it exists;
+ *   assetIndex / views: the content hashes and the served manifests (none: plain URLs, size-mtime ETags)
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, rawPath: string, query: string) => Promise<void>}
  */
-export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), packsDir = path.join(ROOT, 'packs'), packs = null, log = noopLog, cdnBase = '', dataCdnBase = '', clientBuild = true }) {
+export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), packsDir = path.join(ROOT, 'packs'), packs = null, log = noopLog,
+  cdnBase = '', dataCdnBase = '', clientBuild = true, assetIndex = null, views = null }) {
   const registry = packs || createPackRegistry({ publicDir, dataDir, packsDir }, { log: /** @type {any} */ (log) });
   const cdn = typeof cdnBase === 'string' ? cdnBase : '';
   const builtIndex = path.join(publicDir, 'build', 'index.html');
@@ -77,7 +101,7 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
   ];
   const shimBody = Buffer.from(DATA_SHIM_JS);
   const shimTag = `"shim-${shimBody.length.toString(16)}"`;
-  const gzipCache = new GzipCache();
+  const gzipCache = new CompressCache(); // brotli and gzip bodies (files.js)
 
   // A small runtime module supplies the base before client data/asset loaders run; no separate config fetch needed.
   const cdnConfigBody = Buffer.from(`export const ASSETS_CDN = ${JSON.stringify(cdn)};\nexport const DATA_CDN = ${JSON.stringify(dataCdnBase)};\n`);
@@ -90,6 +114,10 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
       sendError(req, res, 400, '请求地址无效 · Bad request');
       return;
     }
+    // /assets/~<hash>/x → /assets/x (the hash decides the cache policy below; media.js strips its own)
+    const hashed = splitHashedPath(decoded);
+    const urlHash = hashed.hash;
+    decoded = hashed.path;
     if (useBuiltClient && (decoded === '/' || decoded === '/index.html')) {
       await serveFile(req, res, builtIndex, await fsp.stat(builtIndex), 'public', ['build', 'index.html'], query, gzipCache, log);
       return;
@@ -150,7 +178,7 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
     }
     // Extension-less audio (download-manager avoidance): /media/bgm/act1 → /assets/audio/bgm/act1.mp3
     if (decoded.startsWith(MEDIA_PREFIX)) {
-      await serveMedia(req, res, decoded.slice(MEDIA_PREFIX.length), query, publicDir, gzipCache, log);
+      await serveMedia(req, res, decoded.slice(MEDIA_PREFIX.length), query, publicDir, gzipCache, log, { urlHash, assetIndex });
       return;
     }
     // Bare mount paths (e.g. "/data") → treat as the mount directory.
@@ -210,13 +238,22 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
       }
       return;
     }
-    // assets CDN: the manifests are rewritten on the way out, so every client keeps requesting /data/assets.json
-    if (cdn && mount.name === 'data' && segments.length === 1 && CDN_MANIFESTS.has(segments[0].toLowerCase())) {
+    // The served manifests: every art URL with its content-hash segment (assetViews.js) once the index is ready, then
+    // the assets CDN rewrite — the client keeps requesting /data/assets.json (docs/ASSETS.md「The served manifests」).
+    if (mount.name === 'data' && segments.length === 1 && CDN_MANIFESTS.has(segments[0].toLowerCase())) {
+      const view = views ? await views.get(segments[0].toLowerCase()) : null;
+      const cdnTag = rewriteTag(cdn);
+      if (view) {
+        const body = cdn ? Buffer.from(JSON.stringify(rewriteAssetPaths(JSON.parse(view.body.toString('utf8')), cdn))) : view.body;
+        await serveBuffer(req, res, { body, hash: `${view.hash}${cdnTag ? `-${cdnTag}` : ''}`, type: MIME['.json'], cacheControl: 'no-cache', key: absPath, cache: gzipCache });
+        return;
+      }
       const cached = cdnCache.get(absPath);
       let body = cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size ? cached.body : null;
       if (!body) {
         try {
-          body = Buffer.from(JSON.stringify(rewriteAssetPaths(JSON.parse(fs.readFileSync(absPath, 'utf8')), cdn)));
+          const raw = fs.readFileSync(absPath);
+          body = cdn ? Buffer.from(JSON.stringify(rewriteAssetPaths(JSON.parse(raw.toString('utf8')), cdn))) : raw;
           cdnCache.set(absPath, { mtimeMs: stat.mtimeMs, size: stat.size, body });
         } catch (e) {
           log.error(`[http] cannot rewrite ${segments[0]} for the CDN`, e);
@@ -224,28 +261,16 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
           return;
         }
       }
-      serveBuffer(req, res, body, stat, MIME['.json'], 'no-cache', cdn);
+      const fileTag = `${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}${cdnTag ? `-${cdnTag}` : ''}`;
+      await serveBuffer(req, res, { body, hash: fileTag, type: MIME['.json'], cacheControl: 'no-cache', key: absPath, cache: gzipCache });
       return;
     }
-    await serveFile(req, res, absPath, stat, mount.name, segments, query, gzipCache, log);
+    // public/assets/… and public/fonts/…: the content hash is the ETag, and a URL whose hash names the current bytes
+    // is immutable for a year (assetIndex.js hashedFileOpts); any other hashed URL gets the current file with no-cache.
+    const indexed = mount.name === 'public' && segments.length > 1 && ASSET_INDEX_ROOTS.includes(segments[0]);
+    const opts = indexed ? hashedFileOpts(assetIndex, segments.join('/'), stat, urlHash) : (urlHash ? { cacheControl: 'no-cache' } : {});
+    await serveFile(req, res, absPath, stat, mount.name, segments, query, gzipCache, log, opts);
   };
   serveStatic.cacheStats = () => ({ gzipBytes: gzipCache.total, gzipEntries: gzipCache.map.size, gzipLimitBytes: gzipCache.maxTotal, gzipInflight: gzipCache.inflight.size });
   return serveStatic;
 }
-
-function serveBuffer(req, res, body, stat, type, cacheControl, tag = '') {
-  const isHead = req.method === 'HEAD';
-  const etag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}${tag ? '-' + Buffer.from(tag).toString('hex').slice(0, 12) : ''}"`;
-  const headers = {
-    'Content-Type': type,
-    'Cache-Control': cacheControl,
-    ETag: etag,
-    'Last-Modified': stat.mtime.toUTCString(),
-  };
-  if (isNotModified(req, etag, stat.mtime)) { res.writeHead(304, headers); res.end(); return; }
-  headers['Content-Length'] = body.length;
-  res.writeHead(200, headers);
-  res.end(isHead ? undefined : body);
-}
-
-const CDN_MANIFESTS = new Set(['assets.json', 'local-assets.json']);
