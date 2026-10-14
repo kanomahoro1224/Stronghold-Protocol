@@ -68,10 +68,13 @@ echo "   载荷版本 $PAYLOAD_VERSION"
 
 # ------------------------------------------------------- 同步哪些、怎么同步
 # 排除模式一律以 / 锚定到传输根：'/assets/' 只排 public/assets，不碰 public/build/assets。
+# --checksum：内容相同就不动目标文件，于是 mtime 保持原样。computeBuildTag() 用 size+mtime 计算
+# 浏览器运行时的构建标识，普通 rsync 会把 mtime 更新成开发机的值，导致客户端代码其实没变、
+# 却让所有在线页面判定为过期并刷新（2026-10-14 实测：只改了 server/index.js，build 标识照样变了）。
 sync_tree() {
-  rsync -a "$STAGE/server/" "$APP/server/"
-  rsync -a "$STAGE/shared/" "$APP/shared/"
-  rsync -a --exclude '/assets/' "$STAGE/public/" "$APP/public/"
+  rsync -a --checksum "$STAGE/server/" "$APP/server/"
+  rsync -a --checksum "$STAGE/shared/" "$APP/shared/"
+  rsync -a --checksum --exclude '/assets/' "$STAGE/public/" "$APP/public/"
   cp -p "$STAGE/package.json" "$STAGE/package-lock.json" "$APP/"
 }
 
@@ -130,14 +133,14 @@ PY
 if [ -z "$APPLY" ]; then
   say "预演（不写任何文件）"
   for d in server shared; do
-    n=$(rsync -ain "$STAGE/$d/" "$APP/$d/" | grep -c '^[<>ch]' || true)
+    n=$(rsync -ain --checksum "$STAGE/$d/" "$APP/$d/" | grep -c '^[<>ch]' || true)
     echo "   $d: $n 项将变化"
-    rsync -ain "$STAGE/$d/" "$APP/$d/" | grep '^[<>ch]' | head -6 | sed 's/^/     /' || true
+    rsync -ain --checksum "$STAGE/$d/" "$APP/$d/" | grep '^[<>ch]' | head -6 | sed 's/^/     /' || true
   done
-  n=$(rsync -ain --exclude '/assets/' "$STAGE/public/" "$APP/public/" | grep -c '^[<>ch]' || true)
+  n=$(rsync -ain --checksum --exclude '/assets/' "$STAGE/public/" "$APP/public/" | grep -c '^[<>ch]' || true)
   echo "   public（排除 public/assets）: $n 项将变化"
-  rsync -ain --exclude '/assets/' "$STAGE/public/" "$APP/public/" | grep '^[<>ch]' | head -10 | sed 's/^/     /' || true
-  echo "   public/build/assets 将新增/更新 $(rsync -ain "$STAGE/public/build/assets/" "$APP/public/build/assets/" | grep -c '^[<>ch]' || true) 个文件"
+  rsync -ain --checksum --exclude '/assets/' "$STAGE/public/" "$APP/public/" | grep '^[<>ch]' | head -10 | sed 's/^/     /' || true
+  echo "   public/build/assets 将新增/更新 $(rsync -ain --checksum "$STAGE/public/build/assets/" "$APP/public/build/assets/" | grep -c '^[<>ch]' || true) 个文件"
 
   # 预演阶段就核对新 index.html 的每个分包引用：目标机缺、而载荷里有 ⇒ 本次同步会补上；
   # 载荷里也缺 ⇒ 本地构建不完整，必须先重新构建。2026-10-14 的事故就发生在这一步。
