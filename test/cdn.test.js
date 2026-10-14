@@ -366,6 +366,21 @@ test('rewriteAssetPaths only touches /assets/… strings, at any depth', () => {
   assert.deepEqual(rewriteAssetPaths(manifest(), ''), manifest());
 });
 
+test('rewriteAssetPaths drops the content-hash segment on the way to the CDN', () => {
+  // The CDN mirrors the public/assets/ layout as it is on disk, so a hashed URL would 404 there (docs/ASSETS.md「CDN」).
+  const doc = {
+    chars: { c: { avatar: '/assets/~0123456789abcdef/char/avatar/c.png' } },
+    audio: { bgm: { main: '/assets/~0123456789abcdef/audio/bgm/main.mp3' } },
+    fonts: { ui: '/fonts/~0123456789abcdef/ui.woff2' },
+  };
+  const out = rewriteAssetPaths(structuredClone(doc), 'https://cdn.example.com/sp');
+  assert.equal(out.chars.c.avatar, 'https://cdn.example.com/sp/assets/char/avatar/c.png');
+  assert.equal(out.audio.bgm.main, 'https://cdn.example.com/sp/assets/audio/bgm/main.mp3');
+  assert.equal(out.fonts.ui, '/fonts/~0123456789abcdef/ui.woff2', 'only /assets/… is rewritten');
+  // the same document without a base keeps the hash: the game server strips it itself and serves the file immutably
+  assert.deepEqual(rewriteAssetPaths(structuredClone(doc), ''), doc);
+});
+
 test('the served manifests point at the CDN, other data files do not', async () => {
   const dir = writeDataDir();
   const srv = await serve(dir, 'https://cdn.example.com/sp');
