@@ -1,0 +1,27 @@
+[Unit]
+Description=Sensitive-lexicon /contains service (pinned konsheng vocabulary)
+Documentation=file:///opt/stronghold/docs/NAME_MODERATION.md
+After=network.target
+
+[Service]
+Type=simple
+# 只监听回环：上游 HTTP 接口无鉴权，绝不能让公网访问 /reload 或 /contains。
+Environment=LEXICON_DIR=/opt/sensitive-lexicon/Vocabulary
+Environment=HOST=127.0.0.1
+Environment=PORT=8080
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -B /opt/sensitive-lexicon/lexicon_server.py
+Restart=always
+RestartSec=2
+User=nobody
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
