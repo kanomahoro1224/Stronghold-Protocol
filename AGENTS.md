@@ -170,6 +170,13 @@
 - 发布完成后检查容器健康和日志、`/healthz` 的目标版本及新 `build`、`/metrics` 的持久化/Worker/CDN 配置、`/js/asset-cdn.js` 的运行时地址，并提醒手动验证实际 HTTPS 页面、对局、声音、素材预载和 SW 更新。回滚时一起恢复匹配版本的镜像、数据和 CDN，不能只回退代码。
 - 用户要求本机专用且不跟踪的升级文档时，使用 `.git/info/exclude` 精确排除该文件，不修改共享 `.gitignore`、不暂存或提交。后续合并不能依赖该文档或未跟踪同步脚本在其他机器必然存在；通用约定写入本文。
 
+## 生产机更新（本分支三台）
+
+- 三台线上机（`wei.xiaolubao.com` / `weishuxieyi.xiaolubao.com` / `weishu.xiaolubao.com`）用 `scripts/deploy-push.ps1`（开发机驱动）+ `scripts/deploy-remote.sh`（目标机执行）更新：默认预演，`-Apply` 才动手，`-Prewarm` 在重启前预热哈希缓存。目标机清单放不入库的 `.cache/deploy/targets.json`。`/opt/stronghold` 不是 git 检出，更新 = 文件同步 + `systemctl restart stronghold`；**不要手写 rsync 命令**。
+- 2026-10-14 事故（160 两个 vCPU 被占满约 5 分钟，nginx 报 `upstream timed out (110)` / `Connection reset (104)`，连接从 1018 掉到 100 余，三台页面 JS/CSS 全 404）：临时脚本里的 `rsync --exclude 'assets/'` 不以 `/` 锚定，rsync 会匹配**任意层级**的 `assets` 目录，把 `public/build/assets` 一起排除，新 `index.html` 引用的分包在源站根本不存在。规则：排除模式一律锚定（`--exclude '/assets/'`），载荷只排 `public/assets`（900 MB 素材树保持目标机现状），**永远不加 `--delete`**（旧哈希分包是仍打开的页面还在请求的文件，删掉即白屏）。
+- 内容哈希索引（`server/http/assetIndex.js`）首次启动要在 `public/assets` + `public/fonts` 上算 SHA-256。忙机重启前用 `-Prewarm` 先写 `.cache/asset-hashes.json`，否则这段开销会与数百局恢复、上千人重连叠加；此后重启只 stat 文件、读缓存，代价很小。
+- 部署前必须跑一次预演：它逐条核对新 `index.html` 的每个 `/build/assets/*` 引用（目标机缺而载荷有 ⇒ 本次会补上；载荷也缺 ⇒ 先重新构建）。`--apply` 内部还有同样的完整性校验、`/healthz` 版本与 build 标识健康门、页面与分包 200 校验，失败自动回滚到 `/opt/.deploy-backup-<ts>`；配了素材 CDN 时另警告 `/data/local-assets.json` 是否仍带 `~<hash>` 段（CDN 镜像 `public/assets` 原始布局，服务端清单出站必须剥掉该段，见 `shared/cdn.js`）。
+
 ## 黄金结果与本分支规则差异
 
 - 保留上游 `tools/golden.mjs`、`test/golden.test.js` 和完整场景集。运行 `npm run golden` 比对全部场景；不能只凭默认快速子集判断完整覆盖。
