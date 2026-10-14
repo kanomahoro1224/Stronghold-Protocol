@@ -20,12 +20,13 @@
 
 import { useEffect, useMemo, useRef, useState } from '../../vendor/hooks.module.js';
 import { html, Button, Icon, MicroLabel, useTicker, secondsLeft } from '../ui/components.js';
-import { useGameData, BandIcon, RichText, PlayerAvatar, LpTower, Sprite } from '../ui/gameComponents.js';
+import { useGameData, BandIcon, BondGlyph, RichText, PlayerAvatar, LpTower, Sprite } from '../ui/gameComponents.js';
 import { StepHeader, ExitModal } from '../ui/matchChrome.js';
 import { MatchInfoDialog, matchInfoModel } from '../ui/matchInfo.js';
 import { actions, act } from '../ui/gameActions.js';
 import { normalizeDraft, sortedPlayers } from '../ui/gameLogic.js';
-import { useStore } from '../store.js';
+import { useStore, shallowEqual } from '../store.js';
+import { BondPlanDialog, BondPlanBadge, bondPlanStore, loadBondPlanData } from '../ui/bondPlan.js';
 import { data } from '../data.js';
 import { audio } from '../audio.js';
 import { modeOffBonds, bandOffBonds, bandOffLine } from '../ui/gameLogic.js';
@@ -168,6 +169,9 @@ export function BandDraftScreen() {
   const pub = useStore((s) => s.match.public);
   const priv = useStore((s) => s.match.private);
   const myId = useStore((s) => s.me.playerId);
+  // 预选盟约 BOND PLAN: this browser's own choice (the server echoes it back on every player, so the list below
+  // reads it straight off the public view — mine included).
+  const myPlan = useStore((v) => v.bondId, shallowEqual, bondPlanStore);
   const roomSolo = useStore((s) => s.room?.mode === 'solo');
   const gd = useGameData();
   const [sel, setSel] = useState(null);
@@ -175,6 +179,7 @@ export function BandDraftScreen() {
   const [exit, setExit] = useState(false);
   const [skipped, setSkipped] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
 
   const mode = gd.config?.modes?.[pub?.modeId];
   const offBonds = modeOffBonds(mode); // the bonds this mode never activates (标准: 10 of 23)
@@ -204,6 +209,8 @@ export function BandDraftScreen() {
   }, [bands.length, myPick, myTurn, takenKey]);
   // "your turn" cue
   useEffect(() => { if (myTurn && !solo) audio.sfx('yourTurn'); }, [myTurn]);
+  // the BOND PLAN picker draws its grid from data/bonds.json
+  useEffect(() => { loadBondPlanData(); }, []);
   // the 本局信息 dialog never outlives the turn it was opened in: a turn change (a pick, a skip, a turn that ran out, an
   // AI pick) or my pick closes it, so whoever's turn begins sees the draft
   const turnKey = `${draft.turnPid || ''}|${myPick || ''}`;
@@ -265,6 +272,7 @@ export function BandDraftScreen() {
             <${PlayerAvatar} player=${p} self=${p.playerId === myId} />
             <div class="dorder__text">
               <b class="dorder__name">${p.name || t('博士')}${p.isBot ? html`<span class="dorder__ai">AI</span>` : null}</b>
+              ${p.bondPlan ? html`<${BondPlanBadge} bondId=${p.bondPlan} class="dorder__plan" />` : null}
               <span class="dorder__state">${picked ? html`<span class="t-mint">${pband?.name || t('已选择')}</span>`
                 : cur ? html`<span class="t-gold"><${Icon} name="hourglass" />${t('决策中')}${turnSecs != null ? html`<b class="num dorder__secs">${turnSecs}s</b>` : null}</span>`
                 : html`<span class="t-dim"><${Icon} name="dots" />${t('等待中')}</span>`}</span>
@@ -278,6 +286,10 @@ export function BandDraftScreen() {
         })}
         <${Button} variant="secondary" icon="search" block=${true} class="draft-order__info" data-testid="match-info-open"
           aria-haspopup="dialog" onClick=${() => setInfoOpen(true)}>${t('查看禁用盟约与干员')}<//>
+        <${Button} variant="secondary" block=${true} class="draft-order__plan" data-testid="bond-plan-open"
+          aria-haspopup="dialog" onClick=${() => setPlanOpen(true)}>
+          ${myPlan ? html`<${BondGlyph} bondId=${myPlan} class="dorder__planglyph" />` : null}
+          ${myPlan ? t('预选盟约：{name}', { name: gd.bond(myPlan)?.name || myPlan }) : t('预选盟约')}<//>
         ${!solo ? html`<p class="draft-order__tip" data-testid="draft-tip">${draftTip({ timed, turnSeconds: turnLen, autoName: myPick ? null : autoName, selected: autoId === sel })}</p>` : null}
       </aside>
 
@@ -325,6 +337,7 @@ export function BandDraftScreen() {
       </aside>
     </main>
     <${ExitModal} open=${exit} onClose=${() => setExit(false)} solo=${solo} />
+    <${BondPlanDialog} open=${planOpen} onClose=${() => setPlanOpen(false)} current=${myPlan} />
     <${MatchInfoDialog} open=${infoOpen} onClose=${() => setInfoOpen(false)} model=${info}
       status=${infoStatus ? html`<span class=${cx('minfo-dlg__turn', `is-${infoStatus.tone}`)}>
         <${Icon} name=${infoStatus.tone === 'mint' ? 'check' : 'hourglass'} />${infoStatus.text}${infoStatus.secs != null ? html`<b class="num">${infoStatus.secs}s</b>` : null}

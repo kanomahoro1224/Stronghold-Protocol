@@ -10,7 +10,9 @@
       "the Stronghold Protocol contributors"
     ],
     "credits": "Game texts (data/i18n/zh-TW.json): the official TW client data (© Hypergryph) via ArknightsAssets/ArknightsGamedata. Interface strings machine-converted from the Simplified Chinese on 2026-10-07 (OpenCC, Taiwan phrases) using the official TW game terms, then read through by hand; corrections welcome on GitHub (docs/I18N.md §5).",
-    "fallback": ["en"],
+    "fallback": [
+      "en"
+    ],
     "numberUnits": [
       "萬",
       "億"
@@ -1490,5 +1492,11 @@
   "仅匹配真人 · 满四人后开始": "僅配對真人 · 滿四人後開始",
   "仅匹配真实队友": "僅配對真實隊友",
   "满四人后开始": "滿四人後開始",
-  "请先移除 AI 队友，再匹配真人队友": "請先移除 AI 隊友，再配對真人隊友"
+  "请先移除 AI 队友，再匹配真人队友": "請先移除 AI 隊友，再配對真人隊友",
+  "预选盟约：{name}": "預選盟約：{name}",
+  "预选盟约": "預選盟約",
+  "选择你打算发展的盟约，队友都能看到。只作沟通，不影响对局。": "選擇你打算發展的盟約，隊友都能看到。只作溝通，不影響對局。",
+  "取消预选「{name}」": "取消預選「{name}」",
+  "预选「{name}」": "預選「{name}」",
+  "不预选": "不預選"
 }

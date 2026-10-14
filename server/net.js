@@ -73,7 +73,7 @@ export const NET_DEFAULTS = Object.freeze({
  * (taking a spectator seat in a running match resends its state like a watcher's g.watch — server/lobby.js spectate).
  * state.resync requests a full match recovery; it also uses the lobby's per-session resync coalescing.
  */
-export const HEAVY_TYPES = new Set(['g.watch', 'room.loadout', 'room.ownership', 'room.diy', 'room.spectate', 'state.resync', 'room.skins']);
+export const HEAVY_TYPES = new Set(['g.watch', 'room.loadout', 'room.ownership', 'room.diy', 'room.spectate', 'state.resync', 'room.skins', 'room.bondPlan']);
 
 /** Close codes (see header). */
 export const CLOSE = Object.freeze({ REPLACED: 4001, HELLO_TIMEOUT: 4002, POLICY: 1008, SHUTDOWN: 1001 });
@@ -121,6 +121,8 @@ export class Session {
     this.loadout = null;
     /** @type {Record<string, string> | null} chosen operator skins (lobby-owned, docs/SKINS.md): PUBLIC, unlike the loadout */
     this.skins = null;
+    /** @type {string | null} 预选盟约 BOND PLAN (lobby-owned): the bond this player plans to build — PUBLIC, like `skins` */
+    this.bondPlan = null;
     /** @type {Readonly<Record<string, { potential: number, cultivate: number }>> | null} checked per-operator 潜能 / 练度 (lobby-owned, 0.2.2; room.loadout `ops`) */
     this.ops = null;
     /** @type {readonly string[] | null} checked not-owned chess ids (干员持有, lobby-owned, 0.2.0 补位) */

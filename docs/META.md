@@ -109,6 +109,22 @@ player moves to the end of the order; refused when nobody is left to pass to); a
 refused (队友已选); band must list the mode type in `modeTypeList`. A single human (co-op with AI teammates only):
 untimed. Solo: free pick, no timer, no skip. Starting LP = `bands[id].totalHp`.
 
+### 1.1a 预选盟约 BOND PLAN (user request 2026-10-13)
+
+The band-draft screen also offers the official 预选盟约 (BOND PLAN) picker: a doctor announces the bond they intend to
+build, so the team spreads out over the shared operator pool. It is communication only — no pool filtering, no layers,
+no activation, no scoring — which is why it has no phase gate and why there is no rule test for it.
+
+| Piece | Where |
+| --- | --- |
+| Wire | `shared/protocol.js` `'room.bondPlan': { bondId: nullable(isId) }` / `isBondPlanId`; throttled like the other public intents (`server/net.js` `HEAVY_TYPES`, the same bucket as `room.skins`) |
+| Lobby | `server/lobby.js` `checkBondPlan` + `bondPlan(session, { bondId })` — an id `data/bonds.json` does not know is refused; session field `server/net.js` `session.bondPlan`, carried by `humanSeat()` and both `room.state` seat serialisers |
+| Match | `Match.setBondPlan` (`server/match/match/platform.js`) → `PlayerState.setBondPlan` (`server/match/player/basics.js`, an unknown id clears the plan); `seat.bondPlan` initialises it in the constructor |
+| Public | `Match.publicView().players[].bondPlan` (`server/match/match/views.js`), omitted while unset — that is how a teammate reads it |
+| Client | `public/js/ui/bondPlan.js` (store, `installBondPlanSync`, `BondPlanDialog`, `BondPlanBadge`), used by `public/js/screens/bandDraft.js` (draft-list tag, the 预选盟约 button, the dialog) and `public/js/screens/room.js` (seat tag) |
+| Data | the picker offers the eight `isCore` bonds of `data/bonds.json` in data order: 炎, 萨尔贡, 维多利亚, 谢拉格, 拉特兰, 阿戈尔, 叙拉古, 卡西米尔 |
+| Tests | `test/bond-plan.test.js` |
+
 ### 1.2 机变 (SP draft)
 Family = weighted pick from `choices.schedule[modeId].rounds[r].families`; cards: co-op 6 shared (each player takes 1,
 random order, 30 s first / 16 s others, timeout ⇒ a random remaining card), solo 3; solo and single-human drafts are

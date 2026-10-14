@@ -207,6 +207,19 @@ function freezeSkins(skins, getChess) {
   }
   return Object.freeze(out);
 }
+
+/**
+ * Checked 预选盟约 (BOND PLAN, shared/protocol.js `room.bondPlan`): `null` (nothing pre-selected) or a bond id the game
+ * data knows. The plan is inert — it never reaches the simulation — so an id that does not resolve is refused rather
+ * than stored: `Match.publicView` must not carry an id no client can draw.
+ * @param {unknown} bondId @param {(id: string) => any} getBond
+ * @returns {{ ok: true, bondId: string | null } | { ok: false }}
+ */
+function checkBondPlan(bondId, getBond) {
+  if (bondId == null) return { ok: true, bondId: null };
+  if (typeof bondId !== 'string' || !getBond(bondId)) return { ok: false };
+  return { ok: true, bondId };
+}
 /** One room: 4 seat slots, host, difficulty, optional running match. */
 export class Room {
   /** @param {string} code @param {'solo'|'coop'} mode @param {string} difficulty @param {number} now */
@@ -518,6 +531,7 @@ export class Lobby {
       case 'room.cancelReroll': return this.rerollSetup(session, msg, true);
       case 'room.loadout': return this.loadout(session, msg);
       case 'room.skins': return this.skins(session, msg);
+      case 'room.bondPlan': return this.bondPlan(session, msg);
       case 'match.join': return this.matchJoin(session, msg);
       case 'match.leave': return this.matchLeave(session);
       case 'room.ownership': return this.ownership(session, msg);
@@ -1433,6 +1447,35 @@ export class Lobby {
     return OK;
   }
 
+  /**
+   * room.bondPlan (BOND PLAN, user request 2026-10-13): the bond this player plans to build — public, and like
+   * room.skins accepted in any phase. It changes nothing a unit does, so a plan set during the draft simply reaches
+   * the teammates on the next `m.public`; a room without a running match keeps it for the next one.
+   */
+  bondPlan(session, { bondId }) {
+    const data = this.safeData();
+    const res = checkBondPlan(bondId, (id) => lookup('bonds', id, data));
+    if (!res.ok) return fail(ERR.BAD_MSG, 'unknown bond');
+    session.bondPlan = res.bondId;
+    const room = this.roomOf(session);
+    if (!room) return OK;
+    const seat = room.seatOf(session.playerId);
+    if (seat) seat.bondPlan = res.bondId;
+    if (!room.match) return OK;
+    if (typeof room.match.setBondPlan !== 'function') return fail(ERR.ROOM_STARTED, 'stored for the next match');
+    let r;
+    try {
+      r = room.match.setBondPlan(session.playerId, res.bondId);
+    } catch (e) {
+      this.log.error(`[lobby] ${room.code} match.setBondPlan threw`, e);
+      return fail(ERR.INTERNAL);
+    }
+    if (r && typeof r === 'object' && r.error) {
+      return fail(isErrCode(r.error) ? r.error : ERR.INTERNAL, typeof r.detail === 'string' ? r.detail : undefined);
+    }
+    return OK;
+  }
+
   ownership(session, { notOwned }) {
     const data = this.safeData();
     const res = checkNotOwned(notOwned, (id) => lookup('chess', id, data));
@@ -1505,6 +1548,7 @@ export class Lobby {
         loadout: s.isBot ? null : s.loadout || null, ops: s.isBot ? null : s.ops || null, notOwned: s.isBot ? null : s.notOwned || null, diy: s.isBot ? null : s.diy || null,
         // 皮肤 (docs/SKINS.md): the seat's choice rides into the Match, where PlayerState publishes it to teammates
         skins: s.isBot ? null : s.skins || null,
+        bondPlan: s.isBot ? null : s.bondPlan || null,
       }));
     const ctx = { live: false, ended: false, disposed: false, match: null, workerKey: room.code,
       lastPublic: null, sharedResult: null, results: new Map() };
@@ -1572,6 +1616,7 @@ export class Lobby {
         loadout: s.isBot ? null : s.loadout || null, ops: s.isBot ? null : s.ops || null, notOwned: s.isBot ? null : s.notOwned || null, diy: s.isBot ? null : s.diy || null,
         // 皮肤 (docs/SKINS.md): the seat's choice rides into the Match, where PlayerState publishes it to teammates
         skins: s.isBot ? null : s.skins || null,
+        bondPlan: s.isBot ? null : s.bondPlan || null,
       }));
     // lastPublic / results: the latest m.public broadcast and the m.result frames (encoded), kept for the replay.
     const ctx = { live: !checkpoint, ended: false, disposed: false, match: null, workerKey: room.code,
@@ -2182,6 +2227,8 @@ export class Lobby {
       loadout: session.loadout || null,
       // 皮肤 (docs/SKINS.md): a seat carries the player's choice into the room and on into Match (PlayerState)
       skins: session.skins || null,
+      // 预选盟约 (BOND PLAN): the room's own copy — the seat list and the draft screen read it off here
+      bondPlan: session.bondPlan || null,
       ops: session.ops || null,
       notOwned: session.notOwned || null,
       diy: session.diy || null,

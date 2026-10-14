@@ -26,6 +26,7 @@ import { toast, toastError } from '../ui/toasts.js';
 import { copyText } from '../ui/clipboard.js';
 import { GuideButton } from '../ui/guide.js';
 import { AnnouncementButton } from '../ui/announcement.js';
+import { BondPlanBadge } from '../ui/bondPlan.js';
 import { openStats } from './stats.js';
 import { SettingsButton } from '../ui/settings.js';
 import { LoadoutButton } from './loadout.js';
@@ -150,6 +151,7 @@ function SeatCard({ seat, index, room, facts, myId, busy, onRemoveBot, onKick })
     </div>
     <div class="seat__who">
       <span class="seat__name">${seat.name || t('博士')}</span>
+      ${seat.bondPlan ? html`<${BondPlanBadge} bondId=${seat.bondPlan} class="seat__plan" />` : null}
       ${isMe ? html`<span class="seat__you">${t('你')}</span>` : null}
     </div>
     <${MicroLabel}>${seat.isBot ? 'AUTONOMOUS UNIT' : `DOCTOR #${doctorNo(seat.playerId)}`}<//>

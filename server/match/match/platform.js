@@ -97,6 +97,24 @@ export class MatchPlatform {
     });
     return res;
   }
+
+  /**
+   * room.bondPlan during the match (BOND PLAN): replace a player's 预选盟约. Accepted in ANY phase and inert, like
+   * setSkins directly above — it only tells the teammates which bond the player intends to build.
+   * @param {string} playerId
+   * @param {string | null} bondId
+   * @returns {{ ok: true } | { error: string, detail?: string }}
+   */
+  setBondPlan(playerId, bondId) {
+    const ps = this.players.get(playerId);
+    if (!ps || ps.isBot || ps.left) return fail(ERR.NOT_IN_ROOM);
+    const res = OK;
+    this.guard(() => {
+      ps.setBondPlan(bondId);
+      this.markPublic();
+    });
+    return res;
+  }
   onDisconnect(playerId) {
     const ps = this.players.get(playerId);
     if (!ps || ps.isBot || this.disposed) return;

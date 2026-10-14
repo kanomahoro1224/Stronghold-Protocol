@@ -22,7 +22,8 @@
 // 干员调配 (DESIGN §16): an overlay over any route (<LoadoutHost/>, opened from lobby / room / briefing); its loadout is
 // kept in sync with the server by installLoadoutSync (room.loadout after every welcome and edit), its 干员持有 tab's
 // not-owned list (0.2.0 补位) by installOwnershipSync (room.ownership, likewise), the 自选编队 picks (0.2.0 DIY) by
-// installDiySync (room.diy, likewise; it also keeps welcome.diyKitted for the picker).
+// installDiySync (room.diy, likewise; it also keeps welcome.diyKitted for the picker); the 预选盟约 BOND PLAN
+// (room.bondPlan, likewise public) by installBondPlanSync.
 // Game data: every text of the game is static data (/data/*.json) downloaded once per page; the in-match files are
 // warmed in the background as soon as the player is in a room (warmGameData), before the match needs them.
 // Language (ui/lang.js, docs/I18N.md): chosen before the first render (initLang); App re-renders on a switch (useLang).
@@ -56,6 +57,7 @@ import { StatsHost } from './screens/stats.js';
 import { recordResult, installStatsRecorder } from './ui/stats.js';
 import { installLoadoutSync, installOwnershipSync, installDiySync } from './ui/loadoutSync.js';
 import { installSkinsSync } from './ui/skins.js';
+import { installBondPlanSync } from './ui/bondPlan.js';
 import { startBuildGuard } from './ui/buildGuard.js';
 import { initLang, useLang, tickerText } from './ui/lang.js';
 import { t, N_, translateWire } from '../../shared/i18n.js';
@@ -415,6 +417,7 @@ async function boot() {
   // 干员皮肤 (docs/SKINS.md): keeps the server's copy of this browser's skins current, and reloads the asset
   // manifest when anyone on this server installs one (the section itself is rendered by screens/loadout.js).
   installSkinsSync({ net });
+  installBondPlanSync({ net });
   installOwnershipSync({ net });
   installDiySync({ net });
   net.attachBrowserHooks();

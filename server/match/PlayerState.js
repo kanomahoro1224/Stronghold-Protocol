@@ -170,6 +170,12 @@ export class PlayerState {
     this.skins = Object.freeze({});
     if (!this.isBot && seat.skins) this.setSkins(seat.skins);
     /**
+     * 预选盟约 BOND PLAN (shared/protocol.js `room.bondPlan`): the bond this player plans to build, or null. PUBLIC
+     * like `skins` — a teammate reads it off the draft screen — and inert: only the public view ever reads it.
+     */
+    this.bondPlan = null;
+    if (!this.isBot && seat.bondPlan) this.setBondPlan(seat.bondPlan);
+    /**
      * 补位 (0.2.0): the base chess ids this player fields as their stand-ins — the seat's not-owned list when the match
      * started, re-checked against this match's data; frozen, sorted; [] = every operator owned (bots always)
      */

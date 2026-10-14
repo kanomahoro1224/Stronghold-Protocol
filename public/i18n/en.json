@@ -1486,5 +1486,11 @@
   "仅匹配真人 · 满四人后开始": "Humans only · starts once four are queued",
   "仅匹配真实队友": "Real teammates only",
   "满四人后开始": "Starts once four are queued",
-  "请先移除 AI 队友，再匹配真人队友": "Remove the AI teammates first, then match with real players"
+  "请先移除 AI 队友，再匹配真人队友": "Remove the AI teammates first, then match with real players",
+  "预选盟约：{name}": "Bond plan: {name}",
+  "预选盟约": "Bond plan",
+  "选择你打算发展的盟约，队友都能看到。只作沟通，不影响对局。": "Choose the Alliance you plan to build. Your teammates can see it — it is only communication and never affects the match.",
+  "取消预选「{name}」": "Clear {name}",
+  "预选「{name}」": "Plan {name}",
+  "不预选": "No plan"
 }

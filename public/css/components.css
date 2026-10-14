@@ -1280,3 +1280,31 @@
 /* 公告正文里的 `**文字**`：浅绿强调（不跳转），用于作者想高亮的昵称。 */
 .notice__accent { color: var(--mint-400); }
 .crash__box h2 { font-size: calc(.3 * var(--utility-text, var(--t))); }
+
+/* ---- 预选盟约 BOND PLAN (user request 2026-10-13): the draft tag, the picker grid, the room-seat tag ------------ */
+/* Sizes are em-based rather than calc(x * var(--t)) so a tag follows whatever text it sits in. */
+.bplan-tag {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  padding: 1px 6px 1px 3px; border: 1px solid rgba(89, 244, 202, .45); border-radius: 3px;
+  background: rgba(89, 244, 202, .08); color: var(--mint-400); font-size: .78em; line-height: 1.5;
+}
+.bplan-tag__glyph { width: 1.15em; height: 1.15em; flex: none; }
+.bplan-tag__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dorder__plan { margin-top: 2px; }
+.seat__plan { margin-left: 4px; }
+.draft-order__plan { margin-top: 6px; }
+.dorder__planglyph { width: 1.15em; height: 1.15em; margin-right: 4px; vertical-align: -.2em; }
+.bplan__note { margin: 0 0 12px; font-size: .92em; line-height: 1.6; opacity: .8; }
+.bplan__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.bplan__cell {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 6px; border: 1px solid rgba(89, 244, 202, .22); border-radius: 4px;
+  background: rgba(8, 20, 22, .55); color: inherit; cursor: pointer;
+}
+.bplan__cell:hover { border-color: rgba(89, 244, 202, .6); }
+.bplan__cell.is-on { border-color: var(--mint-400); background: rgba(89, 244, 202, .14); }
+.bplan__glyph { width: 40px; height: 40px; }
+.bplan__name { font-size: .92em; }
+.bplan__check { position: absolute; top: 4px; right: 6px; color: var(--mint-400); }
+.bplan__foot { display: flex; justify-content: flex-start; margin-top: 12px; }
+@media (max-width: 560px) { .bplan__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

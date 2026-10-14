@@ -118,6 +118,9 @@ export class MatchViews {
         // renderer reads info.skin off the unit rather than off the local player. Omitted when empty, which is
         // the normal case: skins are installed one at a time, on demand, and most players install none.
         ...(Object.keys(ps.skins).length ? { skins: ps.skins } : {}),
+        // 预选盟约 (BOND PLAN): public on purpose — this is how a teammate sees the bond you intend to build. Omitted
+        // when unset, which is the normal case (nothing pre-selected).
+        ...(ps.bondPlan ? { bondPlan: ps.bondPlan } : {}),
         // the LP this round's own battle will cost at settlement so far (COMBAT / 联防 only, omitted when 0)
         ...this._pendingLpView(ps),
       })),

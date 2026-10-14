@@ -88,6 +88,21 @@ export const SKIN_LIMITS = Object.freeze({ entries: 160, idLen: 64 });
 export const isSkinId = (v) => typeof v === 'string' && v.length > 0 && v.length <= SKIN_LIMITS.idLen && /^[A-Za-z0-9_@#+.\-]+$/.test(v);
 /** Structural check of `room.skins.skins`. */
 export const isSkinSelection = (v) => isMap(v, SKIN_LIMITS.entries, isId, isSkinId);
+
+// ---- 预选盟约 BOND PLAN (user request 2026-10-13): room.bondPlan { bondId } -------------------------------------
+
+/**
+ * `room.bondPlan { bondId }`: the bond a player plans to build, `null` = nothing pre-selected. The official BOND PLAN
+ * picker offers the eight CORE bonds (`data/bonds.json` `isCore`, every one `bondType: SEASON`: 炎 / 萨尔贡 / 维多利亚 /
+ * 谢拉格 / 拉特兰 / 阿戈尔 / 叙拉古 / 卡西米尔), and the client draws exactly those in data order; the server accepts any
+ * bond its data knows, so a data pack that adds a core bond needs no protocol change.
+ *
+ * PUBLIC like `room.skins`: it rides in `Match.publicView().players[]`, which is the whole point — telling your teammates
+ * which bond you intend to build. Communication only, and inert: no pool filtering, no layers, no activation, no scoring.
+ * (The AI focus-bond plan in server/match/bot.js is a different, internal thing.)
+ */
+/** Structural check of `room.bondPlan.bondId`: null (nothing pre-selected) or a bond id. */
+export const isBondPlanId = (v) => v === null || isId(v);
 // ---- operator loadout (DESIGN §16): room.loadout { entries } -------------------------------------------------
 
 /**
@@ -438,6 +453,9 @@ export const C2S = {
   'room.loadout': { entries: isLoadoutEntries, ops: isLoadoutOps, $optional: ['ops'] },
   // 干员皮肤 (docs/SKINS.md): public, so it is accepted in any room phase — no need to freeze it at INFO_CHECK
   'room.skins': { skins: isSkinSelection },
+  // 预选盟约 BOND PLAN (user request 2026-10-13): the bond this player plans to build (`null` clears it). Public like
+  // room.skins and with the same no-phase-gate rule: it is communication, so a plan changed mid-draft is harmless.
+  'room.bondPlan': { bondId: nullable(isId) },
   // operator ownership (干员持有, 0.2.0 补位): stored per session / seat; a match takes the list its seat had when it
   // started (an out-of-match setting — during a match it is stored for the next one: ROOM_STARTED)
   'room.ownership': { notOwned: isNotOwnedList },

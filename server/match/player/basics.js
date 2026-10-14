@@ -90,6 +90,22 @@ export class PlayerBasics {
     this.dirty();
     return Object.keys(out).length > 0;
   }
+
+  /**
+   * 预选盟约 (BOND PLAN, shared/protocol.js `room.bondPlan`): the bond this player plans to build, `null` to clear it.
+   * Accepted in any phase and inert — it is communication, not a rule — so the only check is that the data knows the
+   * id; an unknown one clears the plan instead of storing something no client can draw.
+   * @param {string | null} bondId
+   * @returns {boolean} whether a plan is set
+   */
+  setBondPlan(bondId) {
+    if (this.isBot) return false;
+    const id = typeof bondId === 'string' && bondId && this.gd.bond(bondId) ? bondId : null;
+    this.bondPlan = id;
+    // public (a teammate sees your plan): dirty() flags both the private and the public view
+    this.dirty();
+    return id !== null;
+  }
   setLoadout(loadout, ops = undefined) {
     if (this.isBot) return false;
     let opsRes = null;
