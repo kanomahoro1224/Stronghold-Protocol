@@ -188,6 +188,12 @@ export async function startServer(opts = {}) {
   buildTag(ROOT, { clientBuild });
 
   const traffic = createTrafficCounter();
+  // Accept queue for the listening socket. Node's default (511) is too small for this workload: under a reconnect
+  // burst the queue fills, the kernel stops completing handshakes, ordinary clients pile up in SYN-RECV and the
+  // kernel logs "possible SYN flooding" (2026-10-14, 160: ~490 half-open sockets, all from whitelisted clients).
+  // Pair with net.ipv4.tcp_max_syn_backlog; override with SP_LISTEN_BACKLOG.
+  const listenBacklogRaw = Number(process.env.SP_LISTEN_BACKLOG);
+  const LISTEN_BACKLOG = Number.isInteger(listenBacklogRaw) && listenBacklogRaw > 0 ? listenBacklogRaw : 4096;
   const server = http.createServer(createRequestHandler({ serveStatic, memStats, health: { startedAt, network, registry, lobby, traffic, assetIndex, views }, serveApi,
     diagnostics: { persister, workerPool, matchWorkerPool, announcements, wsCompression, assetsCdn, dataCdn, serveStatic }, log,
     trustProxy: network.opts.trustProxy }));
@@ -210,7 +216,7 @@ export async function startServer(opts = {}) {
           const onListening = () => { server.off('error', onError); resolve(); };
           server.once('error', onError);
           server.once('listening', onListening);
-          server.listen(port, candidate);
+          server.listen(port, candidate, LISTEN_BACKLOG);
         });
         bound = candidate;
         break;
