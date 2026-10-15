@@ -29,6 +29,8 @@ import { LangToggle, machineTranslationNote } from './lang.js';
 import { t, tc, N_ } from '../../../shared/i18n.js';
 import { errorCount, currentBattle, diagnosticsText } from '../diag.js';
 import { copyText } from './clipboard.js';
+// 异形屏适配 (ui/screenFit.js): imported here, ahead of main.js's first render, so the stored offsets are on at boot
+import { ScreenFitSection } from './screenFit.js';
 
 const cx = (...parts) => parts.filter(Boolean).join(' ');
 
@@ -210,6 +212,7 @@ export function SettingsModal({ open, onClose }) {
         </div>
       </div>
       <p class="set-hint set-textsize-note">${t('调整界面文字大小，棋盘保持原比例。')}</p>
+      <${ScreenFitSection} />
       <${DiagSection} />
       <div class="set-row set-row--fps">
         <span class="set-row__label">${t('帧率上限')}<${MicroLabel}>FRAME RATE<//></span>
