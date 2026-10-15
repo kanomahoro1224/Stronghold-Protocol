@@ -84,6 +84,13 @@ export function isBattleResult(v) {
  * the entries it does not recognise rather than rejecting the whole selection.
  */
 export const SKIN_LIMITS = Object.freeze({ entries: 160, idLen: 64 });
+
+/**
+ * 头像 P2P (WebRTC, user request 2026-10-15): the room's seats exchange their avatars straight between browsers, so
+ * the server never sees an image. This caps the only thing that does reach it — the opaque signaling payload (SDP
+ * or one ICE candidate as a JSON string), which it relays verbatim and stores nowhere.
+ */
+export const RTC_LIMITS = Object.freeze({ signalLen: 16384 });
 /** A skinId. NOT `isId`: those allow only `[A-Za-z0-9_\-.:]`, and skin ids carry `@` and `#` (`char_002_amiya@winter#1`). */
 export const isSkinId = (v) => typeof v === 'string' && v.length > 0 && v.length <= SKIN_LIMITS.idLen && /^[A-Za-z0-9_@#+.\-]+$/.test(v);
 /** Structural check of `room.skins.skins`. */
@@ -456,6 +463,11 @@ export const C2S = {
   // 预选盟约 BOND PLAN (user request 2026-10-13): the bond this player plans to build (`null` clears it). Public like
   // room.skins and with the same no-phase-gate rule: it is communication, so a plan changed mid-draft is harmless.
   'room.bondPlan': { bondId: nullable(isId) },
+  // 头像 P2P (WebRTC, user request 2026-10-15): one leg of the same room's avatar mesh. `to` is the target seat's
+  // playerId, `kind` the negotiation step and `data` an opaque JSON string (SDP or one ICE candidate) that the
+  // server only forwards to that peer — it keeps nothing and never sees the avatar itself, which travels on the
+  // DataChannel (public/js/ui/peerAvatars.js). Available in every room phase: it is communication, like bondPlan.
+  'rtc.signal': { to: isId, kind: (v) => v === 'offer' || v === 'answer' || v === 'ice', data: (v) => isStr(v, RTC_LIMITS.signalLen) },
   // operator ownership (干员持有, 0.2.0 补位): stored per session / seat; a match takes the list its seat had when it
   // started (an out-of-match setting — during a match it is stored for the next one: ROOM_STARTED)
   'room.ownership': { notOwned: isNotOwnedList },
@@ -543,6 +555,10 @@ export const S2C = [
   'm.layer',
   // m.unitStats { seq, round, units: [unitStatsEntry] } — the answer to g.unitStats (the requester only)
   'm.unitStats',
+  // rtc.signal { from, kind, data } — one leg of another seat's WebRTC negotiation, relayed verbatim to this
+  // player because it was addressed to them (server/lobby.js rtcSignal). The server keeps nothing: the avatar
+  // itself never reaches it.
+  'rtc.signal',
   // client-side combat (DESIGN §14): b.start { battleId, fieldId, kind, spec, authoritative, startAt, serverNow, elapsed,
   // speed, watch? } · b.pool { hp, max, teamLp, acked: { [fieldId]: cumulative boss damage counted } } ·
   // b.end { battleId, fieldId, reason }

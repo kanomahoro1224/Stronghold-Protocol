@@ -39,6 +39,7 @@ import { ConnectionBanner } from './ui/connBanner.js';
 import { AnnouncementBanner, AnnouncementHost } from './ui/announcement.js';
 import { announcementFromMessage } from '../../shared/announcements.js';
 import { ToastHost, toast, toastError, describeError } from './ui/toasts.js';
+import { startAccounts } from './ui/accounts.js';
 import { net, identity, NetError } from './net.js';
 import { store, useStore, emptyMatch, selectRoute, sessionResetNotice, isSpectating } from './store.js';
 import { data } from './data.js';
@@ -422,6 +423,9 @@ async function boot() {
   installBondPlanSync({ net });
   installOwnershipSync({ net });
   installDiySync({ net });
+  // 头像 P2P (user request 2026-10-15): offer this browser's own account (avatar / #tag) to the room's teammates
+  // over a WebRTC DataChannel — the server only relays the signaling, so an avatar costs it nothing.
+  startAccounts();
   net.attachBrowserHooks();
   // Audio: unlock on first gesture, BGM follows the route / match phase (js/audio.js).
   installAudio({ getManifest: () => data.get('assets'), subscribe: store.subscribe, getState: store.get, selectRoute, settings: settingsStore.get() });

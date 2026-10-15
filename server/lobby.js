@@ -112,7 +112,7 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { ERR, MAX_SEATS, MAX_SPECTATORS, ROOM_CODE_LEN, DIFFICULTIES, modeIdFor } from '../shared/constants.js';
 import { checkLoadout, checkLoadoutOps, cultivationCharIds, checkNotOwned, checkDiyPicks } from '../shared/protocol.js';
-import { encode, isErrCode, sendRaw, sendSession } from './net.js';
+import { encode, isErrCode, sendRaw, sendSession, TokenBucket } from './net.js';
 import { resetStateDelta } from './stateTransport.js';
 import { getData as defaultGetData, lookup } from './data.js';
 import { Match as DefaultMatch } from './match/Match.js';
@@ -532,6 +532,7 @@ export class Lobby {
       case 'room.loadout': return this.loadout(session, msg);
       case 'room.skins': return this.skins(session, msg);
       case 'room.bondPlan': return this.bondPlan(session, msg);
+      case 'rtc.signal': return this.rtcSignal(session, msg);
       case 'match.join': return this.matchJoin(session, msg);
       case 'match.leave': return this.matchLeave(session);
       case 'room.ownership': return this.ownership(session, msg);
@@ -1473,6 +1474,29 @@ export class Lobby {
     if (r && typeof r === 'object' && r.error) {
       return fail(isErrCode(r.error) ? r.error : ERR.INTERNAL, typeof r.detail === 'string' ? r.detail : undefined);
     }
+    return OK;
+  }
+
+  /**
+   * 头像 P2P (WebRTC, user request 2026-10-15): relay one leg of a room's avatar mesh to another seat.
+   * Deliberately blind and stateless — it checks that both ends share this room, charges a token bucket, then
+   * forwards `data` verbatim. Nothing is stored and nothing is parsed: the avatar itself never arrives here (it
+   * travels on the DataChannel), so a four-player mesh costs a few kB of SDP/ICE per connection and no image
+   * bandwidth. Accepted in every room phase, like room.bondPlan — it is communication, not state.
+   */
+  rtcSignal(session, { to, kind, data }) {
+    const room = this.roomOf(session);
+    if (!room) return fail(ERR.NOT_IN_ROOM);
+    if (to === session.playerId) return fail(ERR.BAD_MSG, 'self');
+    const peer = this.registry.byId(to);
+    // The target must be online, in this same room, and hold a seat or a spectator place there.
+    if (!peer || this.roomOf(peer) !== room) return fail(ERR.NOT_IN_ROOM, 'no such peer');
+    if (!room.seatOf(to) && !room.spectatorOf(to)) return fail(ERR.NOT_IN_ROOM, 'no such peer');
+    // A four-player mesh exchanges a handful of messages per connection; 60/s with a burst of 120 leaves room for
+    // retries while still bounding a client that loops.
+    if (!session.rtcBucket) session.rtcBucket = new TokenBucket(60, 120, this.now());
+    if (!session.rtcBucket.take(this.now())) return fail(ERR.RATE, 'rtc.signal');
+    sendSession(peer, { t: 'rtc.signal', from: session.playerId, kind, data });
     return OK;
   }
 

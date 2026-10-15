@@ -36,8 +36,13 @@ export const UI_THEMES = Object.freeze(['default', 'glass']);
  *  rounds left / the magazine under an ammo skill's bar (render/units.js; PR #552), off by default: the official HUD has no
  *  such number (the maintainer's decision of 2026-10-13). fpsLimit / preload*: this branch's frame-rate cap and the
  *  optional asset preload (docs/ASSETS.md「Preload」); the in-match shortcuts live in their own store (ui/settings.js
- *  shortcutsStore, ui/gameLogic/shortcuts.js DEFAULT_SHORTCUTS), not here. */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoCount: false, quality: 'high', textSize: 'sm', uiTheme: 'default', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: 'cn' });
+ *  shortcutsStore, ui/gameLogic/shortcuts.js DEFAULT_SHORTCUTS), not here.
+ *
+ *  p2pAvatar (设置 →「头像 P2P」, user request 2026-10-15): teammates' avatars are exchanged straight between
+ *  browsers over a WebRTC DataChannel instead of through the server (ui/peerAvatars.js), so an avatar costs the
+ *  server nothing. On by default — it only ever reaches the players sharing your own room — and switching it off
+ *  closes the mesh and forgets what teammates sent. */
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoCount: false, quality: 'high', textSize: 'sm', uiTheme: 'default', p2pAvatar: true, fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: 'cn' });
 const QUALITIES = ['high', 'medium', 'low'];
 
 /**
@@ -67,5 +72,8 @@ export function sanitizeSettings(raw) {
     preloadVoiceLang: normalizePreloadVoiceLang(r.preloadVoiceLang, r.voiceLang),
     textSize: TEXT_SIZES.includes(r.textSize) ? r.textSize : DEFAULT_SETTINGS.textSize,
     uiTheme: UI_THEMES.includes(r.uiTheme) ? r.uiTheme : DEFAULT_SETTINGS.uiTheme,
+    // 头像 P2P (ui/peerAvatars.js): on unless the player turned it off — an old profile has no field, and the
+    // feature only talks to the players sharing your own room
+    p2pAvatar: typeof r.p2pAvatar === 'boolean' ? r.p2pAvatar : DEFAULT_SETTINGS.p2pAvatar,
   };
 }

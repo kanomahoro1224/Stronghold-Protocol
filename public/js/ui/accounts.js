@@ -2,14 +2,17 @@
 // The original deployment has player accounts kept by its own accounts service (login, avatar, #tag, name cards, the
 // same records on every device). This module is the LOCAL stand-in: one "本机账号" per browser, everything in
 // localStorage — the profile (avatar, #tag) under `sp.pref.localAccount`, the match records in the game's own
-// `sp.pref.stats` (ui/stats.js). Nothing is sent to the server, and only the player on this browser has an account:
-// teammates show no #tag. To connect a real account system later, replace this file with a module that has the same
-// exports (AGENTS.md §3.2 lists them and what each must return).
+// `sp.pref.stats` (ui/stats.js). Nothing is stored on the server. What teammates see now comes from 头像 P2P
+// (ui/peerAvatars.js, user request 2026-10-15): each browser offers this account straight to the others in its room
+// over a WebRTC DataChannel, so an avatar costs the server nothing and never leaves the room. To connect a real
+// account system later, replace this file with a module that has the same exports (AGENTS.md §3.2 lists them and
+// what each must return).
 import { html, AvatarFrame, MicroLabel, Icon, Modal, Button } from './components.js';
 import { useEffect, useState } from '../../vendor/hooks.module.js';
 import { render } from '../../vendor/preact.module.js';
 import { store } from '../store.js';
 import { t } from '../../../shared/i18n.js';
+import { peerAccount, subscribePeerAccounts, setLocalPeerAccount, startPeerAvatars } from './peerAvatars.js';
 
 /** This module keeps the account in the browser (other modules may check it to word their notes). */
 export const LOCAL_ACCOUNT = true;
@@ -27,7 +30,12 @@ function load() {
   if (!/^\d{4}$/.test(profile.tag || '')) { profile.tag = String(1000 + Math.floor(Math.random() * 9000)); write(profile); }
   return profile;
 }
-function emit() { for (const fn of listeners) { try { fn(); } catch { /* a listener's own problem */ } } }
+function emit() {
+  // 头像 P2P: this browser's own account is what teammates are offered (ui/peerAvatars.js); a rename or a new
+  // avatar reaches an open channel immediately.
+  try { setLocalPeerAccount(currentAccount()); } catch { /* nothing to offer yet */ }
+  for (const fn of listeners) { try { fn(); } catch { /* a listener's own problem */ } }
+}
 // (guarded: the module is also imported by Node tests, where there is no window)
 globalThis.addEventListener?.('storage', (e) => { if (e.key === KEY) { profile = null; emit(); } });
 
@@ -56,11 +64,18 @@ export function useCurrentAccount() {
 }
 
 const isMe = (playerId) => !!playerId && playerId === store.get().me?.playerId;
-/** A player's account — only this browser's own player has one here (teammates: null, no #tag). */
-export function accountOf(playerId) { return isMe(playerId) ? currentAccount() : null; }
+/**
+ * A player's account. This browser's own player has the local one; a teammate has whatever their browser sent
+ * over the 头像 P2P mesh (ui/peerAvatars.js — a WebRTC DataChannel, so the server never sees it), and null while
+ * nothing has arrived (an old client, a blocked WebRTC, or the feature switched off): the seat then shows the
+ * namecard operator and the initial instead of a #tag.
+ */
+export function accountOf(playerId) { return isMe(playerId) ? currentAccount() : peerAccount(playerId); }
 export function useAccount(playerId) {
   const { me } = useCurrentAccount();
-  return isMe(playerId) ? me : null;
+  const [, bump] = useState(0);
+  useEffect(() => subscribePeerAccounts(() => bump((v) => v + 1)), []);
+  return isMe(playerId) ? me : peerAccount(playerId);
 }
 /** The small "#1234" after a name when that player has an account. */
 export function AccountTag({ playerId }) {
@@ -126,7 +141,7 @@ function AccountPanel({ onStats, onClose }) {
         <span class="lacct__pic">${me.avatar ? html`<img src=${me.avatar} alt="" />` : [...me.name][0]}</span>
         <span><b class="lacct__name">${me.name}<span class="acct-tag">#${me.tag}</span></b><br /><${MicroLabel}>${t('LOCAL · 本机')}<//></span>
       </div>
-      <p class="lacct__note">${t('头像、编号和战绩都保存在这台设备的浏览器里，不上传服务器；换设备或清除浏览器数据后不会保留。昵称跟随游戏里的名字。')}</p>
+      <p class="lacct__note">${t('头像、编号和战绩都保存在这台设备的浏览器里，不上传服务器；只有和你同一个房间的队友会通过浏览器直连收到你的头像，换设备或清除浏览器数据后不会保留。昵称跟随游戏里的名字。')}</p>
       <div class="lacct__btns">
         <${Button} size="sm" variant="secondary" icon="edit" loading=${busy} onClick=${pick}>${t('更换头像')}<//>
         ${me.avatar ? html`<${Button} size="sm" variant="ghost" onClick=${clear}>${t('移除头像')}<//>` : null}
@@ -155,5 +170,11 @@ export function AccountMeChip({ player, onStats }) {
   </button>`;
 }
 
-/** Nothing to start: no service. */
-export function startAccounts() {}
+/**
+ * Boot (main.js): offer this browser's account to the room's teammates over the 头像 P2P mesh. Started even
+ * outside a room — the mesh only forms once the player is in one — and a no-op without WebRTC (Node tests).
+ */
+export function startAccounts() {
+  try { setLocalPeerAccount(currentAccount()); } catch { /* no store yet */ }
+  startPeerAvatars();
+}
