@@ -23,13 +23,21 @@ import { clamp, isObj } from './shared.js';
  */
 export const TEXT_SIZES = Object.freeze(['sm', 'md', 'lg', 'xl']);
 
+/**
+ * The skins of 设置 →「界面主题」 (uiTheme, applied by ui/settings.js applyUiTheme → `<html data-ui-theme>`):
+ * 'default' is this branch's own dark interface, 'glass' is the 液态玻璃 skin (css/glass.css — the layered
+ * highlight structure of yzrt-master's pure-CSS liquid glass, retuned for a dark backdrop). A skin only paints:
+ * no layout value, no readable font-size and no `--t` changes with it, so the two can be swapped at any moment.
+ */
+export const UI_THEMES = Object.freeze(['default', 'glass']);
+
 /** keys: the in-match shortcuts' key map (ui/gameLogic/shortcuts.js; settings → 快捷键). voiceLang: VOICE_LANGS.
  *  textSize: TEXT_SIZES (css/theme.css `--t`, applied by ui/settings.js applyTextSize). ammoCount: 设置「弹药数量」 — the
  *  rounds left / the magazine under an ammo skill's bar (render/units.js; PR #552), off by default: the official HUD has no
  *  such number (the maintainer's decision of 2026-10-13). fpsLimit / preload*: this branch's frame-rate cap and the
  *  optional asset preload (docs/ASSETS.md「Preload」); the in-match shortcuts live in their own store (ui/settings.js
  *  shortcutsStore, ui/gameLogic/shortcuts.js DEFAULT_SHORTCUTS), not here. */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoCount: false, quality: 'high', textSize: 'sm', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: 'cn' });
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoCount: false, quality: 'high', textSize: 'sm', uiTheme: 'default', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: 'cn' });
 const QUALITIES = ['high', 'medium', 'low'];
 
 /**
@@ -58,5 +66,6 @@ export function sanitizeSettings(raw) {
     preloadOptional: typeof r.preloadOptional === 'boolean' ? r.preloadOptional : DEFAULT_SETTINGS.preloadOptional,
     preloadVoiceLang: normalizePreloadVoiceLang(r.preloadVoiceLang, r.voiceLang),
     textSize: TEXT_SIZES.includes(r.textSize) ? r.textSize : DEFAULT_SETTINGS.textSize,
+    uiTheme: UI_THEMES.includes(r.uiTheme) ? r.uiTheme : DEFAULT_SETTINGS.uiTheme,
   };
 }

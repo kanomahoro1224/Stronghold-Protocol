@@ -38,6 +38,7 @@ import { AchievementEntry, AchievementPanel } from '../ui/achievements.js';
 import { FriendsTile } from '../ui/friends.js';
 import { SettingsButton } from '../ui/settings.js';
 import { PwaInstallButton, fullscreen } from '../ui/device.js';
+import { UiThemeButton } from '../ui/theme.js';
 import { LoadoutButton } from './loadout.js';
 import { SweepReport } from './sweep.js';
 import { ProtocolScene } from '../ui/protocolScene.js';
@@ -992,6 +993,7 @@ export function LobbyScreen() {
         <div class="topbar__tools">
           <${SettingsButton} class="lobby-settings" variant="secondary" square=${true} />
           <${GuideButton} class="lobby-guide" variant="secondary" square=${true} />
+          <${UiThemeButton} class="lobby-theme" />
           <${Button} variant="secondary" size="sm" square=${true} class="hub-bg-btn" onClick=${() => setBgOpen(true)}
             title=${t('大厅背景')} aria-label=${t('大厅背景')}><${BackdropGlyph} /><//>
           <${HubFullscreenButton} />

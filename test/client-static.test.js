@@ -1232,8 +1232,10 @@ describe('multi-device & browser compatibility (static)', () => {
     const vp = index.match(/<meta name="viewport" content="([^"]+)"/)?.[1] || '';
     for (const k of ['width=device-width', 'initial-scale=1', 'maximum-scale=1', 'user-scalable=no', 'viewport-fit=cover']) assert.ok(vp.includes(k), `viewport has ${k}`);
     const sheets = [...index.matchAll(/<link rel="stylesheet" href="(\/css\/[^"]+)"/g)].map((x) => x[1]);
-    assert.deepEqual(sheets.slice(-2), ['/css/devices.css', '/css/utility-mobile.css'],
-      'only the scoped management density layer follows devices.css');
+    // after devices.css: the scoped management density layer, then the 界面主题 skin (glass.css overrides both,
+    // so it must load last) — nothing else may slip in behind them
+    assert.deepEqual(sheets.slice(-3), ['/css/devices.css', '/css/utility-mobile.css', '/css/glass.css'],
+      'only the scoped management density layer and the theme skin follow devices.css');
     assert.match(index, /<script nomodule>/, 'a browser without ES modules gets a message');
     assert.match(index, /onerror="window\.__spBootFail/, 'a module graph that cannot load gets a message');
     assert.match(index, /apple-mobile-web-app-capable/);

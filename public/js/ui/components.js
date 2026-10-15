@@ -85,6 +85,8 @@ export const ICONS = {
   book: { d: 'M2 4h7.5A3.5 3.5 0 0 1 12 5.1 3.5 3.5 0 0 1 14.5 4H22v16h-7.5a1.5 1.5 0 0 0-1.5 1.5h-2A1.5 1.5 0 0 0 9.5 20H2zm2 2v12h5.5c.5 0 1 .1 1.5.3V7.5A1.5 1.5 0 0 0 9.5 6zm10.5 0A1.5 1.5 0 0 0 13 7.5v10.8c.5-.2 1-.3 1.5-.3H20V6z', eo: true },
   // 观战 (spectator seats; the same eye as gameComponents.js GIcon 'eye')
   eye: { d: 'M12 5c5 0 9 4.5 10 7-1 2.5-5 7-10 7S3 14.5 2 12c1-2.5 5-7 10-7zm0 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4z', eo: true },
+  // 界面主题 (the lobby top bar's theme button, ui/theme.js): a droplet with a bubble inside — the 液态玻璃 skin
+  droplet: { d: 'M12 2.4c3.5 4.2 6.1 7.6 6.1 10.6a6.1 6.1 0 0 1-12.2 0C5.9 10 8.5 6.6 12 2.4zm-1.3 9.1a1.5 1.5 0 0 0-1.4 2.1 1.5 1.5 0 0 0 1.4.9 1.5 1.5 0 0 0 1.4-2.1 1.5 1.5 0 0 0-1.4-.9z', eo: true },
 };
 
 /**

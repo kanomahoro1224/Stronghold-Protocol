@@ -1,0 +1,246 @@
+/* 液态玻璃界面主题 — html[data-ui-theme="glass"] (ui/theme.js 的按钮, ui/settings.js applyUiTheme)
+   ------------------------------------------------------------------------------------------------------------
+   Structure taken from yzrt-master's 纯CSS液态玻璃 (a 100px demo box on a light grey grid): four white inset
+   rim highlights at ±1–2px / ±5–6px, a translucent fill, `backdrop-filter: blur()`, a soft inner ring and a
+   45° specular sweep. Two deliberate departures from the demo:
+
+   1. No `filter: contrast(3)` layer. The demo wraps its whole row in one; here it would create a containing
+      block and a new backdrop root for every descendant, which breaks both the `backdrop-filter` of the panels
+      and the `position: fixed` dialogs that live inside the top bar (设置 / 玩法说明 / 账户菜单). The "hard"
+      contrast it fakes is baked into the highlight alphas instead.
+   2. Dark adaptation. The demo's light page turns its inner ring `rgba(0, 0, 0, .9)` and its specular plain
+      white; on this dark hub the ring is a dark depth shadow and the highlights are mint-tinted, so the glass
+      reads as lit from the top-left over the background art rather than as grey plastic.
+
+   The skin only paints: no layout value, no readable font-size and no `--t` (theme.css owns it) changes here,
+   so 文字大小 and 液态玻璃 combine in any order, and switching costs no reload — the attribute is on <html>
+   and every rule below is scoped to it. Loaded after utility-mobile.css, so it also wins over the mobile
+   density rules (public/index.html). */
+
+html[data-ui-theme="glass"] {
+  /* 通透优先：原版只有 blur(2px)，玻璃后面那张图要看得清 —— 大模糊就成了磨砂塑料，不是液态玻璃 */
+  --glass-blur: 3px;
+  --glass-tint: rgba(255, 255, 255, .045);
+  --glass-tint-hi: rgba(255, 255, 255, .09);
+  --glass-line: rgba(233, 255, 248, .2);
+  --glass-line-hi: rgba(233, 255, 248, .38);
+  --glass-rim: rgba(255, 255, 255, .55);
+  --glass-rim-soft: rgba(255, 255, 255, .28);
+  --glass-depth: rgba(1, 6, 5, .3);
+  --glass-sheen: rgba(226, 255, 246, .28);
+  /* 入口英文副标：原来是灰色 text-dim，玻璃下改薄绿 */
+  --glass-en: rgba(186, 255, 231, .82);
+  --glass-inset:
+    inset 1px -1px 1px -1px var(--glass-rim),
+    inset -1px 1px 1px -1px var(--glass-rim),
+    inset 5px -5px 1px -5px var(--glass-rim-soft),
+    inset -5px 5px 1px -5px var(--glass-rim-soft),
+    inset 0 0 3px var(--glass-depth);
+  --glass-drop: 0 .05rem .18rem rgba(0, 0, 0, .26);
+  /* the demo's backdrop-filter is only blur(); brightness/saturate keep the pane from going flat grey — light
+     passes through instead of being milked out */
+  --glass-filter: blur(var(--glass-blur)) saturate(1.35) brightness(1.06);
+  /* the 45° specular of the demo, softened into a sheen (no pseudo-element: the hub's own surfaces already
+     use theirs, and an overlay above the content would have to be pointer-events: none everywhere) */
+  --glass-sheen-layer: linear-gradient(45deg, var(--glass-sheen) 0%, rgba(255, 255, 255, .05) 13%,
+    transparent 32%, transparent 68%, rgba(255, 255, 255, .05) 87%, var(--glass-sheen) 100%);
+}
+
+/* ---- the recipe: every hub surface ---------------------------------------------------------------- */
+
+html[data-ui-theme="glass"] .hub-tile,
+html[data-ui-theme="glass"] .hub-entry,
+html[data-ui-theme="glass"] .hub-recruit,
+html[data-ui-theme="glass"] .hub-side .tips,
+html[data-ui-theme="glass"] .hub-maint,
+html[data-ui-theme="glass"] .hub-dialog__box,
+html[data-ui-theme="glass"] .ach-card,
+html[data-ui-theme="glass"] .ach-plate,
+html[data-ui-theme="glass"] .ach-pill,
+html[data-ui-theme="glass"] .ach-bar,
+html[data-ui-theme="glass"] .ach-best__row,
+html[data-ui-theme="glass"] .ally-card,
+html[data-ui-theme="glass"] .ally-pill,
+html[data-ui-theme="glass"] .pcard,
+html[data-ui-theme="glass"] .sw-box,
+html[data-ui-theme="glass"] .sw-tile,
+html[data-ui-theme="glass"] .sw-pill,
+html[data-ui-theme="glass"] .sw-chip,
+html[data-ui-theme="glass"] .mf-tag,
+html[data-ui-theme="glass"] .join-panel,
+html[data-ui-theme="glass"] .bgset__row {
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  background-color: var(--glass-tint);
+  background-image: var(--glass-sheen-layer);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-inset), var(--glass-drop);
+}
+
+/* the demo's inner ring: a blurred 1px ring inset from the edge reads as the lens of a drop. z-index: -1 keeps it
+   behind the labels — the surfaces already create a stacking context through backdrop-filter, so it paints over the
+   fill and under the content (no pointer-events needed, but stated for clarity). */
+html[data-ui-theme="glass"] .hub-tile::before,
+html[data-ui-theme="glass"] .hub-entry::before,
+html[data-ui-theme="glass"] .hub-recruit::before,
+html[data-ui-theme="glass"] .hub-plate::before,
+html[data-ui-theme="glass"] .hub-dialog__box::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  z-index: -1;
+  border: 1px solid rgba(226, 255, 246, .3);
+  border-radius: inherit;
+  filter: blur(4px);
+  pointer-events: none;
+}
+
+/* the left column keeps its mint spine, the recruit card its mint crown */
+html[data-ui-theme="glass"] .hub-tile { border-left: 3px solid var(--mint-500); }
+html[data-ui-theme="glass"] .hub-recruit { border-top: 2px solid var(--mint-500); }
+html[data-ui-theme="glass"] .hub-maint { border-color: var(--amber); background-color: rgba(40, 24, 6, .42); }
+
+/* 高亮 CTA（搜寻队友, .hub-entry--bright）: 用户 2026-10-15 要求它也走玻璃材质 —— 薄荷实心改为薄荷玻璃，
+   深色字随之换成浅色（半透明底上深字会糊掉）；它自己那行灰色副标（FIND ALLIES）改薄绿。
+   注意范围：只有这一个入口，独立模拟/同盟模拟（.hub-entry 默认）保持原样，不要动它们的灰色副标 */
+html[data-ui-theme="glass"] .hub-entry--bright {
+  background-color: rgba(78, 216, 175, .26);
+  color: var(--text-hi);
+}
+html[data-ui-theme="glass"] .hub-entry--bright .hub-entry__en { color: var(--glass-en); }
+html[data-ui-theme="glass"] .hub-entry--bright .hub-entry__icon { color: rgba(226, 255, 246, .34); }
+
+/* ---- the top bar: controls become glass chips, the bar itself stays a scrim ------------------------
+   顶栏三组按钮都要玻璃：左上（返回）/ 中（工具）/ 右上（续战、账号胶囊）；返回是 ghost 变体，不写它就会
+   孤零零一个没有材质（用户 2026-10-15 指出左上角那块漏了） */
+html[data-ui-theme="glass"] .hub-topbar .topbar__left > .btn,
+html[data-ui-theme="glass"] .hub-topbar .topbar__tools > .btn,
+html[data-ui-theme="glass"] .hub-topbar .topbar__right > .btn,
+html[data-ui-theme="glass"] .hub-topbar .topbar-announcement,
+html[data-ui-theme="glass"] .hub-topbar .acct-me {
+  -webkit-backdrop-filter: blur(4px) saturate(1.35) brightness(1.06);
+  backdrop-filter: blur(4px) saturate(1.35) brightness(1.06);
+  background-color: var(--glass-tint);
+  background-image: var(--glass-sheen-layer);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-inset), 0 .03rem .12rem rgba(0, 0, 0, .3);
+}
+
+html[data-ui-theme="glass"] .hub-topbar .ping {
+  -webkit-backdrop-filter: blur(4px) saturate(1.35) brightness(1.06);
+  backdrop-filter: blur(4px) saturate(1.35) brightness(1.06);
+  background-color: var(--glass-tint);
+  background-image: var(--glass-sheen-layer);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-inset);
+}
+
+/* 延迟 / 在线人数 / 公告 三颗胶囊（都在 .connection-status 里）一起走同一材质 */
+html[data-ui-theme="glass"] .hub-topbar .connection-status > .ping,
+html[data-ui-theme="glass"] .hub-topbar .connection-status > .online-count {
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-inset);
+}
+
+/* 右上角账号胶囊（.acct-me）本身是玻璃，但它的名片层 .nc-layer 把整块盖成了不透明深色（--nc-shade + 名片图
+   + #101514）。玻璃主题下名片降到半透明并一起模糊，于是名片和玻璃同时看得见；z-index: -1 的层仍在内容之下 */
+html[data-ui-theme="glass"] .hub-topbar .acct-me .nc-layer {
+  background: var(--nc) center / cover no-repeat;
+  opacity: .5;
+  -webkit-backdrop-filter: blur(4px) saturate(1.35) brightness(1.06);
+  backdrop-filter: blur(4px) saturate(1.35) brightness(1.06);
+}
+
+/* ---- 大厅里的灰色小字统一改薄绿（用户 2026-10-15：hub 的所有灰字，不是某一处）----------------------
+   灰色文字令牌在大厅作用域内整体换成 --glass-en：--text-lo 是 ghost 按钮的标签（左上角的「返回」「公告」）
+   与各种次级标签，--text-dim 是更暗的小字（JOIN WITH KEY、空位提示、tips、bgset 说明…）。正文用的
+   --text-md（#c3cbc7，接近白）与标题用的 --text-hi 保持原样，长段落不跟着变绿。
+   下面几条是写死颜色的个别位置（REPORT 标签、名片里的 LOCAL 本机账号、RECRUITING 的脉冲点）。 */
+html[data-ui-theme="glass"] .lobby-hub {
+  --text-lo: var(--glass-en);
+  --text-dim: var(--glass-en);
+}
+html[data-ui-theme="glass"] .hub-plate__tag { color: var(--glass-en); border-color: rgba(186, 255, 231, .34); }
+html[data-ui-theme="glass"] .acct-me.has-nc .acct-who small,
+html[data-ui-theme="glass"] .acct-title-card.has-nc .acct-title-card__who small { color: var(--glass-en); }
+html[data-ui-theme="glass"] .hub-recruit__pulse { background: var(--glass-en); }
+
+/* ---- the two light plates (S.W.E.E.P.报告 / 干员调配): keep the bracket marks, swap the plate for glass --- */
+
+html[data-ui-theme="glass"] .hub-plate {
+  --pl-ink: rgba(226, 255, 246, .42);
+  color: var(--text-hi) !important;
+  background:
+    linear-gradient(var(--pl-ink), var(--pl-ink)) left .07rem center / 2px 54% no-repeat,
+    linear-gradient(var(--pl-ink), var(--pl-ink)) left .07rem top 23% / .06rem 2px no-repeat,
+    linear-gradient(var(--pl-ink), var(--pl-ink)) left .07rem bottom 23% / .06rem 2px no-repeat,
+    linear-gradient(var(--pl-ink), var(--pl-ink)) right .07rem center / 2px 54% no-repeat,
+    linear-gradient(var(--pl-ink), var(--pl-ink)) right .07rem top 23% / .06rem 2px no-repeat,
+    linear-gradient(var(--pl-ink), var(--pl-ink)) right .07rem bottom 23% / .06rem 2px no-repeat,
+    var(--glass-sheen-layer),
+    linear-gradient(180deg, var(--glass-tint-hi), var(--glass-tint)) !important;
+  border: 1px solid var(--glass-line) !important;
+  box-shadow: var(--glass-inset), var(--glass-drop) !important;
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+html[data-ui-theme="glass"] .hub-plate__label,
+html[data-ui-theme="glass"] .hub-plate .btn__label { color: var(--text-hi); }
+
+/* ---- hover / press: the rim lights up instead of the surface turning opaque ------------------------ */
+
+html[data-ui-theme="glass"] .hub-tile:hover,
+html[data-ui-theme="glass"] .hub-entry:hover:not(:disabled),
+html[data-ui-theme="glass"] .hub-recruit__row:hover,
+html[data-ui-theme="glass"] .ach-card:hover,
+html[data-ui-theme="glass"] .ally-card:hover,
+html[data-ui-theme="glass"] .pcard:hover {
+  background-color: var(--glass-tint-hi);
+  border-color: var(--glass-line-hi);
+  box-shadow:
+    inset 1px -1px 1px -1px rgba(255, 255, 255, .72),
+    inset -1px 1px 1px -1px rgba(255, 255, 255, .6),
+    inset 5px -5px 1px -5px var(--glass-rim-soft),
+    inset -5px 5px 1px -5px var(--glass-rim-soft),
+    inset 0 0 3px var(--glass-depth),
+    0 .08rem .28rem rgba(0, 0, 0, .44);
+}
+html[data-ui-theme="glass"] .hub-entry:active:not(:disabled),
+html[data-ui-theme="glass"] .hub-tile:active { background-color: rgba(255, 255, 255, .04); }
+
+html[data-ui-theme="glass"] .hub-topbar .topbar__tools > .btn:hover,
+html[data-ui-theme="glass"] .hub-topbar .topbar-announcement:hover,
+html[data-ui-theme="glass"] .hub-topbar .acct-me:hover {
+  background-color: var(--glass-tint-hi);
+  border-color: var(--glass-line-hi);
+}
+
+/* 顶栏主题按钮 (ui/theme.js) 在玻璃主题下点亮：液态玻璃正在生效 */
+html[data-ui-theme="glass"] .hub-topbar .lobby-theme.is-active { border-color: var(--mint-a35); }
+
+/* ---- 去掉顶部黑色遮罩 (用户 2026-10-15：不好看) ------------------------------------------------------
+   背景照片上原本压着两条暗色渐变：.hub-bg__vignette 的 `180deg rgba(0,0,0,.42) → transparent 16%`
+   （16% ≈ 165px，正是那条横贯整屏、下缘发虚的黑带）和 .hub-topbar 自身的 `rgba(4,8,8,.85)`。
+   前者整条删掉，只留四周的径向暗角；后者压到只够文字可读的强度，玻璃主题下再减半。
+   两条都写在这里而不是 lobby.css：glass.css 是最后加载的样式表，同一选择器自然覆盖原规则。
+   注意 .hub-bg__shade（自定义照片的整体压暗）保留 —— 它由「大厅背景」的 dim 滑块控制（默认 45%），
+   是全屏均匀压暗而不是顶部那条带，玩家可自行调到 0。 */
+
+.hub-bg__vignette {
+  background: radial-gradient(130% 95% at 50% 42%, transparent 50%, rgba(0, 0, 0, .72));
+}
+.hub-topbar { background: linear-gradient(180deg, rgba(4, 8, 8, .5), transparent 72%); }
+html[data-ui-theme="glass"] .hub-topbar { background: linear-gradient(180deg, rgba(4, 8, 8, .3), transparent 66%); }
+
+/* ---- 小屏 / 触屏：减少同时在跑的 backdrop-filter，保住 60fps -------------------------------------- */
+
+@media (pointer: coarse) {
+  html[data-ui-theme="glass"] { --glass-blur: 2px; }
+  html[data-ui-theme="glass"] .hub-topbar .topbar__tools > .btn,
+  html[data-ui-theme="glass"] .hub-topbar .topbar-announcement,
+  html[data-ui-theme="glass"] .hub-topbar .acct-me,
+  html[data-ui-theme="glass"] .hub-topbar .ping {
+    -webkit-backdrop-filter: blur(3px) saturate(1.35) brightness(1.06);
+    backdrop-filter: blur(3px) saturate(1.35) brightness(1.06);
+  }
+}
