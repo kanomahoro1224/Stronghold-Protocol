@@ -9,6 +9,7 @@ import { html, AvatarFrame, MicroLabel, Icon, Modal, Button } from './components
 import { useEffect, useState } from '../../vendor/hooks.module.js';
 import { render } from '../../vendor/preact.module.js';
 import { store } from '../store.js';
+import { t } from '../../../shared/i18n.js';
 
 /** This module keeps the account in the browser (other modules may check it to word their notes). */
 export const LOCAL_ACCOUNT = true;
@@ -33,7 +34,7 @@ globalThis.addEventListener?.('storage', (e) => { if (e.key === KEY) { profile =
 /** The local account: { id, name (the game's player name), tag, avatar (data: URL or null), card: null, local: true }. */
 export function currentAccount() {
   const p = load();
-  const name = store.get().me?.name || p.name || '博士';
+  const name = store.get().me?.name || p.name || t('博士');
   return { id: `local-${p.tag}`, name, tag: p.tag, avatar: typeof p.avatar === 'string' ? p.avatar : null, card: null, local: true };
 }
 export function onAccountChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
@@ -64,7 +65,7 @@ export function useAccount(playerId) {
 /** The small "#1234" after a name when that player has an account. */
 export function AccountTag({ playerId }) {
   const info = useAccount(playerId);
-  return info ? html`<span class="acct-tag" title=${`本机账号 ${info.name}#${info.tag}`}>#${info.tag}</span>` : null;
+  return info ? html`<span class="acct-tag" title=${t('本机账号 {name}#{tag}', { name: info.name, tag: info.tag })}>#${info.tag}</span>` : null;
 }
 /** Plain DOM (chats): the #tag after this browser's own name. */
 export function decorateChatName(element, playerId) {
@@ -119,17 +120,17 @@ function AccountPanel({ onStats, onClose }) {
     input.click();
   };
   const clear = () => { profile = { ...load(), avatar: null }; write(profile); emit(); };
-  return html`<${Modal} open=${true} title="本机账号" micro="LOCAL ACCOUNT" onClose=${onClose}>
+  return html`<${Modal} open=${true} title=${t('本机账号')} micro="LOCAL ACCOUNT" onClose=${onClose}>
     <div class="lacct">
       <div class="lacct__who">
         <span class="lacct__pic">${me.avatar ? html`<img src=${me.avatar} alt="" />` : [...me.name][0]}</span>
-        <span><b class="lacct__name">${me.name}<span class="acct-tag">#${me.tag}</span></b><br /><${MicroLabel}>LOCAL · 本机<//></span>
+        <span><b class="lacct__name">${me.name}<span class="acct-tag">#${me.tag}</span></b><br /><${MicroLabel}>${t('LOCAL · 本机')}<//></span>
       </div>
-      <p class="lacct__note">头像、编号和战绩都保存在这台设备的浏览器里，不上传服务器；换设备或清除浏览器数据后不会保留。昵称跟随游戏里的名字。</p>
+      <p class="lacct__note">${t('头像、编号和战绩都保存在这台设备的浏览器里，不上传服务器；换设备或清除浏览器数据后不会保留。昵称跟随游戏里的名字。')}</p>
       <div class="lacct__btns">
-        <${Button} size="sm" variant="secondary" icon="edit" loading=${busy} onClick=${pick}>更换头像<//>
-        ${me.avatar ? html`<${Button} size="sm" variant="ghost" onClick=${clear}>移除头像<//>` : null}
-        ${onStats ? html`<${Button} size="sm" variant="primary" icon="chart" onClick=${() => { onClose(); onStats(); }}>统计数据<//>` : null}
+        <${Button} size="sm" variant="secondary" icon="edit" loading=${busy} onClick=${pick}>${t('更换头像')}<//>
+        ${me.avatar ? html`<${Button} size="sm" variant="ghost" onClick=${clear}>${t('移除头像')}<//>` : null}
+        ${onStats ? html`<${Button} size="sm" variant="primary" icon="chart" onClick=${() => { onClose(); onStats(); }}>${t('统计数据')}<//>` : null}
       </div>
     </div>
   <//>`;
@@ -146,10 +147,10 @@ export function openAccountPanel(opts = {}) {
 export function AccountMeChip({ player, onStats }) {
   const { me } = useCurrentAccount();
   useEffect(ensureStyle, []);
-  const name = player?.name || me.name || '博士';
-  return html`<button type="button" class="me-chip me-chip--btn stats-entry" onClick=${() => openAccountPanel({ onStats })} title="本机账号 · 统计数据" aria-label="本机账号">
+  const name = player?.name || me.name || t('博士');
+  return html`<button type="button" class="me-chip me-chip--btn stats-entry" onClick=${() => openAccountPanel({ onStats })} title=${t('本机账号 · 统计数据')} aria-label=${t('本机账号')}>
     <${AvatarFrame} size="sm" name=${name} seat=${0} self=${true} src=${me.avatar || undefined} />
-    <span class="me-chip__text"><span class="me-chip__name">${name}<span class="acct-tag">#${me.tag}</span></span><${MicroLabel}>LOCAL · 本机账号<//></span>
+    <span class="me-chip__text"><span class="me-chip__name">${name}<span class="acct-tag">#${me.tag}</span></span><${MicroLabel}>${t('LOCAL · 本机账号')}<//></span>
     <${Icon} name="user" class="me-chip__stats" />
   </button>`;
 }

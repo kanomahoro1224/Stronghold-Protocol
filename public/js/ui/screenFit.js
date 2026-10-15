@@ -12,7 +12,7 @@
 
 import { html, Button, MicroLabel } from './components.js';
 import { createStore, useStore, loadPref, savePref } from '../store.js';
-import { t } from '../../../shared/i18n.js';
+import { t, N_ } from '../../../shared/i18n.js';
 
 export const FIT_SIDES = ['l', 'r', 't', 'b'];
 /** Pixel offset range (inward positive) and the slider scale: value = MID + px / PX_PER_STEP. */
@@ -56,7 +56,7 @@ applyFit(fitStore.get());
 /** @param {Partial<{l:number,r:number,t:number,b:number}>} patch pixel offsets */
 export const updateFit = (patch) => fitStore.set(sanitizeFit({ ...fitStore.get(), ...patch }));
 
-const SIDE_NAMES = { l: '左侧', r: '右侧', t: '顶部', b: '底部' };
+const SIDE_NAMES = { l: N_('左侧'), r: N_('右侧'), t: N_('顶部'), b: N_('底部') };
 const SIDE_MICRO = { l: 'LEFT', r: 'RIGHT', t: 'TOP', b: 'BOTTOM' };
 const LO = sliderOf(FIT_MIN), HI = sliderOf(FIT_MAX);
 

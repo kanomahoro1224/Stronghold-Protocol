@@ -6,12 +6,13 @@
 // accounts.js when a real account system is connected (AGENTS.md §3.2).
 import { useEffect, useState } from '../../vendor/hooks.module.js';
 import { loadStats } from './stats.js';
+import { t, N_ } from '../../../shared/i18n.js';
 
 const listeners = new Set();
-const NO_SERVICE = '本服未接入账号服务（成就与战绩只保存在这台设备的浏览器里）';
+const NO_SERVICE = N_('本服未接入账号服务（成就与战绩只保存在这台设备的浏览器里）');
 
 /** No accounts service here. */
-export async function accountApi() { throw new Error(NO_SERVICE); }
+export async function accountApi() { throw new Error(t(NO_SERVICE)); }
 
 /** { records (newest first), source, ready, failed, likes } — the local account's list = this browser's records. */
 export function currentRecords() {

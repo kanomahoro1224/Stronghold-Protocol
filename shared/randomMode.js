@@ -1,3 +1,4 @@
+import { N_ } from './i18n.js';
 // Compat shim (stronghold-ui-hub package) — install ONLY when the target has no shared/randomMode.js, and copy it to
 // public/shared/randomMode.js as well (the browser's /shared/ is that mirror in some setups).
 // 无限火力 (a random mode of the original deployment) needs server support (room.setRandom). Without it the hub hides
@@ -9,4 +10,4 @@ export const RANDOM_MODE = Object.freeze({
   rounds: Object.freeze({ leaders: [] }),
   unsupported: true,
 });
-export const RANDOM_MODE_NAME = '无限火力';
+export const RANDOM_MODE_NAME = N_('无限火力');
