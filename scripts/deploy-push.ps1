@@ -12,6 +12,9 @@
 #   # 忙机（160）重启前预热哈希缓存，避免首次启动在 900 MB 素材上算 SHA-256 把 vCPU 占满
 #   powershell -File scripts\deploy-push.ps1 -Target 160 -Apply -Prewarm
 #
+#   # 只同步前端、不重启服务（载荷里 server/ 无改动时用；在线页面需手动刷新一次）
+#   powershell -File scripts\deploy-push.ps1 -Target wei -Apply -NoRestart
+#
 # 目标机清单默认读 .cache\deploy\targets.json（不入库，含主机地址与密钥路径）：
 #   { "wei": { "host": "1.2.3.4", "key": "%USERPROFILE%\.ssh\id_ed25519_xxx", "note": "wei.xiaolubao.com" } }
 #
@@ -26,6 +29,7 @@ param(
   [string]$Payload = '',
   [switch]$Apply,
   [switch]$Prewarm,
+  [switch]$NoRestart,
   [switch]$Build,
   [switch]$NoBuildCheck
 )
@@ -68,8 +72,15 @@ if ($HostName -and $Key) {
 # ------------------------------------------------------------------ 载荷
 if ($Build -or -not (Test-Path $Payload)) {
   Write-Host '== npm run build =='
+  # rollup 会把「namespace 里取不到的导出」这类**警告**写到 stderr（例：room.js 的 SEAT_CONST.DEFAULT_SEATS，
+  # 本分支 shared/constants.js 只有 MAX_SEATS）。$ErrorActionPreference='Stop' 会让 PS 5.1 把它当成
+  # 致命错误、在构建其实成功时中断部署（2026-10-15 实测）。成败只看退出码，stderr 照原样透出。
+  $buildEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
   & npm run build 2>&1 | Select-Object -Last 3
-  if ($LASTEXITCODE -ne 0) { throw 'npm run build 失败' }
+  $buildCode = $LASTEXITCODE
+  $ErrorActionPreference = $buildEap
+  if ($buildCode -ne 0) { throw "npm run build 失败（退出码 $buildCode）" }
   Write-Host '== 打包载荷（server/ shared/ public/ 除 public/assets + 两个 package 文件）'
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Payload) | Out-Null
   if (Test-Path $Payload) { Remove-Item $Payload -Force }
@@ -112,6 +123,8 @@ foreach ($t in $targets) {
   $args = ''
   if ($Apply) { $mode = '正式'; $args = ' --apply' }
   if ($Prewarm -and $Apply) { $args = "$args --prewarm" }
+  if ($NoRestart -and $Apply) { $mode = '正式（不重启）'; $args = "$args --no-restart" }
+  if ($NoRestart -and -not $Apply) { Write-Host '   注意：-NoRestart 只在 -Apply 时生效（预演本来就不写盘）' }
   Write-Host "-- 执行（$mode）"
   $cmd = "bash $remoteSh $remoteTar$args"
   Invoke-Ssh $t.host $t.key $cmd | ForEach-Object { "   $_" }
