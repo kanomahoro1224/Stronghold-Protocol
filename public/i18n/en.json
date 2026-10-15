@@ -1850,7 +1850,5 @@
   "左侧": "Left",
   "右侧": "Right",
   "顶部": "Top",
-  "底部": "Bottom",
-  "头像 P2P": "Avatar P2P",
-  "头像只在同一个房间的队友之间用浏览器直连互传，服务器既不保存也不转发图片；关掉后队友只会看到名片干员。": "Avatars travel directly between the teammates sharing your room, browser to browser: the server neither stores nor forwards an image. Switched off, teammates only see your namecard operator."
+  "底部": "Bottom"
 }

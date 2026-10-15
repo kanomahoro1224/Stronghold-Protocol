@@ -22,7 +22,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from '../../vendor/hooks
 import { html, Modal, Button, Icon, MicroLabel } from './components.js';
 import { createStore, useStore, loadPref, savePref, store } from '../store.js';
 import { sanitizeSettings, DEFAULT_SHORTCUTS, sanitizeShortcuts, shortcutLabel, VOICE_LANGS, TEXT_SIZES, UI_THEMES } from './gameLogic.js';
-import { setPeerAvatarsEnabled } from './peerAvatars.js';
 import { GIcon } from './gameComponents.js';
 import { audio } from '../audio.js';
 import { openGuide } from './guide.js';
@@ -69,15 +68,13 @@ export function applyUiTheme(v) {
 }
 
 /**
- * 设置 →「头像 P2P」(p2pAvatar): teammates' avatars are exchanged straight between browsers over a WebRTC
- * DataChannel (ui/peerAvatars.js) instead of through the server. Off closes the mesh and drops what teammates
- * sent; on (the default) it is started here at boot, before any room exists — the mesh only forms once the player
- * is in a room, because the signaling relay is scoped to it. Nothing is uploaded either way.
- * @param {boolean} v
+ * 头像 P2P: teammates' avatars are exchanged straight between browsers over a WebRTC DataChannel
+ * (ui/peerAvatars.js) instead of through the server — always on, with no setting to turn off (user 2026-10-15:
+ * 「设置不要新增头像 P2P，我就是想要默认 P2P」). It is started at boot, before any room exists; the mesh only
+ * forms once the player is in a room, because the signaling relay is scoped to it. If the direct connection cannot
+ * be made the seat falls back to the namecard operator and the initial — never to a server-side copy, so no avatar
+ * ever costs the server traffic. Nothing is uploaded either way.
  */
-export function applyP2pAvatar(v) {
-  setPeerAvatarsEnabled(v);
-}
 
 settingsStore.subscribe((s) => {
   savePref('settings', sanitizeSettings(s));
@@ -85,7 +82,6 @@ settingsStore.subscribe((s) => {
   audio.setVoiceLang(s.voiceLang, s.voiceOverrides);
   applyTextSize(s.textSize);
   applyUiTheme(s.uiTheme);
-  applyP2pAvatar(s.p2pAvatar);
 });
 shortcutsStore.subscribe((s) => savePref('shortcuts', sanitizeShortcuts(s)));
 audio.setVolumes(settingsStore.get());
@@ -93,7 +89,6 @@ audio.setVoiceLang(settingsStore.get().voiceLang, settingsStore.get().voiceOverr
 // before the first render (main.js boot renders after its imports ran): the stored step is on screen without a flash
 applyTextSize(settingsStore.get().textSize);
 applyUiTheme(settingsStore.get().uiTheme);
-applyP2pAvatar(settingsStore.get().p2pAvatar);
 
 /** @param {Partial<ReturnType<typeof sanitizeSettings>>} patch */
 export function updateSettings(patch) {
@@ -253,9 +248,6 @@ export function SettingsModal({ open, onClose }) {
             onClick=${() => updateSettings({ fpsLimit: limit })}>${limit || t('不限')}</button>`)}
         </div>
       </div>
-      <${Toggle} label=${t('头像 P2P')} micro="AVATAR P2P" value=${s.p2pAvatar}
-        onChange=${(v) => updateSettings({ p2pAvatar: v })} />
-      <p class="set-hint set-hint--p2p">${t('头像只在同一个房间的队友之间用浏览器直连互传，服务器既不保存也不转发图片；关掉后队友只会看到名片干员。')}</p>
       ${touchUi
         ? html`<p class="set-hint">${t('触屏操作：点击单位选中（撤退 / 出售）· 长按单位或卡牌查看详情 · 拖动部署后滑动选择朝向')}</p>`
         : html`<p class="set-hint">${t('快捷键可在“修改快捷键”中自定义。')}<kbd>Esc</kbd> ${t('关闭弹窗 · 右键查看详情')}</p>`}

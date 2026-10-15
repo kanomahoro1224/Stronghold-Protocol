@@ -32,7 +32,6 @@ const DEFAULT_ICE = Object.freeze([
 const peers = new Map();
 const listeners = new Set();
 let started = false;
-let enabled = true; // 设置 →「头像 P2P」(ui/settings.js applyP2pAvatar); false means never start
 let netRef = null;
 let local = null; // { name, tag, avatar } — what this browser offers its teammates
 let iceServers = DEFAULT_ICE;
@@ -238,7 +237,7 @@ async function onSignal(msg) {
 
 /** Begin offering this browser's account to the room's teammates. Idempotent; safe without WebRTC. */
 export async function startPeerAvatars() {
-  if (started || !enabled) return;
+  if (started) return;
   // No WebRTC (Node tests, an old browser): the room simply keeps showing the namecard operator.
   if (typeof globalThis.RTCPeerConnection !== 'function') return;
   started = true;
@@ -260,17 +259,5 @@ export function stopPeerAvatars() {
   emit();
 }
 
-/** Whether the mesh is running (the settings toggle and the tests). */
+/** Whether the mesh is running (the tests). */
 export function peerAvatarsRunning() { return started; }
-
-/**
- * 设置 →「头像 P2P」(ui/settings.js applyP2pAvatar): the player's choice, which every start path honours — the
- * boot call in main.js included, so a stored `false` cannot be overridden by the app's own startup. Turning it off
- * also closes an already-running mesh and forgets what teammates sent.
- * @param {boolean} v
- */
-export function setPeerAvatarsEnabled(v) {
-  enabled = v !== false;
-  if (!enabled) stopPeerAvatars();
-  else startPeerAvatars();
-}

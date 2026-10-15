@@ -128,18 +128,22 @@ test('teammates are shown through accountOf/useAccount and the mesh starts at bo
   assert.match(accounts, /只有和你同一个房间的队友会通过浏览器直连收到你的头像/);
 });
 
-test('设置 →「头像 P2P」 is on by default, persisted and applied to the document', () => {
-  assert.equal(DEFAULT_SETTINGS.p2pAvatar, true);
-  assert.equal(sanitizeSettings({}).p2pAvatar, true);
-  assert.equal(sanitizeSettings({ p2pAvatar: false }).p2pAvatar, false);
-  assert.equal(sanitizeSettings({ p2pAvatar: 'no' }).p2pAvatar, true);
-  assert.match(settingsUi, /export function applyP2pAvatar\(v\) \{/);
-  assert.match(settingsUi, /setPeerAvatarsEnabled\(v\);/);
-  assert.match(settingsUi, /applyP2pAvatar\(s\.p2pAvatar\);/);
-  assert.match(settingsUi, /applyP2pAvatar\(settingsStore\.get\(\)\.p2pAvatar\);/);
-  assert.match(settingsUi, /updateSettings\(\{ p2pAvatar: v \}\)/);
-  // the player's choice wins over the app's own boot call: startAccounts() must not resurrect a disabled mesh
-  assert.match(peer, /export function setPeerAvatarsEnabled\(v\) \{/);
-  assert.match(peer, /enabled = v !== false;/);
-  assert.match(peer, /if \(started \|\| !enabled\) return;/);
+test('there is no setting for it: 头像 P2P is simply always on (user 2026-10-15)', () => {
+  // 「设置不要新增头像 P2P，我就是想要默认 P2P」— so the settings store must not carry the field at all,
+  // and nothing may gate the mesh: it starts whenever the browser has WebRTC.
+  assert.equal('p2pAvatar' in DEFAULT_SETTINGS, false);
+  assert.equal('p2pAvatar' in sanitizeSettings({ p2pAvatar: false }), false, 'a stored false from an older build is ignored, not honoured');
+  assert.doesNotMatch(settingsUi, /p2pAvatar|applyP2pAvatar|setPeerAvatarsEnabled/);
+  assert.doesNotMatch(peer, /setPeerAvatarsEnabled|\benabled\b/);
+  assert.match(peer, /export async function startPeerAvatars\(\) \{\n  if \(started\) return;/);
+  assert.match(peer, /typeof globalThis\.RTCPeerConnection !== 'function'/);
+});
+
+test('when the direct connection cannot be made the seat falls back to the namecard, never to the server', () => {
+  // The fallback is purely local: a seat without a peer account renders the namecard operator and the initial
+  // (components.js AvatarFrame), and no code path hands the avatar to the socket — so a failed P2P costs the
+  // server exactly nothing. `peerAccount()` is null until a DataChannel message arrived.
+  assert.match(peer, /export function peerAccount\(playerId\) \{ return playerId \? peers\.get\(playerId\)\?\.account \|\| null : null; \}/);
+  assert.equal(peer.split('netRef?.send(').length - 1, 1, 'the only socket call is the signaling relay');
+  assert.doesNotMatch(peer, /dc\.onmessage[\s\S]{0,400}netRef/);
 });

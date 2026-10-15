@@ -4,7 +4,7 @@
 // 头像不经服务器：两个浏览器同房，各自的头像走 WebRTC DataChannel 直接到对方座位上（ui/peerAvatars.js），
 // 服务器只转发 SDP/ICE（server/lobby.js rtcSignal）。这个 e2e 用两个独立浏览器上下文（各自的 localStorage）
 // 走真实 WS + 真实 WebRTC：断言对方座位拿到的是**本机那张图**，断言 WS 出站帧里出现过 rtc.signal、但从未出现
-// 头像本身，并断言关掉「头像 P2P」后不再互传。截图写 test/e2e/out/p2p-*.png。静态对照 test/ui/peer-avatars.test.js。
+// 头像本身，并断言 P2P 建不起来时也不会退化成经服务器传（第二个用例把 WebRTC 拿掉）。截图写 test/e2e/out/p2p-*.png。静态对照 test/ui/peer-avatars.test.js。
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,18 +30,19 @@ describe('头像 P2P between two browsers in one room (headless Chrome)', { skip
 
   after(async () => { await browser?.close(); await srv?.close(); });
 
-  /** A returning player with their own avatar (an 8×8 canvas: a valid, distinct PNG data URL) and optional settings. */
-  async function open(name, color, tag, settings = null) {
+  /** A returning player with their own avatar (an 8×8 canvas: a valid, distinct PNG data URL). */
+  async function open(name, color, tag, { noWebrtc = false } = {}) {
     const context = await browser.createBrowserContext();
     const page = await context.newPage();
     const problems = [];
     page.on('console', (m) => { if (m.type() === 'error') problems.push(`console: ${m.text()}`); });
     page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
     await page.setViewport({ width: 1280, height: 900 });
-    await page.evaluateOnNewDocument((n, c, tg, s) => {
+    await page.evaluateOnNewDocument((n, c, tg, noRtc) => {
       localStorage.setItem('sp.name', n);
       sessionStorage.setItem('sp.entered', '1');
-      if (s) localStorage.setItem('sp.pref.settings', JSON.stringify(s));
+      // a browser without WebRTC (or a blocked one): the mesh cannot form, and nothing may fall back to the socket
+      if (noRtc) Object.defineProperty(globalThis, 'RTCPeerConnection', { value: undefined, configurable: true });
       const cv = document.createElement('canvas'); cv.width = cv.height = 8;
       const ctx = cv.getContext('2d'); ctx.fillStyle = c; ctx.fillRect(0, 0, 8, 8);
       localStorage.setItem('sp.pref.localAccount', JSON.stringify({ tag: tg, avatar: cv.toDataURL('image/png') }));
@@ -49,7 +50,7 @@ describe('头像 P2P between two browsers in one room (headless Chrome)', { skip
       globalThis.__sent = [];
       const orig = WebSocket.prototype.send;
       WebSocket.prototype.send = function (data) { try { globalThis.__sent.push(String(data)); } catch { /* ignore */ } return orig.call(this, data); };
-    }, name, color, tag, settings);
+    }, name, color, tag, noWebrtc);
     await page.goto(`http://127.0.0.1:${srv.port}/`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('.lobby-screen', { timeout: 30000 });
     return { context, page, problems };
@@ -126,10 +127,10 @@ describe('头像 P2P between two browsers in one room (headless Chrome)', { skip
     await b.page.screenshot({ path: shot('p2p-b') });
   });
 
-  test('设置 →「头像 P2P」 off: nothing is exchanged, the seat falls back to the namecard', async (t) => {
+  test('no WebRTC on one side: that seat keeps the namecard, and nothing is sent through the socket instead', async (t) => {
     const a = await open('A博士', '#ff0044', '1111');
-    // B turned the feature off: no mesh, so B neither sends nor accepts an avatar
-    const b = await open('B博士', '#00aaff', '2222', { p2pAvatar: false });
+    // B's browser has no WebRTC at all: the mesh cannot form, and the avatar must not take the server as a detour
+    const b = await open('B博士', '#00aaff', '2222', { noWebrtc: true });
     t.after(async () => { await a.context.close(); await b.context.close(); });
     await send(a.page, 'room.create', { mode: 'coop', difficulty: 'NORMAL' });
     const code = await a.page.waitForFunction(async () => (await import('/js/store.js')).store.get().room?.code || null,
@@ -140,14 +141,20 @@ describe('头像 P2P between two browsers in one room (headless Chrome)', { skip
       return (store.get().room?.seats || []).filter(Boolean).length === 2;
     }, { timeout: 20000, polling: 200 });
 
-    // give the mesh every chance to form before asserting it did not
+    // give any (wrong) fallback every chance to show up before asserting it did not
     await new Promise((r) => setTimeout(r, 7000));
     const rowsA = await seats(a.page), rowsB = await seats(b.page);
     assert.equal(seatOf(rowsA, 'B博士').src, '', JSON.stringify(rowsA));
     assert.equal(seatOf(rowsB, 'A博士').src, '', JSON.stringify(rowsB));
-    // each page still shows its own avatar (the local account is untouched)
+    // each page still shows its own avatar (the local account is untouched) and the teammate keeps their name
     assert.match(seatOf(rowsA, 'A博士').src, /^data:image\/png/);
     assert.equal(seatOf(rowsA, 'B博士').tag, '');
+    assert.equal(seatOf(rowsA, 'B博士').name, 'B博士');
+    // the point of the requirement: a failed P2P costs the server nothing — no image bytes on any socket
+    for (const [label, page] of [['A', a.page], ['B', b.page]]) {
+      const frames = await page.evaluate(() => globalThis.__sent || []);
+      assert.equal(frames.some((f) => f.includes('data:image/') || f.includes('base64')), false, `${label} fell back to sending the avatar through the server`);
+    }
     assert.deepEqual(a.problems, []);
     assert.deepEqual(b.problems, []);
   });
