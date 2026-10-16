@@ -69,8 +69,9 @@ test('file type/size boundaries and saved background settings are validated', ()
   assert.doesNotThrow(() => validateImage({ type: 'image/png', size: MAX_IMAGE_BYTES }));
   assert.throws(() => validateImage({ type: 'image/png', size: MAX_IMAGE_BYTES + 1 }), /30MB/);
   assert.throws(() => validateImage({ type: 'video/mp4', size: 200 }), /图片/);
+  // videoSound/videoPaused belong to the local video backdrop (ported back from the fork) and default to off
   assert.deepEqual(sanitizeBackdrop({ theme: 'external', dim: 200, blur: -1, overlay: false, motion: false }),
-    { theme: 'night', dim: 85, blur: 0, overlay: false, motion: false });
+    { theme: 'night', dim: 85, blur: 0, overlay: false, motion: false, videoSound: false, videoPaused: false });
   assert.equal(sanitizeBackdrop({ dim: null, blur: NaN }).dim, 45);
 });
 

@@ -1,7 +1,8 @@
 // Procedural lobby artwork adapted from isomerpoi UI b2bd17af; no new storage or services.
 import { html } from './components.js';
-import { useRef, useState } from '../../vendor/hooks.module.js';
+import { useRef, useState, useEffect } from '../../vendor/hooks.module.js';
 import { HUB_THEMES, HUB_PHOTOS, backdropScene, backdropImage, isHubPhoto, hubPhotoThumbUrl } from './hubAppearance.js';
+import { audio } from '../audio.js';
 import { t } from '../../../shared/i18n.js';
 function rng(seed) {
   let s = seed >>> 0;
@@ -111,10 +112,57 @@ function Scene({ theme }) {
       style=${`left:${m.x.toFixed(2)}%;top:${m.y.toFixed(2)}%;width:${m.s.toFixed(1)}px;height:${m.s.toFixed(1)}px;--d:${m.d.toFixed(1)}s;--dl:-${m.dl.toFixed(1)}s`}></i>`)}</div>` : null}`;
 }
 
+/** A local video backdrop (60→200MB cap, ≤1080p). Sound follows the game's BGM volume and mute, only starts from a
+ *  gesture, and the lobby music is suspended while it plays (lobbyMusic.js listens for `sp:lobby-video-audio`). */
+function HubVideo({ bg }) {
+  const ref = useRef(null);
+  const { pref, imageUrl } = bg;
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return undefined;
+    let claimed = false;
+    const claim = (active) => {
+      if (claimed === active) return;
+      claimed = active;
+      window.dispatchEvent(new CustomEvent('sp:lobby-video-audio', { detail: { active } }));
+    };
+    const sync = () => {
+      video.muted = !pref.videoSound || audio.volumes.muted;
+      video.volume = Math.max(0, Math.min(1, audio.volumes.bgm));
+      if (pref.videoPaused || document.hidden) { video.pause(); claim(false); return; }
+      const started = video.play();
+      if (started && typeof started.catch === 'function') started.catch(() => claim(false));
+      claim(pref.videoSound && !audio.volumes.muted);
+    };
+    const stop = () => claim(false);
+    const unlock = () => { audio._unlock(); sync(); };
+    video.addEventListener('loadeddata', sync);
+    video.addEventListener('pause', stop);
+    video.addEventListener('error', stop);
+    document.addEventListener('visibilitychange', sync);
+    window.addEventListener('sp:lobby-video-sync', sync);
+    window.addEventListener('pointerdown', unlock, { passive: true });
+    sync();
+    return () => {
+      video.removeEventListener('loadeddata', sync);
+      video.removeEventListener('pause', stop);
+      video.removeEventListener('error', stop);
+      document.removeEventListener('visibilitychange', sync);
+      window.removeEventListener('sp:lobby-video-sync', sync);
+      window.removeEventListener('pointerdown', unlock);
+      claim(false);
+    };
+  }, [pref.videoSound, pref.videoPaused, imageUrl]);
+  return html`<video ref=${ref} class="hub-bg__video" src=${imageUrl} loop playsInline preload="metadata" muted
+    style=${{ filter: `blur(${pref.blur}px)` }}></video>`;
+}
+
 export function HubBackdrop({ bg }) {
   const scene = backdropScene(bg), { pref } = bg;
+  const video = scene === 'photo' && bg.mediaKind === 'video';
   return html`<div class="hub-bg" data-scene=${scene} data-motion=${pref.motion ? 'on' : 'off'} aria-hidden="true">
-    ${scene === 'photo' ? html`<div class="hub-bg__photo" style=${{ backgroundImage: `url("${backdropImage(bg)}")`, filter: `blur(${pref.blur}px)` }}></div>
+    ${scene === 'photo' ? html`${video ? html`<${HubVideo} key=${bg.imageUrl} bg=${bg} />`
+        : html`<div class="hub-bg__photo" style=${{ backgroundImage: `url("${backdropImage(bg)}")`, filter: `blur(${pref.blur}px)` }}></div>`}
       <div class="hub-bg__shade" style=${{ opacity: pref.dim / 100 }}></div>`
       : scene === 'blank' ? html`<div class="hub-bg__sky"></div>` : html`<${Scene} theme=${scene} />`}
     ${scene !== 'photo' || pref.overlay ? html`<div class="hub-bg__grid"></div><div class="hub-bg__dots"></div>` : null}
@@ -150,7 +198,8 @@ function Swatch({ theme }) {
 export function BackdropSettings({ bg }) {
   const fileRef = useRef(null), [error, setError] = useState('');
   const { pref, update, imageUrl, busy } = bg;
-  // dim/blur apply to any photo backdrop: a built-in 鹿乃 image from the CDN, or the user's own import
+  const video = bg.mediaKind === 'video';
+  // dim/blur apply to any photo backdrop: a built-in 鹿乃 image from the CDN, a local video, or the user's own import
   const photoTheme = pref.theme === 'custom' || isHubPhoto(pref.theme);
   const action = async (fn) => { setError(''); try { await fn(); } catch (e) { setError(e.message || t('操作失败')); } };
   return html`<div class="bgset">
@@ -160,8 +209,9 @@ export function BackdropSettings({ bg }) {
         <${Swatch} theme=${x.id} /><span class="bgset__name">${t(x.name)}</span><span class="bgset__en">${x.en}</span></button>`)}
       <button type="button" disabled=${busy} aria-pressed=${pref.theme === 'custom'} class=${`bgset__theme${pref.theme === 'custom' ? ' is-selected' : ''}`}
         onClick=${() => imageUrl ? update({ theme: 'custom' }) : fileRef.current?.click()}>
-        <span class="bgset__swatch bgset__swatch--custom" style=${imageUrl ? { backgroundImage: `url("${imageUrl}")` } : null} aria-hidden="true">
-          ${imageUrl ? null : html`<span class="bgset__plus">+</span>`}</span>
+        <span class="bgset__swatch bgset__swatch--custom"
+          style=${imageUrl && !video ? { backgroundImage: `url("${imageUrl}")` } : null} aria-hidden="true">
+          ${imageUrl ? (video ? html`<span class="bgset__plus">▶</span>` : null) : html`<span class="bgset__plus">+</span>`}</span>
         <span class="bgset__name">${t('自定义背景')}</span><span class="bgset__en">CUSTOM</span></button>
     </div>
     <div class="bgset__themes bgset__themes--photos" role="group" aria-label=${t('内置背景')}>
@@ -170,7 +220,7 @@ export function BackdropSettings({ bg }) {
         <span class="bgset__swatch bgset__swatch--custom" style=${{ backgroundImage: `url("${hubPhotoThumbUrl(x.id)}")` }} aria-hidden="true"></span>
         <span class="bgset__name">${t(x.name)}</span><span class="bgset__en">${x.id.toUpperCase()}</span></button>`)}
     </div>
-    <input ref=${fileRef} type="file" accept="image/*" hidden onChange=${(e) => {
+    <input ref=${fileRef} type="file" accept="image/*,video/mp4,video/webm,.mp4,.webm,.m4v" hidden onChange=${(e) => {
       const file = e.currentTarget.files?.[0]; e.currentTarget.value = '';
       if (file) action(() => bg.setImage(file));
     }} />
@@ -183,9 +233,15 @@ export function BackdropSettings({ bg }) {
       <label class="bgset__slider"><span>${t('模糊')}</span><input type="range" min="0" max="16" value=${pref.blur}
         onInput=${(e) => update({ blur: Number(e.currentTarget.value) })} /><b class="num">${pref.blur}px</b></label>
       <label class="bgset__check"><input type="checkbox" checked=${pref.overlay} onChange=${(e) => update({ overlay: e.currentTarget.checked })} />${t('叠加战术网格')}</label></div>` : null}
+    ${video ? html`<div class="bgset__custom">
+      <label class="bgset__check"><input type="checkbox" checked=${pref.videoSound}
+        onChange=${(e) => { audio._unlock(); update({ videoSound: e.currentTarget.checked }); }} />${t('视频声音')}</label>
+      <label class="bgset__check"><input type="checkbox" checked=${pref.videoPaused} onChange=${(e) => update({ videoPaused: e.currentTarget.checked })} />${t('暂停视频')}</label></div>` : null}
     <label class="bgset__check"><input type="checkbox" checked=${pref.motion} onChange=${(e) => update({ motion: e.currentTarget.checked })} />${t('动态效果（云层、粒子、雷达扫描）')}</label>
-    ${pref.theme === 'custom' ? html`<p class="bgset__note">${t('图片上限 30MB，自动缩放至最长边 2560px，仅保存在当前浏览器。')}</p>` : null}
-    ${busy ? html`<p role="status">${t('图片处理中…')}</p>` : null}
+    ${pref.theme === 'custom' ? html`<p class="bgset__note">${video
+      ? t('视频上限 200MB、最高 1080p，仅保存在当前浏览器。')
+      : t('图片上限 30MB，自动缩放至最长边 2560px，仅保存在当前浏览器。')}</p>` : null}
+    ${busy ? html`<p role="status">${video ? t('视频处理中…') : t('图片处理中…')}</p>` : null}
     ${error ? html`<p class="lobby-media-error" role="alert">${t(error)}</p>` : null}
   </div>`;
 }

@@ -49,11 +49,25 @@ export function installLobbyMusic() {
   if (installed) return;
   installed = true;
   let lastUrl, lastPaused;
-  lobbyMusic.subscribe((s) => {
-    if (lastUrl === s.url && lastPaused === s.record?.paused) return;
-    lastUrl = s.url; lastPaused = s.record?.paused;
-    audio.setLobbyMusic(s.url ? { url: s.url, paused: s.record.paused } : null);
-  });
+  // A lobby video backdrop with sound takes the BGM channel over: hubBackdrop's HubVideo announces it, and the music
+  // resumes as soon as the video is muted, paused or removed.
+  let videoAudio = false;
+  const apply = () => {
+    const s = lobbyMusic.get();
+    const paused = !!s.record?.paused || videoAudio;
+    if (lastUrl === s.url && lastPaused === paused) return;
+    lastUrl = s.url; lastPaused = paused;
+    audio.setLobbyMusic(s.url ? { url: s.url, paused } : null);
+  };
+  lobbyMusic.subscribe(apply);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('sp:lobby-video-audio', (e) => {
+      const active = e.detail?.active === true;
+      if (active === videoAudio) return;
+      videoAudio = active;
+      apply();
+    });
+  }
   lobbyMusic.load();
 }
 

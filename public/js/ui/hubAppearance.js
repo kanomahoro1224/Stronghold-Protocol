@@ -34,6 +34,9 @@ export const hubPhotoUrl = (id) => `${ASSETS_CDN.replace(/\/+$/, '')}/assets/loc
 export const hubPhotoThumbUrl = (id) => `${ASSETS_CDN.replace(/\/+$/, '')}/assets/local/hub/thumb/${id}.jpg`;
 
 export const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
+/** Video background caps: 200MB (用户 2026-10-16) and 1080p at most. */
+export const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
+const MAX_VIDEO_EDGE = 1920;
 const MAX_EDGE = 2560;
 const PREF_KEY = 'hub.backdrop';
 export function sanitizeBackdrop(raw) {
@@ -42,6 +45,8 @@ export function sanitizeBackdrop(raw) {
   return {
     theme: r.theme === 'custom' || HUB_THEMES.some((x) => x.id === r.theme) || PHOTO_IDS.has(r.theme) ? r.theme : 'night',
     dim: num(r.dim, 45, 85), blur: num(r.blur, 0, 16), overlay: r.overlay !== false, motion: r.motion !== false,
+    // a local video backdrop: sound off and playing by default, old profiles and images simply get the defaults
+    videoSound: r.videoSound === true, videoPaused: r.videoPaused === true,
   };
 }
 
@@ -76,8 +81,48 @@ export async function prepareBackdrop(file) {
   } finally { URL.revokeObjectURL(url); }
 }
 
+export function validateVideo(file) {
+  if (!file || file.size <= 0) throw new Error(t('请选择有效的视频文件'));
+  if (file.size > MAX_VIDEO_BYTES) throw new Error(t('视频太大（上限 200MB）'));
+  if (file.type && !file.type.startsWith('video/') && !/\.(mp4|webm|m4v)$/i.test(file.name || '')) {
+    throw new Error(t('请选择 MP4 或 WebM 视频'));
+  }
+}
+
+/** Video backgrounds are stored as-is (no re-encode): only metadata is probed, capping size, duration and resolution. */
+export async function prepareVideo(file) {
+  validateVideo(file);
+  const blob = new Blob([file], { type: file.type || (/\.webm$/i.test(file.name || '') ? 'video/webm' : 'video/mp4') });
+  const url = URL.createObjectURL(blob), probe = document.createElement('video');
+  probe.preload = 'metadata';
+  probe.muted = true;
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { probe.removeAttribute('src'); reject(new Error(t('视频读取超时，请换一个文件试试'))); }, 15000);
+      probe.onloadedmetadata = () => {
+        clearTimeout(timer);
+        if (!Number.isFinite(probe.duration) || probe.duration <= 0 || !probe.videoWidth || !probe.videoHeight) {
+          reject(new Error(t('视频无效或时长不可读')));
+        } else if (probe.videoWidth * probe.videoHeight > 1920 * 1080 || Math.max(probe.videoWidth, probe.videoHeight) > MAX_VIDEO_EDGE) {
+          reject(new Error(t('请使用最高 1080p 的视频')));
+        } else resolve();
+      };
+      probe.onerror = () => { clearTimeout(timer); reject(new Error(t('浏览器无法播放该视频，请尝试 MP4 或 WebM'))); };
+      probe.src = url;
+    });
+    return { blob };
+  } finally {
+    probe.onloadedmetadata = probe.onerror = null;
+    probe.removeAttribute('src'); probe.load(); URL.revokeObjectURL(url);
+  }
+}
+
 const images = createLocalMedia({ storage: mediaStorage('sp-hub-backdrop', 'kv', 'image'),
-  valid: (r) => r?.blob instanceof Blob && /^image\//.test(r.blob.type) && r.blob.size > 0 && r.blob.size <= MAX_IMAGE_BYTES });
+  valid: (r) => {
+    if (!(r?.blob instanceof Blob) || r.blob.size <= 0) return false;
+    if (r.blob.type.startsWith('video/')) return r.blob.size <= MAX_VIDEO_BYTES;
+    return /^image\//.test(r.blob.type) && r.blob.size <= MAX_IMAGE_BYTES;
+  } });
 const preferences = createStore(sanitizeBackdrop(loadPref(PREF_KEY, null)));
 preferences.subscribe((pref) => savePref(PREF_KEY, pref));
 
@@ -92,8 +137,16 @@ export function useHubBackdrop() {
   // A file import can finish after navigating away; its choice must still be available on the next visit.
   const update = (patch) => preferences.set(sanitizeBackdrop({ ...preferences.get(), ...patch }));
   return { pref, update, imageUrl: image.url, ready: image.ready, busy: image.busy,
-    async setImage(file) { if (await images.change(() => prepareBackdrop(file))) update({ theme: 'custom' }); },
-    async clearImage() { if (await images.change(() => null)) update({ theme: 'night', dim: 45, blur: 0 }); },
+    // 'video' when the stored local backdrop is a video blob, which is what the renderer and the panel branch on
+    mediaKind: image.record?.blob && String(image.record.blob.type).startsWith('video/') ? 'video' : 'image',
+    async setImage(file) {
+      const isVideo = file?.type?.startsWith('video/') || /\.(mp4|webm|m4v)$/i.test(file?.name || '');
+      if (!isVideo && !/^image\//.test(file?.type || '')) throw new Error(t('请选择图片、MP4 或 WebM 视频'));
+      if (await images.change(() => (isVideo ? prepareVideo(file) : prepareBackdrop(file)))) {
+        update({ theme: 'custom', videoPaused: false, videoSound: false });
+      }
+    },
+    async clearImage() { if (await images.change(() => null)) update({ theme: 'night', dim: 45, blur: 0, videoPaused: false, videoSound: false }); },
   };
 }
 
