@@ -69,6 +69,7 @@ import { t, N_, translateWire } from '../../shared/i18n.js';
 import { recordError, installTrafficMeter } from './diag.js';
 import { appendChat, validChatText } from '../../shared/chat.js';
 import { installContent, installContentSet } from './content.js';
+import { startAccounts } from './ui/accounts.js';
 import { cosmetics } from './cosmetics.js';
 
 const RESTORE_GRACE_MS = 1500;
@@ -448,6 +449,10 @@ async function boot() {
   installContent({ toast });
   // a room with gameplay plugins: its content set downloaded, checked and shown (content.js — DESIGN §32.6)
   installContentSet({ toast });
+  // 头像 P2P (user request 2026-10-15): offer this browser's own account (avatar / #tag) to the room's teammates over
+  // a WebRTC DataChannel — the server only relays the signaling, so an avatar costs it nothing. Always on: there is no
+  // setting for it (ui/settings.js), and a room that cannot connect keeps showing the namecard operator.
+  startAccounts();
   // A bot prep's layout rehearsal the server offers this host's browser (DESIGN §14, SP_BOT_REHEARSAL=host on the
   // server): a same-origin module Worker simulates the candidates off the main thread and answers with its pick; a
   // browser that cannot run one answers `error` and the server rehearses itself. Nothing happens while the server

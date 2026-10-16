@@ -66,6 +66,8 @@ export const NET_DEFAULTS = Object.freeze({
   maxSessions: 20_000,          // registry cap; oldest idle sessions are evicted first
   heavyPerSec: 2,               // refill of the bucket for resend-heavy intents (HEAVY_TYPES)
   heavyBurst: 6,
+  rtcPerSec: 60,                // 头像 P2P signaling (RTC_TYPES): ICE candidates arrive in short bursts
+  rtcBurst: 120,
   trustProxy: 'auto',           // forwarding headers: 'auto' = from loopback/private peers only, true = always, false = never
 });
 
@@ -78,6 +80,14 @@ export const NET_DEFAULTS = Object.freeze({
  * state.resync requests a full match recovery; it also uses the lobby's per-session resync coalescing.
  */
 export const HEAVY_TYPES = new Set(['g.watch', 'room.loadout', 'room.skins', 'room.card', 'room.ownership', 'room.diy', 'room.spectate', 'state.resync', 'room.setPlugins']);
+
+/**
+ * 头像 P2P signaling (shared/protocol.js RTC_LIMITS): relayed verbatim to one seat of the same room, so it is cheap per
+ * message, but a four-player mesh exchanges a handful of SDP/ICE messages per connection. Its own bucket is wider than
+ * HEAVY_TYPES (a client that loops is still bounded) and separate from it, so a busy mesh never starves the
+ * resend-heavy intents.
+ */
+export const RTC_TYPES = new Set(['rtc.signal']);
 
 /** Close codes (see header). */
 export const CLOSE = Object.freeze({ REPLACED: 4001, HELLO_TIMEOUT: 4002, POLICY: 1008, SHUTDOWN: 1001 });
@@ -561,6 +571,7 @@ class Connection {
     this.reviewPending = false;
     this.bucket = new TokenBucket(opts.ratePerSec, opts.rateBurst, now);
     this.heavy = new TokenBucket(opts.heavyPerSec, opts.heavyBurst, now);
+    this.rtc = new TokenBucket(opts.rtcPerSec, opts.rtcBurst, now);
     this.dropWindowAt = now;
     this.drops = 0;
     /** true once the server initiated the close; frames still in flight are ignored */
@@ -830,6 +841,7 @@ export class Network {
     if (conn.reviewPending) { this.reply(conn, errorMsg(ERR.RATE, rid, 'hello review pending')); return; }
     if (!conn.session) { this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'hello required')); return; }
     if (HEAVY_TYPES.has(msg.t) && !conn.heavy.take(now)) { this.reply(conn, errorMsg(ERR.RATE, rid, `${msg.t} too often`)); return; }
+    if (RTC_TYPES.has(msg.t) && !conn.rtc.take(now)) { this.reply(conn, errorMsg(ERR.RATE, rid, `${msg.t} too often`)); return; }
 
     let res;
     try {

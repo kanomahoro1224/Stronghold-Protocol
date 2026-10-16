@@ -688,6 +688,7 @@ export class Lobby {
       case 'room.loadout': return this.loadout(session, msg);
       case 'room.skins': return this.skins(session, msg);
       case 'room.card': return this.card(session, msg);
+      case 'rtc.signal': return this.rtcSignal(session, msg);
       case 'match.join': return this.matchJoin(session, msg);
       case 'match.leave': return this.matchLeave(session);
       case 'room.ownership': return this.ownership(session, msg);
@@ -1832,6 +1833,25 @@ export class Lobby {
    * room.ownership (0.2.0 补位): keep the droppable chess of the not-owned list, store it on the session and the seat
    * (see the header). A running match never takes it: it keeps the list its seat had at its start.
    */
+  /**
+   * 头像 P2P (WebRTC, user request 2026-10-15): relay one leg of a room's avatar mesh to another seat. Deliberately
+   * blind and stateless — it checks that both ends share this room, then forwards `data` verbatim. Nothing is stored and
+   * nothing is parsed: the avatar itself never arrives here (it travels on the DataChannel), so a four-player mesh costs
+   * a few kB of SDP/ICE per connection and no image bandwidth. Accepted in every room phase, like room.card — it is
+   * communication, not state. The rate limit lives in server/net.js (RTC_TYPES).
+   */
+  rtcSignal(session, { to, kind, data }) {
+    const room = this.roomOf(session);
+    if (!room) return fail(ERR.NOT_IN_ROOM);
+    if (to === session.playerId) return fail(ERR.BAD_MSG, 'self');
+    const peer = this.registry.byId(to);
+    // The target must be online, in this same room, and hold a seat or a spectator place there.
+    if (!peer || this.roomOf(peer) !== room) return fail(ERR.NOT_IN_ROOM, 'no such peer');
+    if (!room.seatOf(to) && !room.spectatorOf(to)) return fail(ERR.NOT_IN_ROOM, 'no such peer');
+    sendSession(peer, { t: 'rtc.signal', from: session.playerId, kind, data });
+    return OK;
+  }
+
   ownership(session, { notOwned }) {
     const room = this.roomOf(session);
     const data = this.dataFor(room);

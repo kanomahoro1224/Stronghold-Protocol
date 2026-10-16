@@ -77,6 +77,15 @@ export function applyUiTheme(v) {
   if (el) el.dataset.uiTheme = UI_THEMES.includes(v) ? v : 'default';
 }
 
+/**
+ * 头像 P2P: teammates' avatars are exchanged straight between browsers over a WebRTC DataChannel
+ * (ui/peerAvatars.js) instead of through the server — always on, with no setting to turn off (user 2026-10-15:
+ * 「设置不要新增头像 P2P，我就是想要默认 P2P」). It is started at boot, before any room exists; the mesh only
+ * forms once the player is in a room, because the signaling relay is scoped to it. If the direct connection cannot
+ * be made the seat falls back to the namecard operator and the initial — never to a server-side copy, so no avatar
+ * ever costs the server traffic. Nothing is uploaded either way.
+ */
+
 settingsStore.subscribe((s) => {
   savePref('settings', sanitizeSettings(s));
   audio.setVolumes(s);

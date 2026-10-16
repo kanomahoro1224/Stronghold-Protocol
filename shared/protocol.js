@@ -414,6 +414,13 @@ const target = (v) => {
 };
 
 /** @type {Record<string, Record<string, (v:any)=>boolean> & { $optional?: string[] }>} */
+/**
+ * 头像 P2P (WebRTC): the room's seats exchange their avatars straight between browsers, so the server never sees an
+ * image. This caps the only thing that does reach it — the opaque signaling payload (SDP or one ICE candidate as a JSON
+ * string), which server/lobby.js relays verbatim to the addressed seat and stores nowhere.
+ */
+export const RTC_LIMITS = Object.freeze({ signalLen: 16384 });
+
 export const C2S = {
   // session & lobby
   hello: { name: (v) => isStr(v, NAME_MAX_LEN) && v.trim().length > 0, token: (v) => v == null || isStr(v, 64), version: (v) => v == null || isInt(v, 0, 1e6),
@@ -454,6 +461,11 @@ export const C2S = {
   'room.loadout': { entries: isLoadoutEntries, ops: isLoadoutOps, $optional: ['ops'] },
   'room.skins': { skins: isSkinSelection },
   'room.card': { charId: isCardPortraitId, avatar: isCardAvatarId },
+  // 头像 P2P (WebRTC): one leg of the same room's avatar mesh. `to` is the target seat's playerId, `kind` the
+  // negotiation step and `data` an opaque JSON string (SDP or one ICE candidate) that the server only forwards to that
+  // peer — it keeps nothing and never sees the avatar itself, which travels on the DataChannel
+  // (public/js/ui/peerAvatars.js). Available in every room phase: it is communication, like room.card.
+  'rtc.signal': { to: isId, kind: (v) => v === 'offer' || v === 'answer' || v === 'ice', data: (v) => isStr(v, RTC_LIMITS.signalLen) },
   // operator ownership (干员持有, 0.2.0 补位): stored per session / seat; a match takes the list its seat had when it
   // started (an out-of-match setting — during a match it is stored for the next one: ROOM_STARTED)
   'room.ownership': { notOwned: isNotOwnedList },
@@ -564,6 +576,9 @@ export const S2C = [
   'welcome', 'ok', 'error', 'pong', 'presence',
   'site.announcement', // { serverNow, announcement, popupAnnouncement } — popup endAt may be null, format plain/markdown
   'room.state', 'room.closed', 'match.queue',
+  // rtc.signal { from, kind, data } — 头像 P2P: one leg of the same room's avatar mesh, forwarded verbatim to the
+  // addressed seat (public/js/ui/peerAvatars.js); the avatar itself never travels through the server.
+  'rtc.signal',
   'm.public', 'm.private', 'm.field', 'm.toast', 'm.ticker', 'm.emote', 'm.chat', 'm.result',
   'm.state', // opt-in stateDelta: 1: { kind, seq, full } or { kind, seq, base, patch }
   // m.layer { playerId, bondId, add } — own live prep layer gain; ephemeral, never replayed on resync.
