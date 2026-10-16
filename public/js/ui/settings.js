@@ -20,11 +20,14 @@
 // settings only inflate the glyphs inside fixed boxes (and page zoom is off: index.html's viewport, ui/device.js).
 // Only font-size declarations read `--t`, so the board, the HUD bands the prep camera keeps clear and the detail
 // card's side do not move — the field is sized from the host element's clientWidth (render/app.js).
+//
+// 界面主题 (uiTheme, applied by applyUiTheme): `<html data-ui-theme>`; 'glass' is the 液态玻璃 skin of css/glass.css,
+// switched from the lobby top bar's theme button (ui/theme.js) next to 添加到桌面. A skin only paints.
 
 import { useEffect, useLayoutEffect, useRef, useState } from '../../vendor/hooks.module.js';
 import { html, Modal, Button, Icon, MicroLabel } from './components.js';
 import { createStore, useStore, loadPref, savePref, store } from '../store.js';
-import { sanitizeSettings, DEFAULT_SHORTCUTS, sanitizeShortcuts, shortcutLabel, VOICE_LANGS, TEXT_SIZES } from './gameLogic.js';
+import { sanitizeSettings, DEFAULT_SHORTCUTS, sanitizeShortcuts, shortcutLabel, VOICE_LANGS, TEXT_SIZES, UI_THEMES } from './gameLogic.js';
 import { GIcon } from './gameComponents.js';
 import { audio } from '../audio.js';
 import { openGuide } from './guide.js';
@@ -62,12 +65,25 @@ export function applyTextSize(v) {
   if (el) el.dataset.text = TEXT_SIZES.includes(v) ? v : 'sm';
 }
 
+/**
+ * 设置 →「界面主题」(uiTheme): put the skin on <html data-ui-theme> — css/glass.css paints the 液态玻璃 skin for
+ * `[data-ui-theme="glass"]` and paints nothing for the default one, so the attribute (not an inline style) keeps the
+ * default look in the stylesheet: without JavaScript, with an old saved profile or with a value a future version
+ * dropped, the page is this branch's own design. A skin only paints — no layout, no readable font-size, no `--t`.
+ * @param {'default'|'glass'} v
+ */
+export function applyUiTheme(v) {
+  const el = globalThis.document?.documentElement;
+  if (el) el.dataset.uiTheme = UI_THEMES.includes(v) ? v : 'default';
+}
+
 settingsStore.subscribe((s) => {
   savePref('settings', sanitizeSettings(s));
   audio.setVolumes(s);
   audio.setVoiceLang(s.voiceLang, s.voiceOverrides);
   audio.setVoiceNative(s.voiceNative);
   applyTextSize(s.textSize);
+  applyUiTheme(s.uiTheme);
 });
 shortcutsStore.subscribe((s) => savePref('shortcuts', sanitizeShortcuts(s)));
 audio.setVolumes(settingsStore.get());
@@ -75,6 +91,7 @@ audio.setVoiceLang(settingsStore.get().voiceLang, settingsStore.get().voiceOverr
 audio.setVoiceNative(settingsStore.get().voiceNative);
 // before the first render (main.js boot renders after its imports ran): the stored step is on screen without a flash
 applyTextSize(settingsStore.get().textSize);
+applyUiTheme(settingsStore.get().uiTheme);
 
 /** @param {Partial<ReturnType<typeof sanitizeSettings>>} patch */
 export function updateSettings(patch) {

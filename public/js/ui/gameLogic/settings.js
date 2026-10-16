@@ -25,9 +25,18 @@ import { clamp, isObj } from './shared.js';
  */
 export const TEXT_SIZES = Object.freeze(['sm', 'md', 'lg', 'xl']);
 
+/**
+ * The skins of 设置 →「界面主题」 (uiTheme, applied by ui/settings.js applyUiTheme → `<html data-ui-theme>`):
+ * 'default' is this branch's own dark interface, 'glass' is the 液态玻璃 skin (css/glass.css — the layered
+ * highlight structure of yzrt-master's pure-CSS liquid glass, retuned for a dark backdrop). A skin only paints:
+ * no layout value, no readable font-size and no `--t` changes with it, so the two can be swapped at any moment.
+ */
+export const UI_THEMES = Object.freeze(['default', 'glass']);
+
 /** Shortcuts persist separately in ui/shortcuts.js; voiceLang: VOICE_LANGS.
- *  textSize: TEXT_SIZES (css/theme.css `--t`, applied by ui/settings.js applyTextSize). */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, mysticEnergy: false, officialFx: 'auto', voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoCount: false, deploymentZoom: false, quality: 'high', textSize: 'sm', fpsLimit: 0, skinsEnabled: false, preload: false, preloadOptional: false, preloadVoiceLang: Object.freeze(['cn']), preloadSkins: false });
+ *  textSize: TEXT_SIZES (css/theme.css `--t`, applied by ui/settings.js applyTextSize).
+ *  uiTheme: UI_THEMES (applied by ui/settings.js applyUiTheme). */
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, mysticEnergy: false, officialFx: 'auto', voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoCount: false, deploymentZoom: false, quality: 'high', textSize: 'sm', uiTheme: 'default', fpsLimit: 0, skinsEnabled: false, preload: false, preloadOptional: false, preloadVoiceLang: Object.freeze(['cn']), preloadSkins: false });
 const QUALITIES = ['high', 'medium', 'low'];
 /** The values of 设置「官方特效」 (render/vfx/tier.js OFFICIAL_FX). */
 export const OFFICIAL_FX_MODES = Object.freeze(['auto', 'off', 'lite', 'full']);
@@ -64,5 +73,7 @@ export function sanitizeSettings(raw) {
     preloadSkins: typeof r.preloadSkins === 'boolean' ? r.preloadSkins : false,
     officialFx: OFFICIAL_FX_MODES.includes(r.officialFx) ? r.officialFx : DEFAULT_SETTINGS.officialFx,
     textSize: TEXT_SIZES.includes(r.textSize) ? r.textSize : DEFAULT_SETTINGS.textSize,
+    uiTheme: UI_THEMES.includes(r.uiTheme) ? r.uiTheme : DEFAULT_SETTINGS.uiTheme,
+    uiTheme: UI_THEMES.includes(r.uiTheme) ? r.uiTheme : DEFAULT_SETTINGS.uiTheme,
   };
 }

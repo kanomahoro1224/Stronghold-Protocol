@@ -28,6 +28,7 @@ import { GuideButton } from '../ui/guide.js';
 import { openStats } from './stats.js';
 import { SettingsButton } from '../ui/settings.js';
 import { PwaInstallButton } from '../ui/device.js';
+import { UiThemeButton } from '../ui/theme.js';
 import { LoadoutButton } from './loadout.js';
 import { AchievementEntry, AchievementPanel } from '../ui/achievements.js';
 import { net, identity } from '../net.js';
@@ -471,11 +472,12 @@ export function LobbyScreen() {
           <${AnnouncementButton} variant="ghost" size="sm" class="topbar-announcement" />
         </div>
         <div class="topbar__tools">
+          <${SettingsButton} class="lobby-settings" variant="secondary" square=${true} />
+          <${GuideButton} class="lobby-guide" variant="secondary" square=${true} />
+          <${UiThemeButton} class="lobby-theme" />
           <${Button} variant="secondary" size="sm" square=${true} title=${t('大厅背景')} aria-label=${t('大厅背景')}
             onClick=${() => setBgOpen(true)}><${BackdropGlyph} /><//>
           <${LobbyMusicButton} />
-          <${SettingsButton} class="lobby-settings" variant="secondary" square=${true} />
-          <${GuideButton} class="lobby-guide" variant="secondary" square=${true} />
           <${PwaInstallButton} class="lobby-pwa" square=${true} />
         </div>
       </div>
