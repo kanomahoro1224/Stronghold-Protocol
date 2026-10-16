@@ -1386,6 +1386,8 @@ button.sw-eth:hover { border-color: #fff; }
 
 .bgset { display: flex; flex-direction: column; gap: .16rem; }
 .bgset__themes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .1rem; }
+/* the ten built-in 鹿乃 photo backgrounds sit in their own grid below the procedural themes */
+.bgset__themes--photos { margin-top: .06rem; }
 .bgset__theme { display: flex; flex-direction: column; align-items: flex-start; gap: .05rem; min-width: 0; padding: .06rem; color: var(--text-hi);
   background: rgba(223, 230, 226, .04); border: 1px solid rgba(223, 230, 226, .14); cursor: pointer; text-align: left;
   transition: border-color var(--t-fast), box-shadow var(--t-fast); }

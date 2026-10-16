@@ -3,6 +3,7 @@ import { useEffect, useState } from '../../vendor/hooks.module.js';
 import { createStore, useStore, loadPref, savePref } from '../store.js';
 import { createLocalMedia, mediaStorage } from './localMedia.js';
 import { t, N_ } from '../../../shared/i18n.js';
+import { ASSETS_CDN } from '../asset-cdn.js';
 
 export const HUB_THEMES = Object.freeze([
   { id: 'night', name: N_('夜巡'), en: 'NIGHT WATCH' },
@@ -10,6 +11,28 @@ export const HUB_THEMES = Object.freeze([
   { id: 'ember', name: N_('烬野'), en: 'EMBERFIELD' },
   { id: 'calm', name: N_('静默'), en: 'SILENT' },
 ]);
+
+/** Ten built-in photo backgrounds (用户 2026-10-16, 鹿乃1…鹿乃10). The images live in public/assets/local/hub/ and are
+ *  uploaded to R2, so they are fetched from the assets CDN instead of shipping in the client bundle; `ASSETS_CDN` is empty
+ *  for a same-origin deployment, in which case the URL stays root-relative. */
+export const HUB_PHOTOS = Object.freeze([
+  { id: 'kano1', name: N_('鹿乃1') },
+  { id: 'kano2', name: N_('鹿乃2') },
+  { id: 'kano3', name: N_('鹿乃3') },
+  { id: 'kano4', name: N_('鹿乃4') },
+  { id: 'kano5', name: N_('鹿乃5') },
+  { id: 'kano6', name: N_('鹿乃6') },
+  { id: 'kano7', name: N_('鹿乃7') },
+  { id: 'kano8', name: N_('鹿乃8') },
+  { id: 'kano9', name: N_('鹿乃9') },
+  { id: 'kano10', name: N_('鹿乃10') },
+]);
+const PHOTO_IDS = new Set(HUB_PHOTOS.map((x) => x.id));
+export const isHubPhoto = (theme) => PHOTO_IDS.has(theme);
+export const hubPhotoUrl = (id) => `${ASSETS_CDN.replace(/\/+$/, '')}/assets/local/hub/${id}.jpg`;
+/** Swatch preview: a 320px thumbnail, so opening the panel does not download the full 2560px frames. */
+export const hubPhotoThumbUrl = (id) => `${ASSETS_CDN.replace(/\/+$/, '')}/assets/local/hub/thumb/${id}.jpg`;
+
 export const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
 const MAX_EDGE = 2560;
 const PREF_KEY = 'hub.backdrop';
@@ -17,7 +40,7 @@ export function sanitizeBackdrop(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const num = (n, fallback, max) => Number.isFinite(n) ? Math.max(0, Math.min(max, n)) : fallback;
   return {
-    theme: r.theme === 'custom' || HUB_THEMES.some((x) => x.id === r.theme) ? r.theme : 'night',
+    theme: r.theme === 'custom' || HUB_THEMES.some((x) => x.id === r.theme) || PHOTO_IDS.has(r.theme) ? r.theme : 'night',
     dim: num(r.dim, 45, 85), blur: num(r.blur, 0, 16), overlay: r.overlay !== false, motion: r.motion !== false,
   };
 }
@@ -75,7 +98,15 @@ export function useHubBackdrop() {
 }
 
 export function backdropScene(bg) {
-  return bg.pref.theme !== 'custom' ? bg.pref.theme : bg.imageUrl ? 'photo' : bg.ready ? 'night' : 'blank';
+  const theme = bg.pref.theme;
+  if (PHOTO_IDS.has(theme)) return 'photo';
+  return theme !== 'custom' ? theme : bg.imageUrl ? 'photo' : bg.ready ? 'night' : 'blank';
+}
+/** The image behind a photo scene: the CDN copy for a built-in 鹿乃 background, the local blob for a custom import. */
+export function backdropImage(bg) {
+  const theme = bg.pref.theme;
+  if (PHOTO_IDS.has(theme)) return hubPhotoUrl(theme);
+  return theme === 'custom' ? bg.imageUrl || '' : '';
 }
 export function backdropTheme(bg) {
   const scene = backdropScene(bg);
