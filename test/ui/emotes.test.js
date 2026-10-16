@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   EMOTES, EMOTE_THEMES, EMOTE_CATALOG, EMOTE_THEME, EMOTE_LABEL, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS,
+  CUSTOM_EMOTE_THEMES, ALL_EMOTE_THEMES, ALL_EMOTE_CATALOG, EMOTE_IDS,
   emoteInfo, emoteArtPath, emoteArtGroup,
 } from '../../shared/constants.js';
 import { validateC2S } from '../../shared/protocol.js';
@@ -82,6 +83,87 @@ describe('emote catalog (shared/constants.js)', () => {
     // the client reads the bubble time from config.timers (game.js) and the server rate-limits with the constant
     const timers = tryJson('data/config.json')?.timers;
     if (timers) assert.deepEqual([timers.chatCd * 1000, timers.chatBubble * 1000], [EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS]);
+  });
+});
+
+// The operator's own sets (2026-10-11, extended 2026-10-13): they are not official 盟约 emotes, so they live in
+// CUSTOM_EMOTE_THEMES and leave EMOTE_THEMES / EMOTE_CATALOG / EMOTES (and therefore data/emotes.json,
+// data/local-assets.json, data/assets.json) exactly as generated. Their art ships with the server under
+// public/assets/local/emoticon/<dir>/ and the protocol whitelist is EMOTE_IDS = the official 36 + these.
+describe('server-added emote sets (shared/constants.js CUSTOM_EMOTE_THEMES)', () => {
+  const CUSTOM_IDS = CUSTOM_EMOTE_THEMES.flatMap((t) => t.emotes.map((e) => e.id));
+  /** The 12 wheel pages, user-specified: the six server-added sets interleave the official six. */
+  const PAGE_ORDER = [
+    'emoticon_weishu_kano', 'emoticon_autochess_basic', 'emoticon_weishu_kaguya', 'emoticon_originium_slug',
+    'emoticon_weishu_xingfei', 'emoticon_autochess_basic_2', 'emoticon_weishu_xingfei_anim', 'emoticon_foolsday_doctor',
+    'emoticon_weishu_xingbai', 'emoticon_weishu_midiexiang', 'emoticon_foolsday_amiya', 'emoticon_foolsday_wisdel',
+  ];
+
+  test('six sets × 6, on the 12 interleaved wheel pages, frozen', () => {
+    assert.deepEqual(CUSTOM_EMOTE_THEMES.map((t) => t.themeId), ['emoticon_weishu_kano', 'emoticon_weishu_kaguya',
+      'emoticon_weishu_xingfei', 'emoticon_weishu_xingfei_anim', 'emoticon_weishu_xingbai', 'emoticon_weishu_midiexiang']);
+    for (const t of CUSTOM_EMOTE_THEMES) {
+      assert.equal(t.emotes.length, 6, t.themeId);
+      assert.equal(t.custom, true, t.themeId);
+      assert.equal(t.isBasic, false, t.themeId);
+      const sorts = t.emotes.map((e) => e.sortId);
+      assert.deepEqual(sorts, [...sorts].sort((a, b) => a - b), `${t.themeId} by sortId`);
+      for (const e of t.emotes) assert.match(e.picId, /^pic_.+_battle$/, e.id);
+    }
+    assert.deepEqual(ALL_EMOTE_THEMES.map((t) => t.themeId), PAGE_ORDER);
+    const byId = (a, b) => a.themeId.localeCompare(b.themeId);
+    assert.deepEqual([...ALL_EMOTE_THEMES].sort(byId), [...EMOTE_THEMES, ...CUSTOM_EMOTE_THEMES].sort(byId),
+      'every theme is on exactly one page (the order may not drop or repeat one)');
+    assert.equal(ALL_EMOTE_CATALOG.length, 72);
+    assert.deepEqual([...EMOTE_IDS], ALL_EMOTE_CATALOG.map((e) => e.id));
+    for (const id of EMOTES) assert.ok(EMOTE_IDS.includes(id), `${id} stays on the wheel`);
+    assert.ok(Object.isFrozen(CUSTOM_EMOTE_THEMES) && Object.isFrozen(ALL_EMOTE_THEMES)
+      && Object.isFrozen(ALL_EMOTE_CATALOG) && Object.isFrozen(EMOTE_IDS) && Object.isFrozen(CUSTOM_EMOTE_THEMES[0].emotes));
+  });
+
+  test('ids are new (never an official one) and the protocol accepts exactly them', () => {
+    assert.equal(new Set(EMOTE_IDS).size, EMOTE_IDS.length, 'no duplicate id');
+    for (const id of CUSTOM_IDS) {
+      assert.ok(!EMOTES.includes(id), `${id} is not an official id`);
+      assert.match(id, /^custom_battle_[a-z0-9_]+$/, id);
+      assert.equal(validateC2S({ t: 'g.emote', id }), null, id);
+    }
+    for (const bad of ['custom_battle_kaguya_nope', 'custom_battle_', 'custom_battle_kano_07', 'custom_battle_midiexiang_07']) {
+      assert.notEqual(validateC2S({ t: 'g.emote', id: bad }), null, bad);
+    }
+  });
+
+  test('art resolves to the file the server ships (the animated set to .gif), and the id is a full catalog record', () => {
+    for (const e of ALL_EMOTE_CATALOG.filter((x) => x.custom)) {
+      assert.equal(emoteArtPath(e.id), `/assets/local/emoticon/${e.dir}/${e.picId}.${e.ext || 'png'}`);
+      assert.equal(emoteArtGroup(e.id), `emoticon/${e.dir}`);
+      const info = emoteInfo(e.id);
+      assert.equal(info.label, e.label);
+      assert.equal(info.themeId, e.themeId);
+      assert.equal(typeof e.label, 'string');
+      assert.ok(e.label.length > 0, e.id);
+    }
+    assert.deepEqual(CUSTOM_EMOTE_THEMES.filter((t) => t.ext).map((t) => [t.themeId, t.ext]), [['emoticon_weishu_xingfei_anim', 'gif']],
+      'only the animated set leaves png');
+    assert.equal(emoteArtPath('custom_battle_xingfei_anim_01'), '/assets/local/emoticon/xingfei_anim/pic_xingfei_anim_01_battle.gif');
+    assert.equal(emoteArtPath('custom_battle_midiexiang_06'), '/assets/local/emoticon/midiexiang/pic_midiexiang_06_battle.png');
+    for (const e of ALL_EMOTE_CATALOG.filter((x) => !x.custom)) assert.equal(e.ext, undefined, `${e.id} has no extension override`);
+  });
+
+  test('the official catalog and its maps are untouched by the added sets', () => {
+    assert.equal(EMOTE_THEMES.length, 6);
+    assert.equal(EMOTE_CATALOG.length, 36);
+    assert.equal(EMOTES.length, 36);
+    assert.equal(Object.keys(EMOTE_THEME).length, 36);
+    assert.equal(Object.keys(EMOTE_LABEL).length, 36);
+    for (const id of EMOTES) {
+      assert.equal(emoteInfo(id).custom, undefined, `${id} stays official`);
+      assert.equal(EMOTE_THEME[id], emoteInfo(id).themeId, id);
+    }
+    for (const id of CUSTOM_IDS) {
+      assert.equal(EMOTE_THEME[id], undefined, `${id} is not in the official map`);
+      assert.equal(EMOTE_LABEL[id], undefined, `${id} is not in the official map`);
+    }
   });
 });
 
@@ -269,20 +351,34 @@ describe('public/js/ui/emotes.js helpers', () => {
 
   test('pager helpers: clamp, swipe threshold, remembered theme', async () => {
     const { clampPage, swipeStep, themeIndex, lastThemeIndex, rememberTheme } = await import('../../public/js/ui/emotes.js');
-    assert.deepEqual([clampPage(-3), clampPage(2), clampPage(99), clampPage('x'), clampPage(2.7)], [0, 2, 5, 0, 2]);
+    assert.deepEqual([clampPage(-3), clampPage(2), clampPage(99), clampPage('x'), clampPage(2.7)],
+      [0, 2, ALL_EMOTE_THEMES.length - 1, 0, 2], 'clamped at the last wheel page (the server-added sets extend it)');
     assert.deepEqual([swipeStep(-60), swipeStep(60), swipeStep(-10), swipeStep(0), swipeStep(-40)], [1, -1, 0, 0, 1]);
-    assert.equal(themeIndex('emoticon_foolsday_amiya'), 4);
+    assert.equal(themeIndex('emoticon_foolsday_amiya'), 10);
     assert.equal(themeIndex('nope'), 0);
     store.clear();
     assert.equal(lastThemeIndex(), 0, 'first page by default');
     rememberTheme('emoticon_foolsday_wisdel');
-    assert.equal(lastThemeIndex(), 5);
+    assert.equal(lastThemeIndex(), 11);
     rememberTheme('bogus');
-    assert.equal(lastThemeIndex(), 5, 'unknown themes are not stored');
+    assert.equal(lastThemeIndex(), 11, 'unknown themes are not stored');
     store.set('sp.pref.emoteTheme', '"emoticon_gone"');
     assert.equal(lastThemeIndex(), 0, 'a stale theme falls back to the first page');
     store.set('sp.pref.emoteTheme', '{bad json');
     assert.equal(lastThemeIndex(), 0);
+  });
+
+  test('the pager is a numeric `n/12` readout (no dot row, no dead dot styles, no hit area of its own)', () => {
+    const ui = readFileSync(path.join(ROOT, 'public/js/ui/emotes.js'), 'utf8');
+    const css = readFileSync(path.join(ROOT, 'public/css/emotes.css'), 'utf8');
+    const devices = readFileSync(path.join(ROOT, 'public/css/devices.css'), 'utf8');
+    assert.doesNotMatch(ui, /ewheel__dots|ewheel__dot\b|role="tablist"/, 'the dot row is gone');
+    assert.match(ui, /class="ewheel__count" role="status" aria-label=\$\{`\$\{t\(theme\.name\)\} \$\{page \+ 1\}\/\$\{ALL_EMOTE_THEMES\.length\}`\}/);
+    assert.match(ui, />\$\{page \+ 1\}\/\$\{ALL_EMOTE_THEMES\.length\}</, 'the readout is current page / total pages');
+    assert.doesNotMatch(css, /ewheel__dots|ewheel__dot\b/, 'no dead dot styles');
+    assert.match(css, /\.ewheel__count \{[^}]*font-variant-numeric: tabular-nums/, 'digits do not reflow the strip');
+    assert.match(css, /\.ewheel__dialog\.has-chat \.ewheel__count \{/, 'the small panel keeps its own size');
+    assert.doesNotMatch(devices, /ewheel__dot|ewheel__count/, 'the readout is not a touch target; ‹ / › keep the strip');
   });
 
   test('wheel paging: one page per gesture — a trackpad swipe\'s momentum tail never skips themes', async () => {

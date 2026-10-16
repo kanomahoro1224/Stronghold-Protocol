@@ -69,15 +69,14 @@ html:not(.sp-in-match) .toast-host { margin-top: var(--sa-t); }
   transform: translate(-50%, -50%);
   background: transparent; border: 0; box-shadow: none; clip-path: none; pointer-events: auto;
 }
-/* The 交流 panel's pager (‹ dots ›) sits in the strip under the emote cells (panel y 1.97–2.31rem, css/emotes.css). Its
+/* The 交流 panel's pager (‹ 1/12 ›) sits in the strip under the emote cells (panel y 1.97–2.31rem, css/emotes.css). Its
    hit areas stay inside that strip and never overlap each other: a centred 44 px area of ‹ / › covered the centres of
-   the bottom-left / bottom-right emotes (a tap there turned the page or hit the disabled ‹), and 28 px dot areas 0.21rem
-   apart covered the neighbouring dot (a tap on dot N opened page N+1). ‹ / › grow outwards (away from the dots), the
-   dots only up to half the gap. Selectors ≥ the specificity of the generic hit-area rule above. */
+   the bottom-left / bottom-right emotes (a tap there turned the page or hit the disabled ‹), so ‹ / › grow outwards,
+   away from the cells. The numeric indicator is a readout, not a control, and takes no hit area of its own.
+   Selectors ≥ the specificity of the generic hit-area rule above. */
 .sp-coarse .ewheel__panel .ewheel__nav::before { top: .03rem; bottom: -.15rem; height: auto; transform: none; }
 .sp-coarse .ewheel__panel .ewheel__nav.is-prev::before { left: auto; right: 0; }
 .sp-coarse .ewheel__panel .ewheel__nav.is-next::before { left: 0; right: auto; }
-.sp-coarse .ewheel__dot::before { inset: -.02rem -.05rem -.2rem; width: auto; height: auto; transform: none; }
 
 /* Phones in landscape (short touch screens: 1rem ≈ 40 px here): the most used controls grow a little so they are
    comfortable to hit and to read, without changing the official layout. */

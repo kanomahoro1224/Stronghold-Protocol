@@ -1,10 +1,14 @@
 // Emotes (交流, research 09 §4): the 36 official in-match emotes of 盟约 — 6 themes × 6 (shared/constants.js
-// EMOTE_THEMES / EMOTES, generated reference data/emotes.json). Official emotes are pictures only: nothing here ever
-// renders an emote's text (our labels are aria-labels only).
+// EMOTE_THEMES / EMOTES, generated reference data/emotes.json) — plus the six server-added sets this fork carries
+// (shared/constants.js CUSTOM_EMOTE_THEMES: 鹿乃, 超辉夜姬, 十年星扉, 十年星扉动态, 星白, 迷迭香). The wheel pages are
+// ALL_EMOTE_THEMES (12 pages: the two interleave, EMOTE_PAGE_ORDER); the protocol whitelist is EMOTE_IDS. Emotes are
+// pictures only: nothing here ever renders an emote's text (our labels are aria-labels only).
 //
 //   EmoteArt    the emote picture: the local-client art (data/local-assets.json → emoticon/<dir>/<picId>) first, else
 //               the copy setup downloads from the public mirror (data/assets.json → ui['emoticon/<dir>/<picId>'];
 //               GitHub issue #42), each tried in turn when one fails to load; a neutral glyph when neither is there.
+//               A server-added set is in no manifest: its art ships with the server (emoteArtPath) and is the only
+//               candidate, and it never waits for the manifests.
 //               An empty box only while a manifest is still in flight; a timeout or a failed manifest (GitHub #99)
 //               uses that glyph, and a later success replaces it.
 //   EmoteBubble the pop bubble beside the sender's avatar in the team panel (official emoji_bubble_bkg: a dark rounded
@@ -12,15 +16,15 @@
 //               seq so a newer emote replaces the old one and pops again, and passes the arrival time (`at`) so a
 //               bubble mounted late resumes its timeline instead of restarting it.
 //   EmoteWheel  bottom-left 交流 button (official emoji_btn / emoji_btn_disable) + panel (emoji_bkg): one page per theme
-//               with 3×2 cells (emoji_cell_bkg), pager dots, swipe / drag / arrow keys / wheel to change the page (the
-//               wheel turns one page per gesture, a plain vertical mouse wheel included, like Unity's ScrollRect). The
-//               panel reopens on the theme of the last emote sent (localStorage). Sending closes the panel and greys
-//               the button for the 1 s cooldown (chatCD), counted from the send so a remount keeps it.
+//               with 3×2 cells (emoji_cell_bkg), a numeric `1/12` page indicator, swipe / drag / arrow keys / wheel to
+//               change the page (the wheel turns one page per gesture, a plain vertical mouse wheel included, like
+//               Unity's ScrollRect). The panel reopens on the theme of the last emote sent (localStorage). Sending closes
+//               the panel and greys the button for the 1 s cooldown (chatCD), counted from the send so a remount keeps it.
 // Official UI sprites come from the local ui/battle extraction when present; CSS draws look-alikes otherwise.
 // Styles: public/css/emotes.css (injected on first use when the page does not link it).
 
 import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
-import { EMOTE_THEMES, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS, emoteInfo, emoteArtGroup } from '../../../shared/constants.js';
+import { ALL_EMOTE_THEMES, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS, emoteInfo, emoteArtGroup, emoteArtPath } from '../../../shared/constants.js';
 import { html } from './components.js';
 import { GIcon } from './gameComponents.js';
 import { data, useData, localAsset, artUrls, nextArtUrl } from '../data.js';
@@ -53,19 +57,23 @@ export function ensureEmoteCss(doc = globalThis.document) {
 }
 
 /**
- * URLs of an emote's official art, best first: the local-client picture, then the mirror copy (data.js artUrls). Empty
- * when the id is unknown or neither manifest lists the picture (a path that is not listed is never requested).
- * @param {string} id official emoji id
+ * URLs of an emote's art, best first: the local-client picture, then the mirror copy (data.js artUrls). A server-added
+ * set (shared/constants.js CUSTOM_EMOTE_THEMES) is in no manifest — its art ships with the server, so its canonical
+ * `emoteArtPath` is the only candidate. Empty when the id is unknown or nothing lists the picture (a path that is not
+ * listed is never requested).
+ * @param {string} id emote id (official or server-added)
  * @returns {string[]}
  */
 export function emoteArtUrls(id) {
   const e = emoteInfo(id);
-  return e ? artUrls(emoteArtGroup(id), e.picId) : [];
+  if (!e) return [];
+  if (e.custom) { const p = emoteArtPath(id); return p ? [p] : []; }
+  return artUrls(emoteArtGroup(id), e.picId);
 }
 
 /**
- * URL of an emote's official art (the first of emoteArtUrls), or null.
- * @param {string} id official emoji id
+ * URL of an emote's art (the first of emoteArtUrls), or null.
+ * @param {string} id emote id (official or server-added)
  */
 export function emoteArtUrl(id) {
   return emoteArtUrls(id)[0] || null;
@@ -79,7 +87,7 @@ export const emoteUiSprite = (name) => localAsset('ui/battle', name);
 
 /** Index of a theme in the wheel (0 when unknown). */
 export function themeIndex(themeId) {
-  const i = EMOTE_THEMES.findIndex((t) => t.themeId === themeId);
+  const i = ALL_EMOTE_THEMES.findIndex((t) => t.themeId === themeId);
   return i < 0 ? 0 : i;
 }
 
@@ -91,11 +99,11 @@ export function lastThemeIndex() {
 
 /** Remember the theme of a sent emote. */
 export function rememberTheme(themeId) {
-  if (EMOTE_THEMES.some((t) => t.themeId === themeId)) savePref(PREF_THEME, themeId);
+  if (ALL_EMOTE_THEMES.some((t) => t.themeId === themeId)) savePref(PREF_THEME, themeId);
 }
 
 /** Clamp a page index into the wheel. */
-export const clampPage = (i) => Math.max(0, Math.min(EMOTE_THEMES.length - 1, Math.trunc(Number(i)) || 0));
+export const clampPage = (i) => Math.max(0, Math.min(ALL_EMOTE_THEMES.length - 1, Math.trunc(Number(i)) || 0));
 
 /**
  * Page change for a finished horizontal drag / swipe: -1 (previous), +1 (next) or 0.
@@ -178,7 +186,8 @@ export function EmoteArt({ id, class: cls }) {
     return html`<img key=${src} class=${cx('eart', cls)} src=${src} alt="" draggable=${false} decoding="async"
       onError=${() => setBad((s) => new Set(s).add(src))} />`;
   }
-  if (emoteInfo(id) && artManifestsPending()) return html`<span class=${cx('eart', 'eart--pending', cls)} aria-hidden="true"></span>`;
+  const known = emoteInfo(id);
+  if (known && !known.custom && artManifestsPending()) return html`<span class=${cx('eart', 'eart--pending', cls)} aria-hidden="true"></span>`;
   return html`<${EmoteGlyph} class=${cls} />`;
 }
 
@@ -317,7 +326,7 @@ export function EmoteWheel({ onSend, onChat, history = [], myId, open, onToggle,
     const off = e.clientX - d.x0;
     if (!d.moved && Math.abs(off) < DRAG_SLOP_PX) return;
     if (!d.moved) { d.moved = true; try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
-    const edge = (off > 0 && live.current.page === 0) || (off < 0 && live.current.page === EMOTE_THEMES.length - 1);
+    const edge = (off > 0 && live.current.page === 0) || (off < 0 && live.current.page === ALL_EMOTE_THEMES.length - 1);
     setDx(edge ? off / 3 : off); // rubber band at the first / last page
   };
   const endDrag = (e, cancelled) => {
@@ -338,7 +347,7 @@ export function EmoteWheel({ onSend, onChat, history = [], myId, open, onToggle,
     if (step) go(live.current.page + step);
   };
 
-  const theme = EMOTE_THEMES[clampPage(page)];
+  const theme = ALL_EMOTE_THEMES[clampPage(page)];
   const btnSprite = emoteUiSprite(disabled || cooling ? 'emoji_btn_disable' : 'emoji_btn');
   const panelBg = emoteUiSprite('emoji_bkg');
   const cellBg = emoteUiSprite('emoji_cell_bkg');
@@ -377,11 +386,8 @@ export function EmoteWheel({ onSend, onChat, history = [], myId, open, onToggle,
       </div>
       <div class="ewheel__pager">
       <button type="button" class="ewheel__nav is-prev" aria-label=${t('上一组表情')} disabled=${page <= 0} onClick=${() => go(page - 1)}><${GIcon} name="chevronLeft" /></button>
-      <div class="ewheel__dots" role="tablist" aria-label=${t('表情主题')}>
-        ${EMOTE_THEMES.map((th, i) => html`<button key=${th.themeId} type="button" role="tab" class=${cx('ewheel__dot', i === page && 'is-on')}
-          aria-selected=${i === page ? 'true' : 'false'} aria-label=${`${t(th.name)} ${i + 1}/${EMOTE_THEMES.length}`} onClick=${() => go(i)}></button>`)}
-      </div>
-      <button type="button" class="ewheel__nav is-next" aria-label=${t('下一组表情')} disabled=${page >= EMOTE_THEMES.length - 1} onClick=${() => go(page + 1)}><${GIcon} name="chevronRight" /></button>
+      <span class="ewheel__count" role="status" aria-label=${`${t(theme.name)} ${page + 1}/${ALL_EMOTE_THEMES.length}`}>${page + 1}/${ALL_EMOTE_THEMES.length}</span>
+      <button type="button" class="ewheel__nav is-next" aria-label=${t('下一组表情')} disabled=${page >= ALL_EMOTE_THEMES.length - 1} onClick=${() => go(page + 1)}><${GIcon} name="chevronRight" /></button>
       </div>
     </div>
     ${onChat && chatView === 'history' ? html`<section class="echat__history-pane" aria-label=${t('聊天历史')}>

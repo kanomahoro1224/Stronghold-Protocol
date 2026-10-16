@@ -273,22 +273,127 @@ export const EMOTE_THEMES = Object.freeze([
     emo('autochess_battle_foolwisdel_06', 1065, 'pic_foolwisdel_06_battle', N_('维维美 6')),
   ] },
 ].map((t) => Object.freeze({ ...t, emotes: Object.freeze(t.emotes) })));
-/** Every emote with its theme: `{ id, sortId, picId, label, themeId, dir }`, in wheel order. */
+/** Every official emote with its theme: `{ id, sortId, picId, label, themeId, dir }`, in official table order. */
 export const EMOTE_CATALOG = Object.freeze(EMOTE_THEMES.flatMap((t) => t.emotes.map((e) => Object.freeze({ ...e, themeId: t.themeId, dir: t.dir }))));
-/** The 36 official emote ids (protocol whitelist: `EMOTES.includes(id)`). */
+/** The 36 official emote ids (data/emotes.json); ALL_EMOTE_THEMES is what the wheel pages show. */
 export const EMOTES = Object.freeze(EMOTE_CATALOG.map((e) => e.id));
-const EMOTE_INDEX = new Map(EMOTE_CATALOG.map((e) => [e.id, e]));
-/** Catalog record of an emote id, or null (safe for any input, including '__proto__'). */
+
+// ---- server-added emote sets (this fork, 2026-10-11 / 2026-10-13) -----------------------------------
+// Six sets the operator added from their own sticker folders (超辉夜姬, 鹿乃, 十年星扉, 十年星扉动态, 星白, 迷迭香). They are
+// NOT official 盟约 emotes, so they stay out of EMOTE_THEMES / EMOTE_CATALOG / EMOTES: data/emotes.json keeps matching the
+// official tables byte for byte (test/ui/emotes.test.js) and the generated manifests (data/local-assets.json,
+// data/assets.json) are untouched. Their art ships with the server under public/assets/local/emoticon/<dir>/, so
+// `emoteArtPath` resolves it exactly like the official pictures; a theme may set `ext` (default png) for animated art,
+// and CUSTOM_EMOTE_ART below is what the preload manifest uses instead of a generated manifest. Adding a set here is the
+// whole change: the wheel pages (EMOTE_PAGE_ORDER / ALL_EMOTE_THEMES) and the protocol whitelist (EMOTE_IDS) derive
+// from this list.
+const cemo = (id, sortId, picId, label) => Object.freeze({ id, sortId, picId, label, custom: true });
+export const CUSTOM_EMOTE_THEMES = Object.freeze([
+  { themeId: 'emoticon_weishu_kano', dir: 'kano', sortId: 2001, isBasic: false, custom: true,
+    name: N_('表情套组：鹿乃'), emotes: [
+      cemo('custom_battle_kano_01', 3101, 'pic_kano_01_battle', N_('鹿乃 1')),
+      cemo('custom_battle_kano_02', 3102, 'pic_kano_02_battle', N_('鹿乃 2')),
+      cemo('custom_battle_kano_03', 3103, 'pic_kano_03_battle', N_('鹿乃 3')),
+      cemo('custom_battle_kano_04', 3104, 'pic_kano_04_battle', N_('鹿乃 4')),
+      cemo('custom_battle_kano_05', 3105, 'pic_kano_05_battle', N_('鹿乃 5')),
+      cemo('custom_battle_kano_06', 3106, 'pic_kano_06_battle', N_('鹿乃 6')),
+    ] },
+  { themeId: 'emoticon_weishu_kaguya', dir: 'kaguya', sortId: 2000, isBasic: false, custom: true,
+    name: N_('表情套组：超辉夜姬'), emotes: [
+      cemo('custom_battle_kaguya_wink', 3001, 'pic_kaguya_01_battle', N_('眨眼')),
+      cemo('custom_battle_kaguya_cheer', 3002, 'pic_kaguya_02_battle', N_('加油')),
+      cemo('custom_battle_kaguya_cute', 3003, 'pic_kaguya_03_battle', N_('可爱')),
+      cemo('custom_battle_kaguya_please', 3004, 'pic_kaguya_04_battle', N_('拜托了')),
+      cemo('custom_battle_kaguya_wipe', 3005, 'pic_kaguya_05_battle', N_('擦泪')),
+      cemo('custom_battle_kaguya_pout', 3006, 'pic_kaguya_06_battle', N_('气鼓鼓')),
+    ] },
+  { themeId: 'emoticon_weishu_xingfei', dir: 'xingfei', sortId: 2002, isBasic: false, custom: true,
+    name: N_('表情套组：十年星扉'), emotes: [
+      cemo('custom_battle_xingfei_01', 3201, 'pic_xingfei_01_battle', N_('比心')),
+      cemo('custom_battle_xingfei_02', 3202, 'pic_xingfei_02_battle', N_('好诶')),
+      cemo('custom_battle_xingfei_03', 3203, 'pic_xingfei_03_battle', N_('没错没错')),
+      cemo('custom_battle_xingfei_04', 3204, 'pic_xingfei_04_battle', N_('欧亚斯密')),
+      cemo('custom_battle_xingfei_05', 3205, 'pic_xingfei_05_battle', N_('私密马赛')),
+      cemo('custom_battle_xingfei_06', 3206, 'pic_xingfei_06_battle', N_('完蛋了')),
+    ] },
+  { themeId: 'emoticon_weishu_xingfei_anim', dir: 'xingfei_anim', sortId: 2003, isBasic: false, custom: true, ext: 'gif',
+    name: N_('表情套组：十年星扉动态'), emotes: [
+      cemo('custom_battle_xingfei_anim_01', 3301, 'pic_xingfei_anim_01_battle', N_('大哭')),
+      cemo('custom_battle_xingfei_anim_02', 3302, 'pic_xingfei_anim_02_battle', N_('荷包空了')),
+      cemo('custom_battle_xingfei_anim_03', 3303, 'pic_xingfei_anim_03_battle', N_('摸头')),
+      cemo('custom_battle_xingfei_anim_04', 3304, 'pic_xingfei_anim_04_battle', N_('捏脸')),
+      cemo('custom_battle_xingfei_anim_05', 3305, 'pic_xingfei_anim_05_battle', N_('生气')),
+      cemo('custom_battle_xingfei_anim_06', 3306, 'pic_xingfei_anim_06_battle', N_('晕了')),
+    ] },
+  { themeId: 'emoticon_weishu_xingbai', dir: 'xingbai', sortId: 2004, isBasic: false, custom: true,
+    name: N_('表情套组：星白'), emotes: [
+      cemo('custom_battle_xingbai_01', 3401, 'pic_xingbai_01_battle', N_('诶嘿')),
+      cemo('custom_battle_xingbai_02', 3402, 'pic_xingbai_02_battle', N_('发车')),
+      cemo('custom_battle_xingbai_03', 3403, 'pic_xingbai_03_battle', N_('给心心')),
+      cemo('custom_battle_xingbai_04', 3404, 'pic_xingbai_04_battle', N_('偷笑')),
+      cemo('custom_battle_xingbai_05', 3405, 'pic_xingbai_05_battle', N_('星星眼')),
+      cemo('custom_battle_xingbai_06', 3406, 'pic_xingbai_06_battle', N_('张口闭眼')),
+    ] },
+  { themeId: 'emoticon_weishu_midiexiang', dir: 'midiexiang', sortId: 2005, isBasic: false, custom: true,
+    name: N_('表情套组：迷迭香'), emotes: [
+      cemo('custom_battle_midiexiang_01', 3501, 'pic_midiexiang_01_battle', N_('比心')),
+      cemo('custom_battle_midiexiang_02', 3502, 'pic_midiexiang_02_battle', N_('不要')),
+      cemo('custom_battle_midiexiang_03', 3503, 'pic_midiexiang_03_battle', N_('愤怒')),
+      cemo('custom_battle_midiexiang_04', 3504, 'pic_midiexiang_04_battle', N_('挥拳')),
+      cemo('custom_battle_midiexiang_05', 3505, 'pic_midiexiang_05_battle', N_('期待')),
+      cemo('custom_battle_midiexiang_06', 3506, 'pic_midiexiang_06_battle', N_('思考')),
+    ] },
+].map((t) => Object.freeze({ ...t, emotes: Object.freeze(t.emotes) })));
+
+/** Wheel page order, by themeId (user-specified 2026-10-13): the six server-added sets interleave the official six. */
+const EMOTE_PAGE_ORDER = Object.freeze([
+  'emoticon_weishu_kano', 'emoticon_autochess_basic', 'emoticon_weishu_kaguya', 'emoticon_originium_slug',
+  'emoticon_weishu_xingfei', 'emoticon_autochess_basic_2', 'emoticon_weishu_xingfei_anim', 'emoticon_foolsday_doctor',
+  'emoticon_weishu_xingbai', 'emoticon_weishu_midiexiang', 'emoticon_foolsday_amiya', 'emoticon_foolsday_wisdel',
+]);
+const EMOTE_THEME_BY_ID = new Map();
+for (const theme of [...EMOTE_THEMES, ...CUSTOM_EMOTE_THEMES]) {
+  if (EMOTE_THEME_BY_ID.has(theme.themeId)) throw new Error(`duplicate emote theme id ${theme.themeId}`);
+  EMOTE_THEME_BY_ID.set(theme.themeId, theme);
+}
+/** Wheel pages in EMOTE_PAGE_ORDER. A theme the order forgets, names twice or does not know throws at load: the page
+ *  count the pager shows is always the real one, never silently short or repeated. */
+export const ALL_EMOTE_THEMES = Object.freeze((() => {
+  const seen = new Set();
+  const pages = EMOTE_PAGE_ORDER.map((themeId) => {
+    const theme = EMOTE_THEME_BY_ID.get(themeId);
+    if (!theme) throw new Error(`emote wheel order: unknown theme ${themeId}`);
+    if (seen.has(themeId)) throw new Error(`emote wheel order: duplicate theme ${themeId}`);
+    seen.add(themeId);
+    return theme;
+  });
+  for (const themeId of EMOTE_THEME_BY_ID.keys()) if (!seen.has(themeId)) throw new Error(`emote wheel order: missing theme ${themeId}`);
+  return pages;
+})());
+/** Every emote the wheel offers, official and server-added, in page order (`{ id, sortId, picId, label, themeId, dir,
+ *  ext?, custom? }`; `ext` is the theme's art extension and defaults to `png`). */
+export const ALL_EMOTE_CATALOG = Object.freeze(ALL_EMOTE_THEMES.flatMap((t) => t.emotes.map((e) => Object.freeze({ ...e, themeId: t.themeId, dir: t.dir, ...(t.ext ? { ext: t.ext } : {}) }))));
+/** Protocol whitelist of `g.emote { id }`: the official 36 plus the server-added sets. */
+export const EMOTE_IDS = Object.freeze(ALL_EMOTE_CATALOG.map((e) => e.id));
+
+const EMOTE_INDEX = new Map(ALL_EMOTE_CATALOG.map((e) => [e.id, e]));
+/** Catalog record of an emote id (official or server-added), or null (safe for any input, including '__proto__'). */
 export const emoteInfo = (id) => (typeof id === 'string' && EMOTE_INDEX.get(id)) || null;
 // id-keyed maps without a prototype: a wire id like '__proto__' / 'toString' looks up undefined, never an Object method
 const emoteMap = (pick) => Object.freeze(Object.assign(Object.create(null), Object.fromEntries(EMOTE_CATALOG.map((e) => [e.id, pick(e)]))));
-/** Emote id → theme id. */
+/** Emote id → theme id (official 36; server-added sets are only in `emoteInfo`). */
 export const EMOTE_THEME = emoteMap((e) => e.themeId);
-/** Emote id → our aria-label (never displayed). */
+/** Emote id → our aria-label (never displayed; official 36). */
 export const EMOTE_LABEL = emoteMap((e) => e.label);
-/** data/local-assets.json group of an emote's art (`emoticon/<dir>`), or null. */
+/** data/local-assets.json group of an emote's art (`emoticon/<dir>`), or null. A server-added set has no manifest group. */
 export const emoteArtGroup = (id) => { const e = emoteInfo(id); return e ? `emoticon/${e.dir}` : null; };
-/** Canonical URL of an emote's extracted art (`/assets/local/emoticon/<dir>/<picId>.png`), or null for unknown ids. */
-export const emoteArtPath = (id) => { const e = emoteInfo(id); return e ? `/assets/local/emoticon/${e.dir}/${e.picId}.png` : null; };
+/** Canonical URL of an emote's art (`/assets/local/emoticon/<dir>/<picId>.<ext>`, `ext` `png` unless the theme sets one,
+ *  e.g. the animated 十年星扉动态 `.gif`), or null for unknown ids. Official art is extracted from a local client and
+ *  also mirrored (data/assets.json); a server-added set ships only with the server. */
+export const emoteArtPath = (id) => { const e = emoteInfo(id); return e ? `/assets/local/emoticon/${e.dir}/${e.picId}.${e.ext || 'png'}` : null; };
+/** Every art URL of the server-added sets (`/assets/local/emoticon/<dir>/<picId>.png|.gif`, 36 files). No generated
+ *  manifest lists them (they are not official art and not in the mirror), so the preload manifest would never fetch
+ *  them: server/resources.js adds these URLs itself, tier essential, and sizes/hashes them from the files on disk. */
+export const CUSTOM_EMOTE_ART = Object.freeze(ALL_EMOTE_CATALOG.filter((e) => e.custom).map((e) => emoteArtPath(e.id)));
 export const EMOTE_COOLDOWN_MS = 1000; // activity_table autoChessData.constData.chatCD (s)
 export const EMOTE_BUBBLE_MS = 3000;   // constData.chatTime (s): how long a bubble stays up

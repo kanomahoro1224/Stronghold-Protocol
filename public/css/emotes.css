@@ -86,15 +86,14 @@
 .ewheel__item:focus-visible { outline: 2px solid var(--mint-500); outline-offset: 1px; }
 .ewheel__item:disabled { opacity: .45; cursor: default; }
 
-/* pager: ‹ dots › in the strip under the cells */
-.ewheel__dots { position: absolute; left: .15rem; width: 2.82rem; top: 1.99rem; height: .12rem; display: flex; align-items: center; justify-content: center; gap: .1rem; }
-.ewheel__dot {
-  position: relative; width: .11rem; height: .12rem; padding: 0; border: 0; border-radius: .015rem; background: rgba(255, 255, 255, .28);
-  transition: background-color var(--t-fast), transform var(--t-fast);
+/* pager: ‹ 1/12 › in the strip under the cells (the numeric indicator replaced one dot per page, 2026-10-13). It is a
+   readout, not a control: no hit area, so the ‹ / › targets keep the strip to themselves. */
+.ewheel__count {
+  position: absolute; left: .15rem; width: 2.82rem; top: 1.99rem; height: .12rem;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255, 255, 255, .8); font-size: .11rem; line-height: 1; letter-spacing: .02em;
+  font-variant-numeric: tabular-nums; pointer-events: none; user-select: none;
 }
-.ewheel__dot:hover { background: rgba(255, 255, 255, .55); }
-.ewheel__dot.is-on { background: #fff; transform: scale(1.12); }
-.ewheel__dot::before { content: ''; position: absolute; inset: -.05rem -.05rem; } /* bigger hit area */
 .ewheel__nav {
   position: absolute; top: 1.94rem; width: .26rem; height: .22rem; display: grid; place-items: center; padding: 0; z-index: 1;
   background: none; border: 0; color: rgba(255, 255, 255, .6); transition: color var(--t-fast), opacity var(--t-fast);
@@ -180,11 +179,11 @@
 }
 .ewheel__dialog.has-chat .ewheel__item .eart { min-width: 0; min-height: 0; max-height: 100%; object-fit: contain; }
 .ewheel__dialog.has-chat .ewheel__pager { display: flex; align-items: center; gap: 4px; height: 24px; }
-.ewheel__dialog.has-chat .ewheel__dots {
-  position: relative; flex: 1; top: auto; bottom: auto; left: auto; right: auto; width: auto; height: 24px; gap: 6px;
+.ewheel__dialog.has-chat .ewheel__count {
+  position: relative; flex: 1; top: auto; bottom: auto; left: auto; right: auto; width: auto; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  color: #c0d0c7; font-size: 12px; line-height: 1;
 }
-.ewheel__dialog.has-chat .ewheel__dot { width: 7px; height: 7px; }
-.ewheel__dialog.has-chat .ewheel__dot::before { inset: -4px -3px; width: auto; height: auto; transform: none; }
 .ewheel__dialog.has-chat .ewheel__nav { position: relative; flex: none; top: auto; bottom: auto; width: 28px; height: 24px; }
 .ewheel__dialog.has-chat .ewheel__nav.is-prev, .ewheel__dialog.has-chat .ewheel__nav.is-next { left: auto; right: auto; }
 .ewheel__dialog.has-chat .ewheel__nav .icon { width: 16px; height: 16px; }

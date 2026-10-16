@@ -17,6 +17,7 @@ import {
   RESOURCE_MANIFEST_FILE, RESOURCES_FORMAT, TIER_ESSENTIAL, TIER_REST, buildResourceManifest, collectResourceFiles,
   createResourceIndex, isResourcePath, localPathFor, resourceType, tierForPath, validateResourceUrl,
 } from '../../server/resources.js';
+import { CUSTOM_EMOTE_ART } from '../../shared/constants.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -105,7 +106,7 @@ describe('resource manifest building', () => {
       scene: { path: '/assets/local/scene/act2autochess_m02/scene.json', hash: '0123456789ab' },
       bin: { path: '/assets/local/scene/act2autochess_m02/scene.bin', hash: 'abcdef012345' },
     } } };
-    const sceneFiles = collectResourceFiles({}, scene);
+    const sceneFiles = collectResourceFiles({}, scene, []);
     assert.equal(sceneFiles.length, 2, 'official scene description and geometry both preload');
     assert.ok(sceneFiles.every(f => f.tier === TIER_ESSENTIAL && validateResourceUrl(f.url)));
     for (const url of ['/build/assets/index-AbCd1234.js', '/build/assets/index-AbCd1234.css', '/build/assets/x.png']) {
@@ -133,7 +134,7 @@ describe('resource manifest building', () => {
     const skinFiles = collectResourceFiles({ chars: { c: { skins: { skin1: {
       avatar: '/assets/char/avatar/skin/c_winter_1.png',
       spine: { front: { skel: '/assets/spine/op/c/c_winter_1/front/c.skel' } },
-    } } } } });
+    } } } } }, null, []);
     assert.equal(skinFiles.length, 2);
     assert.ok(skinFiles.every(f => f.tier === TIER_REST));
     assert.equal(tierForPath('tokens.token_a.spine.skel'), TIER_ESSENTIAL);
@@ -145,12 +146,12 @@ describe('resource manifest building', () => {
       assert.equal(tierForPath(`local.groups.${group}.x.path`), TIER_REST);
     }
     const effects = collectResourceFiles({ ui: { fx: '/assets/local/fx/index.json' },
-      chars: { c: { fx: 'https://cdn.example/prefix/assets/local/fx/tex/a.webp' } } });
+      chars: { c: { fx: 'https://cdn.example/prefix/assets/local/fx/tex/a.webp' } } }, null, []);
     assert.equal(effects.length, 2);
     assert.ok(effects.every(f => f.tier === TIER_REST), 'official FX remain optional even via essential aliases');
     assert.equal(tierForPath('chars.c.voice.attack'), TIER_REST);
     assert.equal(tierForPath('audio.voice.c.1'), TIER_REST);
-    const nested = collectResourceFiles({ chars: { c: { sound: '/assets/audio/unknown.mp3' } } }, null);
+    const nested = collectResourceFiles({ chars: { c: { sound: '/assets/audio/unknown.mp3' } } }, null, []);
     assert.equal(nested[0].tier, TIER_REST);
     assert.equal(tierForPath('local.groups.emoticon.e1.path'), TIER_ESSENTIAL);
     // 0.1.2 moved the battle emotes and the 19 玩法说明 pages into the mirror download: the emotes are match UI, the
@@ -176,12 +177,13 @@ describe('resource manifest building', () => {
     assert.equal(files.find((f) => f.url === '/assets/char/avatar/char_002_amiya.png').tier, TIER_ESSENTIAL);
     assert.equal(files.find((f) => f.url === '/fonts/bender-regular.otf').tier, TIER_ESSENTIAL);
     assert.equal(files.find((f) => f.url === '/assets/char/portrait/char_002_amiya_1.png').tier, TIER_ESSENTIAL);
-    assert.equal(collectResourceFiles(null, null).length, 0);
+    assert.equal(collectResourceFiles(null, null).length, CUSTOM_EMOTE_ART.length, 'only the server-added emote art');
+    for (const url of CUSTOM_EMOTE_ART) assert.ok(urls.includes(url), url);
   });
 
   test('a shared file keeps its essential tier (the lowest one wins)', () => {
     const assets = manifest({ chars: { c: { avatar: '/assets/shared.png', portrait: '/assets/shared.png' } } });
-    const shared = collectResourceFiles(assets, null).filter((f) => f.url === '/assets/shared.png');
+    const shared = collectResourceFiles(assets, null, []).filter((f) => f.url === '/assets/shared.png');
     assert.equal(shared.length, 1, 'listed once');
     assert.equal(shared[0].tier, TIER_ESSENTIAL);
   });
@@ -191,7 +193,7 @@ describe('resource manifest building', () => {
       prefab: { path: '/assets/local/map/fx/prefab.json' }, texture: { path: '/assets/local/map/fx/[opt]merged_textures.png' } },
     'map/water': { normal: { path: '/assets/local/map/water/[ucp]TX_water_normal.png' } },
     'map/autochess': { atlas: { path: '/assets/local/map/autochess/TX_autochessi_D.png' }, materials: { path: '/assets/local/map/autochess/materials.json' } } } };
-    const files = collectResourceFiles({ ui: { alias: '/assets/local/map/fx/%5Bopt%5Dmerged_textures.png' } }, localDoc);
+    const files = collectResourceFiles({ ui: { alias: '/assets/local/map/fx/%5Bopt%5Dmerged_textures.png' } }, localDoc, []);
     for (const url of ['/assets/local/map/fx/materials.json', '/assets/local/map/fx/prefab.json',
       '/assets/local/map/fx/%5Bopt%5Dmerged_textures.png', '/assets/local/map/water/%5Bucp%5DTX_water_normal.png',
       '/assets/local/map/autochess/materials.json', '/assets/local/map/autochess/tiles.json']) {
@@ -375,7 +377,10 @@ describe('the served resource manifest', () => {
     const res = await fetch(`http://127.0.0.1:${srv.address().port}/data/${RESOURCE_MANIFEST_FILE}`);
     assert.equal(res.status, 200);
     const m = await res.json();
-    assert.deepEqual({ format: m.format, count: m.count, files: m.files }, { format: RESOURCES_FORMAT, count: 0, files: [] });
+    // The server-added emote art is the only thing an install without manifests still ships itself.
+    assert.deepEqual(m.files.map((f) => f.url), [...CUSTOM_EMOTE_ART].sort(), 'no manifests ⇒ just the server-added emote art');
+    assert.equal(m.format, RESOURCES_FORMAT);
+    assert.equal(m.count, CUSTOM_EMOTE_ART.length);
   });
 
   test('other /data/ paths are untouched (the manifest name is the only generated one)', async (t) => {
@@ -411,10 +416,10 @@ describe('the resource index cache', () => {
     assert.ok(checks.every((check) => check === checks[0]), 'warm requests share only the ongoing check');
     for (const b of await Promise.all(checks)) assert.equal(b, a);
     assert.equal(reads.length, 0, 'no JSON or tile body read on a cache hit');
-    assert.equal(stats.length, 5, 'only four manifests and the known tile companion');
-    assert.equal(rewrites, 2, 'no CDN rewrite or resource traversal on a cache hit');
+    assert.equal(stats.length, 41, 'four manifests, the known tile companion and the 36 emote pictures');
+    assert.equal(rewrites, 3, 'no CDN rewrite or resource traversal on a cache hit');
     await index.get();
-    assert.equal(stats.length, 10, 'completed checks are not cached indefinitely');
+    assert.equal(stats.length, 82, 'completed checks are not cached indefinitely');
     index.reset();
     assert.notEqual((await index.get()).body, a.body);
     assert.equal(reads.length, 4);
@@ -440,6 +445,36 @@ describe('the resource index cache', () => {
     assert.ok(!d.manifest.files.some((f) => f.url === atlas));
     fs.writeFileSync(path.join(inst.dataDir, 'local-assets.json'), JSON.stringify({ groups: { map: { new: { path: '/assets/local/map/new.png' } } } }));
     assert.ok((await index.get()).manifest.files.some((f) => f.url === '/assets/local/map/new.png'));
+  });
+
+  test('the server-added emote art is listed as essential, sized from disk and hashed', async (t) => {
+    const art = CUSTOM_EMOTE_ART.map((url) => url.slice(1));
+    const inst = install({ localDoc: null, files: art });
+    t.after(inst.cleanup);
+    const index = createResourceIndex(inst);
+    const first = await index.get();
+    assert.equal(CUSTOM_EMOTE_ART.length, 36, 'six sets of six (one of them .gif)');
+    for (const url of CUSTOM_EMOTE_ART) {
+      const entry = first.manifest.files.find((f) => f.url === url);
+      assert.ok(entry, `${url} is preloaded`);
+      assert.equal(entry.tier, TIER_ESSENTIAL, 'the 交流 panel needs it during a match');
+      assert.ok(Number.isSafeInteger(entry.size) && entry.size > 0, 'a size is reported from the file on disk');
+      assert.ok(!entry.hash.startsWith('syn-'), 'a real content hash');
+    }
+    assert.ok(first.manifest.totalBytes >= CUSTOM_EMOTE_ART.length);
+
+    // A CDN-only install (the files are not on disk) still lists them, it just cannot size them.
+    const cdn = install({ localDoc: null, files: [] });
+    t.after(cdn.cleanup);
+    const cdnManifest = (await createResourceIndex(cdn).get()).manifest;
+    assert.ok(CUSTOM_EMOTE_ART.every((url) => cdnManifest.files.some((f) => f.url === url && f.size === undefined)));
+
+    // Replacing a picture invalidates the cached manifest, so clients pick the new bytes up.
+    fs.writeFileSync(path.join(inst.publicDir, art[0]), Buffer.alloc(64, 7));
+    const changed = await index.get();
+    const hash = (m) => m.manifest.files.find((f) => f.url === CUSTOM_EMOTE_ART[0]).hash;
+    assert.notEqual(changed.etag, first.etag);
+    assert.notEqual(hash(changed), hash(first));
   });
 
   test('tile revalidation errors are not mistaken for missing files or served as a stale cache hit', async (t) => {
@@ -606,8 +641,9 @@ describe('the resource index cache', () => {
   const index = createResourceIndex({ dataDir: inst.dataDir, publicDir: inst.publicDir,
     cdnBase: 'https://cdn.example.com', rewrite: v => rewriteAssetPaths(v, 'https://cdn.example.com') });
   const a = await index.get();
-  assert.equal(a.manifest.files.length, paths.length);
-  assert.ok(a.manifest.files.every(f => f.url.startsWith('https://cdn.example.com/assets/local/fx/') && f.tier === TIER_REST && f.size > 0 && f.hash === 'aaaaaaaaaaaa'));
+  const fxFiles = () => a.manifest.files.filter(f => f.url.includes('/assets/local/fx/'));
+  assert.equal(fxFiles().length, paths.length, 'the four official-effect JSON files (the server-added emote art is listed too)');
+  assert.ok(fxFiles().every(f => f.url.startsWith('https://cdn.example.com/assets/local/fx/') && f.tier === TIER_REST && f.size > 0 && f.hash === 'aaaaaaaaaaaa'));
   for (const p of paths) assert.equal(isResourcePath(p), true, p);
   for (const p of ['/assets/local/fx/secrets.json', '/assets/local/fx/prefabs/nested/config.json', '/assets/local/fx/../config.json']) assert.equal(validateResourceUrl(p), false, p);
   await new Promise(resolve => setTimeout(resolve, 20));
@@ -615,5 +651,5 @@ describe('the resource index cache', () => {
   const b = await index.get();
   assert.notEqual(b.etag, a.etag);
   assert.notEqual(b.manifest.version, a.manifest.version);
-  assert.ok(b.manifest.files.every(f => f.hash === 'bbbbbbbbbbbb'));
+  assert.ok(b.manifest.files.filter(f => f.url.includes('/assets/local/fx/')).every(f => f.hash === 'bbbbbbbbbbbb'));
 });

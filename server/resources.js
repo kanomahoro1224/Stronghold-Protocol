@@ -21,6 +21,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { canonicalResourceUrl, isBoardResourceJson } from '../shared/resourcePaths.js';
+import { CUSTOM_EMOTE_ART } from '../shared/constants.js';
 import { routeResourcePacks } from '../shared/resourcePackRoutes.js';
 
 export const RESOURCE_MANIFEST_FILE = 'resource-manifest.json';
@@ -118,9 +119,10 @@ export function tierForPath(keyPath) {
  * regenerated local extraction cannot invalidate the fetched assets and vice versa.
  * @param {any} assets parsed data/assets.json (already CDN-rewritten)
  * @param {any} local parsed data/local-assets.json, optional
+ * @param {string[]} [extraArt] server-added art no manifest lists (already CDN-rewritten), CUSTOM_EMOTE_ART by default
  * @returns {{ url: string, tier: number, source: 'web' | 'local' }[]}
  */
-export function collectResourceFiles(assets, local) {
+export function collectResourceFiles(assets, local, extraArt = CUSTOM_EMOTE_ART) {
   /** @type {Map<string, { tier: number, source: 'web' | 'local' }>} */
   const byUrl = new Map();
   const walk = (node, keyPath, source) => {
@@ -149,6 +151,15 @@ export function collectResourceFiles(assets, local) {
     walk(v, k, 'web');
   }
   if (local && typeof local === 'object') walk(local, 'local', 'local');
+  // The server-added emote sets (shared/constants.js CUSTOM_EMOTE_ART) ship with this install under
+  // public/assets/local/emoticon/<dir>/ and no generated manifest lists them — without this the 交流 panel's extra
+  // pages are never preloaded. They are required visuals (a match can show them at any time), like the board tiles.
+  for (const art of extraArt || []) {
+    if (!validateResourceUrl(art)) continue;
+    const url = canonicalResourceUrl(art);
+    const prev = byUrl.get(url);
+    if (prev == null || TIER_ESSENTIAL < prev.tier) byUrl.set(url, { tier: TIER_ESSENTIAL, source: 'local' });
+  }
   return [...byUrl]
     .map(([url, e]) => ({ url, tier: e.tier, source: e.source }))
     .sort((a, b) => a.tier - b.tier || (a.url < b.url ? -1 : a.url > b.url ? 1 : 0));
@@ -303,6 +314,20 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resource
     }));
   }
 
+  /** Stamps of the server-added emote art on disk: replacing a picture must invalidate the cached manifest. */
+  async function artSources(urls) {
+    return Promise.all((urls || []).map(async (url) => {
+      const abs = localPathFor(url, publicDir, cdnBase);
+      try {
+        const stat = abs && await statFile(abs);
+        return stat?.isFile() ? { url, abs, stamp: stamp(stat) } : null;
+      } catch (error) {
+        if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+        throw error;
+      }
+    }));
+  }
+
   /** File sizes of the files present on disk (bounded concurrency: ~4 000 stats of a real install). */
   async function measure(files) {
     const sizes = new Map();
@@ -338,20 +363,32 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resource
     // Keep missing companions in tileFiles so creation, not just edits/deletion, invalidates the cache.
     if (previous && previous.sourceKey === sourceKey) {
       const tiles = await tileSources(previous.tileFiles);
-      const key = [sourceKey, ...tiles.map((file) => file?.stamp || '-')].join('|');
+      const art = await artSources(previous.emoteArt);
+      const key = [sourceKey, ...tiles.map((file) => file?.stamp || '-'), ...art.map((file) => file?.stamp || '-')].join('|');
       if (previous.key === key) return previous;
     }
     const [assets, local, hashesDoc, fx] = await Promise.all(sources.map(readJson));
     const packsDoc = await readJson(packSource);
     const assetsDoc = assets ? rewrite(assets.doc) : null;
     const localDoc = local || fx ? rewrite({ ...(local?.doc || {}), groups: { ...(local?.doc?.groups || {}), ...(fx?.doc?.groups || {}) } }) : null;
-    const collected = collectResourceFiles(assetsDoc, localDoc);
+    // The emote art follows the same CDN rewrite as the manifest entries (the client preloads from the CDN).
+    const emoteArt = rewrite({ art: [...CUSTOM_EMOTE_ART] }).art;
+    const collected = collectResourceFiles(assetsDoc, localDoc, emoteArt);
     const tileFiles = collected.filter((f) => /\/assets\/local\/map\/autochess\/tiles\.json$/.test(f.url));
     const tiles = await tileSources(tileFiles);
-    const key = [sourceKey, ...tiles.map((f) => f?.stamp || '-')].join('|');
+    const art = await artSources(emoteArt);
+    const key = [sourceKey, ...tiles.map((f) => f?.stamp || '-'), ...art.map((f) => f?.stamp || '-')].join('|');
     const t0 = Date.now();
     const real = collectRealHashes(localDoc, hashesDoc ? hashesDoc.doc : null);
     for (const tile of tiles) if (tile) real.set(pathKey(tile.url), crypto.createHash('sha1').update(await readFile(tile.abs)).digest('hex').slice(0, 12));
+    // The emote art: its real hash when the picture is on disk, otherwise a stable URL-derived one — a source-stamp
+    // fallback would change the manifest version on every re-extraction of the unrelated local assets.
+    for (const url of emoteArt) {
+      const file = art.find((f) => f && f.url === url);
+      real.set(pathKey(url), file
+        ? crypto.createHash('sha1').update(await readFile(file.abs)).digest('hex').slice(0, 12)
+        : `syn-art-${shortHash(`emote|${url}`)}`);
+    }
     const files = collected.filter((f) => !tileFiles.includes(f) || real.has(pathKey(f.url))
       || (cdnBase && real.has(pathKey(f.url.slice(cdnBase.length)))));
     const stamps = {
@@ -370,7 +407,7 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resource
     const body = Buffer.from(JSON.stringify(manifest));
     // Hash the complete response (including tiers and sizes), so unchanged rebuilds/restarts keep their validator.
     const etag = `"resources-${crypto.createHash('sha256').update(body).digest('hex')}"`;
-    const result = { key, sourceKey, tileFiles, body, gzip: zlib.gzipSync(body), etag, mtimeMs: Date.now(), manifest };
+    const result = { key, sourceKey, tileFiles, emoteArt, body, gzip: zlib.gzipSync(body), etag, mtimeMs: Date.now(), manifest };
     if (epoch === generation) cache = result;
     log?.info?.(`[resources] ${manifest.count} file(s), ${manifest.tier1} essential, ${manifest.sized} sized`
       + `${manifest.totalBytes ? `, ${(manifest.totalBytes / 1048576).toFixed(1)} MiB` : ''}, `
