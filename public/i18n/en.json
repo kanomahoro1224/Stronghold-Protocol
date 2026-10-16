@@ -2279,5 +2279,6 @@
   "头像、编号和战绩都保存在这台设备的浏览器里，不上传服务器；只有和你同一个房间的队友会通过浏览器直连收到你的头像，换设备或清除浏览器数据后不会保留。昵称跟随游戏里的名字。": "Your avatar, number and match records stay in this device's browser and are not uploaded to the server; only teammates in your own room receive your avatar over a direct browser connection, and they are not kept if you switch devices or clear your browser data. The nickname follows your in-game name.",
   "移除头像": "Remove avatar",
   "本机账号 · 统计数据": "Local account · statistics",
-  "LOCAL · 本机账号": "LOCAL · local account"
+  "LOCAL · 本机账号": "LOCAL · local account",
+  "B站雨千代Chiyo": "Chiyo (Bilibili)"
 }

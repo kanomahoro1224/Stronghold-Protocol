@@ -180,6 +180,9 @@ export function TitleScreen() {
     if (currentName) setName((draft) => draft || currentName);
   }, [currentName]);
   const [aboutOpen, setAboutOpen] = useState(false);
+  // 用户 2026-10-16 要求隐藏标题页的「关于本服务器」入口：按钮不再渲染，弹窗实现与文案保留，
+  // 需要时把开关改回 true 即可恢复（`official-damage-numbers.test.js` 仍校验弹窗内的链接与免责声明）。
+  const SHOW_ABOUT = false;
   const [settingsOpen, setSettingsOpen] = useState(false);
   // the list of the server's plugins once loaded (ui/pluginPanel.js — a component in state: set through an updater)
   const [Installed, setInstalled] = useState(null);
@@ -278,8 +281,8 @@ export function TitleScreen() {
       </div>
       <div class="title-about-wrap">
         <${AnnouncementButton} variant="ghost" />
-        <${Button} variant="ghost" size="sm" class="title-about-button" aria-haspopup="dialog"
-          onClick=${() => setAboutOpen(true)}>${t('关于本服务器')}<//>
+        ${SHOW_ABOUT ? html`<${Button} variant="ghost" size="sm" class="title-about-button" aria-haspopup="dialog"
+          onClick=${() => setAboutOpen(true)}>${t('关于本服务器')}<//>` : null}
       </div>
     </main>
 
@@ -315,7 +318,7 @@ export function TitleScreen() {
         </div>
         <div>
           <dt>${t('UI 制作')}</dt>
-          <dd><a href="https://space.bilibili.com/27675079" target="_blank" rel="noopener noreferrer">B站雨千代Chiyo</a></dd>
+          <dd><a href="https://space.bilibili.com/27675079" target="_blank" rel="noopener noreferrer">${t('B站雨千代Chiyo')}</a></dd>
         </div>
       </dl>
       <div class="title-about__disclaimer">
