@@ -141,19 +141,19 @@ test('Markdown limits degrade deep input to escaped text, and CSS bounds images/
 test('公告右列只占「能扫码的最小宽度」，正文列不被挤窄，弹窗足够宽且窄屏堆叠', async () => {
   // 2026-10-17 用户反馈「公告太窄了」：本仓库 1rem = min(100vw/19.2, 100vh/10.8)（1080p 下 1rem = 100px），
   // 右列曾写成 5.6rem（=560px，被 max-width 截到约 340px），正文只剩约 330px。这里把量级钉死：
-  // 右列是「二维码可扫」的固定宽度，不能反过来把正文挤成窄条（3.6rem = 360px，正文仍有约 510px）。
+  // 右列是「二维码可扫」的固定宽度，不能反过来把正文挤成窄条（4.6rem = 460px，配 10.8rem 弹窗正文仍有约 592px）。
   const css = await readFile(new URL('../public/css/components.css', import.meta.url), 'utf8');
   const side = css.match(/\.notice__side\s*\{([^}]*)\}/)[1];
   const basis = Number(side.match(/flex:\s*0 0 ([\d.]+)rem/)[1]);
-  assert.ok(basis >= 2.4 && basis <= 4, `右列固定宽度应在 2.4–4rem（可扫码且不挤窄正文），实际 ${basis}rem`);
+  assert.ok(basis >= 2.4 && basis <= 4.8, `右列固定宽度应在 2.4–4.8rem（可扫码且不挤窄正文），实际 ${basis}rem`);
   const maxPct = Number(side.match(/max-width:\s*(\d+)%/)[1]);
-  assert.ok(maxPct <= 40, `右列占比上限应 ≤40%，实际 ${maxPct}%`);
+  assert.ok(maxPct <= 48, `右列占比上限应 ≤48%，实际 ${maxPct}%`);
   assert.match(css, /\.notice__main\s*\{[^}]*flex:\s*1 1 auto[^}]*min-width:\s*0/);
   assert.match(css, /@media \(max-width: 640px\)\s*\{[^}]*\.notice__layout\s*\{\s*flex-direction:\s*column/);
   const js = await readFile(new URL('../public/js/ui/announcement.js', import.meta.url), 'utf8');
   const width = js.match(/class="announcement-modal" width="min\(([\d.]+)rem/);
   assert.ok(width, '公告弹窗应显式给出宽度');
-  assert.ok(Number(width[1]) >= 9, `公告弹窗宽度应 ≥9rem，实际 ${width[1]}rem`);
+  assert.ok(Number(width[1]) >= 10, `公告弹窗宽度应 ≥10rem，实际 ${width[1]}rem`);
 });
 
 test('permanent popup survives elapsed time, invalid edits and restart; withdrawing it leaves scroll selection intact', async t => {

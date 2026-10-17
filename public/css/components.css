@@ -1204,10 +1204,11 @@
    这一列，这里按仓库约定「fork 特色功能必须保留」补回：左侧正文、右侧二维码，窄屏改为上下堆叠。
    注意本仓库的 rem 是 100vw/19.2（1080p 下 1rem = 100px），右列必须用「能扫码的最小宽度」而不是大数字：
    2026-10-17 曾写成 5.6rem（=560px，被 max-width 截到约 340px），正文只剩约 330px，用户反馈「公告太窄」；
-   改回 2.4rem 后用户要求二维码再大一些，现取 3.6rem（360px），正文列仍有约 510px。 */
+   改回 2.4rem 后用户两次要求二维码更大，现取 4.6rem（460px）并把弹窗加宽到 10.8rem（1080px），正文列反而
+   从约 510px 涨到约 592px。 */
 .notice__layout { display: flex; align-items: flex-start; gap: .28rem; }
 .notice__main { flex: 1 1 auto; min-width: 0; }
-.notice__side { flex: 0 0 3.6rem; min-width: 0; max-width: 40%; }
+.notice__side { flex: 0 0 4.6rem; min-width: 0; max-width: 48%; }
 .sponsor { display: flex; flex-direction: column; gap: .12rem; }
 .sponsor__qr {
   display: block;
@@ -1220,7 +1221,7 @@
 @media (max-width: 640px) {
   .notice__layout { flex-direction: column; }
   .notice__main { width: 100%; }
-  .notice__side { flex: none; width: 100%; max-width: 7.6rem; align-self: center; }
+  .notice__side { flex: none; width: 100%; max-width: 9rem; align-self: center; }
 }
 
 /* Optional resume/install controls and translated XL titles must share actual space instead of overlapping the
