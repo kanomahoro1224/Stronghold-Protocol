@@ -55,6 +55,31 @@ bash scripts/sync-to-r2.sh --config /srv/private/r2-sync.json --apply
 上传失败不执行缓存清理。缓存清理失败也返回非零状态，修复权限后可重复执行补齐。
 普通模式不删除远端对象；`--mirror` 或 `sync.mirror: true` 会删除各同步前缀中本地不存在的对象。
 
+## 无 rclone：HTTP 直传脚本
+
+装不了 rclone 的部署机可用 `scripts/sync-to-r2-http.mjs`。它只用 Node 内置能力
+（`fetch` + `node:crypto` 手写 SigV4），目标前缀、`Cache-Control` 和发布顺序与
+`sync-to-r2.sh` 完全一致：先 `assets/`、`fonts/`、`i18n/`、`resource-packs/`、`packs/`，
+最后才 `data/`；`data/` 同样先在临时目录跑 `prepare-r2-data.mjs` 生成并校验清单。
+配置读取 `config/r2-sync.json`（字段与上面相同），或退回 `R2_*` 环境变量，
+可用 `node --env-file=.env` 载入 `.env`。
+
+```bash
+# 预演（默认），只打印每个前缀的文件数与体积
+node scripts/sync-to-r2-http.mjs
+# 实际上传；配置里填了 cloudflare 时会顺带清缓存
+node scripts/sync-to-r2-http.mjs --apply
+# 只补传上次失败的文件
+node scripts/sync-to-r2-http.mjs --apply --fail-list r2-failures.json
+node scripts/sync-to-r2-http.mjs --apply --retry-file r2-failures.json
+```
+
+与 rclone 版本的差异：默认预演且**永不删除**远端对象（没有 `--mirror`）；
+每个文件按 `--attempts`（默认 4）指数退避重试网络错误、408/425/429/5xx，4xx 立即失败；
+**失败的键名会全部列出**（不截断），`--fail-list` 落盘后可直接 `--retry-file` 补齐。
+`--concurrency` 默认 32，`--force` 不跳过、`--checksum` 额外比对本机 MD5 与远端 ETag，
+`--only assets,data` 可只同步部分前缀。凭据只留在内存，不会出现在日志或命令行里。
+
 ## 兼容：环境变量与已有 rclone remote
 
 先在部署机安装 `rclone`，然后创建 R2 remote：
