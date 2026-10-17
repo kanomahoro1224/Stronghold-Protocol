@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EMOTES, EMOTE_CATALOG, emoteArtPath, emoteArtGroup, emoteInfo } from '../../shared/constants.js';
+import { EMOTES, EMOTE_CATALOG, ALL_EMOTE_CATALOG, emoteArtPath, emoteArtGroup, emoteInfo } from '../../shared/constants.js';
 import { GUIDE_PAGES } from '../../tools/assets/plan.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -127,6 +127,25 @@ describe('emotes and 玩法说明 pages: local art first, then the mirror copy (
     assert.equal(nextArtUrl(urls, new Set(urls)), null, 'both failed: the fallback');
     assert.equal(nextArtUrl(urls), urls[0]);
     assert.equal(nextArtUrl(null), null);
+  });
+
+  test('server-added emote art takes the assets CDN (where the preload manifest already lists it), and stays same-origin without one', async () => {
+    const { emoteArtUrls, emoteArtUrl } = await import('../../public/js/ui/emotes.js');
+    const base = 'https://cdn.example.com/Stronghold-Protocol';
+    const custom = ALL_EMOTE_CATALOG.filter((e) => e.custom);
+    assert.equal(custom.length, 36, 'six server-added sets of six');
+    for (const e of custom) {
+      const p = emoteArtPath(e.id);
+      assert.deepEqual(emoteArtUrls(e.id, base), [base + p], e.id);
+      assert.deepEqual(emoteArtUrls(e.id, ''), [p], `${e.id} without a CDN`);
+      assert.equal(emoteArtUrl(e.id), p, `${e.id}: the disk config has no CDN, so the same-origin path`);
+    }
+    assert.equal(emoteArtUrls('custom_battle_xingfei_anim_01', base)[0],
+      `${base}/assets/local/emoticon/xingfei_anim/pic_xingfei_anim_01_battle.gif`, 'the animated set keeps .gif');
+    // The official sets read their URL from a manifest the server already rewrote (data/local-assets.json): the
+    // argument must not touch them, and an id in no manifest stays unrequested.
+    assert.deepEqual(emoteArtUrls('autochess_battle_happy', base), emoteArtUrls('autochess_battle_happy'));
+    assert.deepEqual(emoteArtUrls('custom_battle_kano_99', base), [], 'unknown id: no URL');
   });
 
   test('no local client (a source deploy on a server, issue #42): every emote and all 19 pages come from the committed data/assets.json', async () => {

@@ -1,8 +1,18 @@
+/**
+ * One root-relative asset URL on the assets CDN — the same rule `rewriteAssetPaths` applies to a whole manifest, for a
+ * URL built in code instead of read from one (shared/constants.js CUSTOM_EMOTE_ART ships with the server and no manifest
+ * lists it, so nothing rewrites it on our behalf). Absolute URLs and other paths are unchanged, as is everything when no
+ * CDN is configured.
+ */
+export function assetUrl(url, base) {
+  return base && typeof url === 'string' && url.startsWith('/assets/') ? base + url : url;
+}
+
 /** Rewrite only root-relative asset URLs. Absolute URLs stay intact, including manifests already rewritten by a server. */
 export function rewriteAssetPaths(value, base) {
   if (!base || value === null || typeof value !== 'object') return value;
   for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry === 'string' && entry.startsWith('/assets/')) value[key] = base + entry;
+    if (typeof entry === 'string') { const next = assetUrl(entry, base); if (next !== entry) value[key] = next; }
     else if (entry !== null && typeof entry === 'object') rewriteAssetPaths(entry, base);
   }
   return value;
