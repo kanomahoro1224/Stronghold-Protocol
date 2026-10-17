@@ -93,7 +93,12 @@ describe('community UI: lobby header and shared DIY details', { skip: !enabled }
             `${a.label} overlaps ${b.label}`);
         }
         await page.screenshot({ path: shot(`lobby-header-${width}-${lang}.png`) });
-        await page.click('.stats-entry'); await page.waitForSelector('.st .st-tab');
+        await page.click('.stats-entry');
+        // 大厅右上角胶囊先弹「本机账号」面板（用户 2026-10-17）；统计数据是面板最后一个按钮（更换头像 / 移除头像 / 统计数据），
+        // 用 :last-child 定位，避免这里按语言循环时中文文案不匹配。
+        await page.waitForSelector('.lacct__btns', { visible: true, timeout: 15000 });
+        await page.click('.lacct__btns button:last-child');
+        await page.waitForSelector('.st .st-tab');
         await page.click('.st-back');
         await page.waitForSelector('.st', { hidden: true });
         await page.click('.lobby-screen [data-testid="settings-btn"]'); await page.waitForSelector('.modal');

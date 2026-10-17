@@ -158,13 +158,17 @@ export function openAccountPanel(opts = {}) {
   render(html`<${AccountPanel} onStats=${opts.onStats} onClose=${close} />`, host);
 }
 
-/** The hub's top-right chip: avatar + name #tag; a click opens the account panel (with 统计数据). */
-export function AccountMeChip({ player, onStats }) {
+/**
+ * The hub's top-right chip: avatar + name #tag; a click opens the account panel (with 统计数据).
+ * `fallbackAvatar` (房间立绘头像 URL) 只在本机还没设置账号头像时顶上（用户 2026-10-17）：
+ * 设了本机账号头像就优先它，没设才显示立绘头像；两个都没有时 AvatarFrame 自己画首字母/占位。
+ */
+export function AccountMeChip({ player, onStats, fallbackAvatar }) {
   const { me } = useCurrentAccount();
   useEffect(ensureStyle, []);
   const name = player?.name || me.name || t('博士');
   return html`<button type="button" class="me-chip me-chip--btn stats-entry" onClick=${() => openAccountPanel({ onStats })} title=${t('本机账号 · 统计数据')} aria-label=${t('本机账号')}>
-    <${AvatarFrame} size="sm" name=${name} seat=${0} self=${true} src=${me.avatar || undefined} />
+    <${AvatarFrame} size="sm" name=${name} seat=${0} self=${true} src=${me.avatar || fallbackAvatar || undefined} />
     <span class="me-chip__text"><span class="me-chip__name">${name}<span class="acct-tag">#${me.tag}</span></span><${MicroLabel}>${t('LOCAL · 本机账号')}<//></span>
     <${Icon} name="user" class="me-chip__stats" />
   </button>`;

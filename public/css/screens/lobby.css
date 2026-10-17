@@ -356,6 +356,14 @@
 .hub-center__en b { color: var(--mint-400); }
 .hub-center__title { position: relative; margin: .1rem 0 0; font-size: calc(.46 * var(--utility-text, var(--t))); font-weight: 900; letter-spacing: .14em; color: var(--text-hi);
   text-shadow: 0 .04rem .3rem rgba(0, 0, 0, .8); }
+/* 用图片 / 视频背景时把画面完整让出来（用户 2026-10-17）：中间的主标记组（雷达 + 徽记 + 两行标题）不显示，
+   顶栏那条压在图上的黑色渐变也去掉，只留右侧暗角。选择器写成 .lobby-hub[data-hub-scene="photo"] … 是为了
+   压过最后加载的 glass.css 里的 .hub-topbar（0,1,0）和 html[data-ui-theme="glass"] .hub-topbar（0,2,0）；
+   data-hub-scene 由 screens/lobby.js 从 backdropScene() 写入，内置鹿乃图和自定义导入都是 "photo"。 */
+.lobby-hub[data-hub-scene="photo"] .hub-center { display: none; }
+.lobby-hub[data-hub-scene="photo"] .hub-topbar { background: none; border-bottom-color: transparent; }
+.lobby-hub[data-hub-scene="photo"] .hub-bg__vignette {
+  background: radial-gradient(130% 95% at 50% 42%, transparent 50%, rgba(0, 0, 0, .72)); }
 .hub-radar { position: absolute; left: 50%; top: 50%; width: 5.2rem; height: 5.2rem; transform: translate(-50%, -50%); }
 .hub-radar svg { width: 100%; height: 100%; overflow: visible; fill: none; stroke: var(--radar); stroke-width: 1; }
 .hub-radar .hub-radar__ticks { stroke-width: 5; stroke-dasharray: 1.4 9.8; }
@@ -372,7 +380,9 @@
 .hub-tile__icon { display: grid; place-items: center; width: .44rem; height: .44rem; flex: none; border: 1px solid var(--mint-a35); color: var(--mint-400); font-size: calc(.22 * var(--utility-text, var(--t))); }
 .hub-tile__text { display: flex; flex-direction: column; gap: .02rem; min-width: 0; }
 .hub-tile__label { font-size: calc(.2 * var(--utility-text, var(--t))); font-weight: 800; }
-.hub-tile__en { font: 600 calc(.1 * var(--utility-text, var(--t)))/1 ui-monospace, Consolas, monospace; letter-spacing: .18em; color: var(--text-dim); }
+/* 瓷砖自己那行小字（LOCAL RECORDS / ALLIANCE KEY）用薄绿，不再用灰色（用户 2026-10-17：右侧 0.3.0 新增的
+   「统计数据」瓷砖灰字不统一）。瓷砖本身已在 glass.css 的玻璃配方里，这里只改颜色，不改材质和布局。 */
+.hub-tile__en { font: 600 calc(.1 * var(--utility-text, var(--t)))/1 ui-monospace, Consolas, monospace; letter-spacing: .18em; color: var(--mint-400); }
 .hub-side .tips { margin-top: .04rem; background: rgba(8, 14, 13, .72); }
 .hub-right { grid-column: 3; grid-row: 1; position: relative; z-index: 1; display: flex; flex-direction: column; gap: .16rem; min-width: 0; min-height: 0; padding-top: .06rem; }
 .hub-right__plates { display: flex; flex-direction: column; gap: .12rem; }

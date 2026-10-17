@@ -88,8 +88,14 @@ describe('统计数据 page (real server, headless Chrome)', { skip: !ENABLED &&
   }
   const texts = (c, sel) => c.page.$$eval(sel, (els) => els.map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
   const stored = (c) => c.page.evaluate(() => { const r = localStorage.getItem('sp.pref.stats'); return r ? JSON.parse(r) : null; });
+  // 大厅右上角胶囊（用户 2026-10-17 起）先弹「本机账号」面板，统计数据按钮在面板里；
+  // 其他入口（右侧「统计数据」瓷砖、标题页「统计」）仍是直接打开统计。
   const openStats = async (c, from = '.lobby-screen .stats-entry') => {
     await c.click(from, from.includes('stats-entry') ? null : '统计');
+    if (from.includes('stats-entry')) {
+      await c.page.waitForSelector('.lacct__btns', { visible: true, timeout: 15000 });
+      await c.click('.lacct__btns button:last-child');
+    }
     await c.page.waitForSelector('.st .st-tab', { visible: true, timeout: 15000 });
   };
   const toast = (c) => c.page.waitForFunction(() => document.querySelector('.toast')?.textContent || false, { timeout: 8000 }).then((h) => h.jsonValue());
@@ -359,6 +365,8 @@ describe('统计数据: the real flows (a fast real server, headless Chrome)', {
       assert.ok(env.records[0].players[0].bandId, 'its strategy');
       // the page: one game counted, one left out, both in the history
       await c.click('.lobby-screen .stats-entry');
+      await c.page.waitForSelector('.lacct__btns', { visible: true, timeout: 15000 });
+      await c.click('.lacct__btns button:last-child');
       await c.page.waitForSelector('.st .st-card', { visible: true });
       assert.equal((await c.page.$$eval('.st-sec > .st-cards .st-card__num', (els) => els.map((e) => e.textContent)))[0], '1');
       assert.match(await c.page.$$eval('.st-rule', (els) => els.map((e) => e.textContent).join(' ')), /另有 1 局未计入统计/);

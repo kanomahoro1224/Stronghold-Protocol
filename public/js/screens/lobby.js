@@ -1,8 +1,9 @@
 import { Emblem } from './title.js';
+import { AccountMeChip } from '../ui/accounts.js';
 import { useMyCard } from '../ui/playerCard.js';
 import { cardAvatarUrl } from '../ui/seatArt.js';
 import { HubBackdrop, HubRadar, BackdropGlyph, BackdropSettings } from '../ui/hubBackdrop.js';
-import { useHubBackdrop, backdropTheme } from '../ui/hubAppearance.js';
+import { useHubBackdrop, backdropTheme, backdropScene } from '../ui/hubAppearance.js';
 import { LobbyMusicButton } from '../ui/lobbyMusic.js';
 import { ProtocolScene } from '../ui/protocolScene.js';
 // Lobby screen: pick 独立模拟 / 同盟模拟 / 同盟匹配 and a difficulty (标准/险境/绝境/终极), create a room,
@@ -21,7 +22,7 @@ import { ProtocolScene } from '../ui/protocolScene.js';
 import { ResumeMatchButton } from '../ui/resumeMatch.js';
 import { useEffect, useLayoutEffect, useRef, useState } from '../../vendor/hooks.module.js';
 import { DIFFICULTIES, DIFFICULTY_NAMES, DIFFICULTY_COLORS, ROOM_CODE_LEN, MAX_SEATS, MAX_SPECTATORS, modeIdFor, ERR } from '../../../shared/constants.js';
-import { html, Button, Icon, MicroLabel, TextField, PingPill, OnlineCount, AvatarFrame, Tooltip, Spinner, DifficultyIcon, Modal, doctorNo } from '../ui/components.js';
+import { html, Button, Icon, MicroLabel, TextField, PingPill, OnlineCount, Tooltip, Spinner, DifficultyIcon, Modal } from '../ui/components.js';
 import { AnnouncementButton } from '../ui/announcement.js';
 import { toast, toastError } from '../ui/toasts.js';
 import { GuideButton } from '../ui/guide.js';
@@ -356,6 +357,7 @@ export function ProtocolSelect({ card, roomMode, difficulty, onDifficulty, onlin
 /** Lobby screen component. */
 export function LobbyScreen() {
   const me = useStore((s) => s.me, shallowEqual);
+  // 本机账号头像只在本机设置过时用；没设置时胶囊回落到房间立绘头像，所以这里仍要取名片和素材清单
   const myCard = useMyCard();
   useData(...(myCard.avatar ? ['assets'] : []));
   const conn = useStore((s) => s.connection, shallowEqual);
@@ -461,7 +463,7 @@ export function LobbyScreen() {
   if (panel === 'protocol') return html`<${ProtocolPage} card=${card} roomMode=${roomMode} difficulty=${difficulty} onDifficulty=${pickDifficulty}
     online=${online} busy=${busy} onClose=${() => setPanel(null)} onStart=${roomMode === 'match' ? matchmaking : create}
     queue=${matchQueue} onCancel=${cancelMatchmaking} />`;
-  return html`<div ref=${lobbyRef} class="screen lobby-screen lobby-hub" data-hub-theme=${backdropTheme(bg)}>
+  return html`<div ref=${lobbyRef} class="screen lobby-screen lobby-hub" data-hub-theme=${backdropTheme(bg)} data-hub-scene=${backdropScene(bg)}>
     <${HubBackdrop} bg=${bg} />
     <header class="topbar hub-topbar">
       <div class="topbar__left">
@@ -483,12 +485,7 @@ export function LobbyScreen() {
       </div>
       <div class="topbar__right">
         <${ResumeMatchButton} />
-        <button type="button" class="me-chip me-chip--btn stats-entry" onClick=${openStats} title=${t('统计数据')} aria-label=${t('统计数据')}>
-          <${AvatarFrame} src=${cardAvatarUrl(myCard.avatar, data.get('assets'))} size="sm" name=${me.name} seat=${0} self=${true} />
-          <span class="me-chip__text"><span class="me-chip__name">${me.name || t('博士')}</span>
-            <${MicroLabel}>${me.playerId != null ? `DOCTOR #${doctorNo(me.playerId)}` : 'DOCTOR'}<//></span>
-          <${Icon} name="chart" class="me-chip__stats" />
-        </button>
+        <${AccountMeChip} player=${me} onStats=${openStats} fallbackAvatar=${cardAvatarUrl(myCard.avatar, data.get('assets'))} />
       </div>
     </header>
     <main class="hub-stage screen__scroll">
