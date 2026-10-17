@@ -120,7 +120,7 @@ export function AnnouncementHost() {
   const key = announcementDismissKey(notice);
   useEffect(() => { syncAnnouncementPopup(notice, net.serverNow(), inMatch); }, [key, live, inMatch]);
   return html`<${Modal} open=${open && (!automatic || !inMatch)} title=${live ? notice.title || t('公告') : t('公告')} micro="ANNOUNCEMENT"
-    class="announcement-modal" width="min(7.4rem, 94vw)" onClose=${closeAnnouncement} utility=${true}
+    class="announcement-modal" width="min(9.6rem, 94vw)" onClose=${closeAnnouncement} utility=${true}
     actions=${html`<${Button} variant="primary" icon="close" data-autofocus onClick=${closeAnnouncement}>${t('关闭')}<//>`}>
     ${open && (!automatic || !inMatch) ? html`<${AnnouncementContent} notice=${live ? notice : null} />` : null}
   <//>`;
