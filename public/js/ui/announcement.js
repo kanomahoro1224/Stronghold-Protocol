@@ -5,6 +5,7 @@ import { net } from '../net.js';
 import { announcementLive, validAnnouncementUrl } from '../../../shared/announcements.js';
 import { PHASE } from '../../../shared/constants.js';
 import { t } from '../../../shared/i18n.js';
+import { SponsorQr } from './sponsor.js';
 
 /** Constant pixel speed for long and short notices; the animation travels across the measured viewport. */
 export function announcementScroll(viewport, textWidth) {
@@ -93,12 +94,18 @@ function MarkdownBody({ text }) {
 
 export function AnnouncementContent({ notice }) {
   if (!notice) return html`<p class="modal__text">${t('暂无公告')}</p>`;
+  // fork 特色：公告右侧的赞助二维码（ui/sponsor.js）。0.3.0 上游换成 markdown 正文时丢了这一列，按仓库约定补回。
   return html`<div class="announcement-content">
-    ${notice.format === 'markdown' ? html`<${MarkdownBody} text=${notice.text} />`
-      : html`<p class="modal__text announcement-content__plain">${notice.text}</p>`}
-    ${validAnnouncementUrl(notice.url) ? html`<a class="announcement-content__link" href=${notice.url} target="_blank" rel="noopener noreferrer">
-      <${Icon} name="link" />${t('查看详情')}<span class="announcement-content__url">${notice.url}</span>
-    </a>` : null}
+    <div class="notice__layout">
+      <div class="notice__main">
+        ${notice.format === 'markdown' ? html`<${MarkdownBody} text=${notice.text} />`
+          : html`<p class="modal__text announcement-content__plain">${notice.text}</p>`}
+        ${validAnnouncementUrl(notice.url) ? html`<a class="announcement-content__link" href=${notice.url} target="_blank" rel="noopener noreferrer">
+          <${Icon} name="link" />${t('查看详情')}<span class="announcement-content__url">${notice.url}</span>
+        </a>` : null}
+      </div>
+      <aside class="notice__side"><${SponsorQr} /></aside>
+    </div>
   </div>`;
 }
 

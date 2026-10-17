@@ -1,6 +1,4 @@
 {
-  "部署时镜头缩放": "Deployment camera zoom",
-  "放置或移动干员、装备时临时收起商店并放大棋盘，结束后恢复。默认关闭，不影响手动收起商店。": "Temporarily hide the shop and zoom in while placing or moving operators and equipment, then restore the view. Off by default; manual shop folding is unchanged.",
   "_meta": {
     "type": "lang",
     "lang": "en",
@@ -16,6 +14,8 @@
     "complete": true
   },
   "_about": "English UI strings: Chinese msgid → English (shared/i18n.js t(); docs/I18N.md). Placeholders {name} and {n|one|other} as in the msgid; a 'context::msgid' key is a tc() variant. Seeded from GitHub PR #70 (branch en-translation) by @YuriRestia, reused with credit (NOTICE.md). Game texts are not here: data/i18n/en.json (tools/build-i18n.mjs).",
+  "部署时镜头缩放": "Deployment camera zoom",
+  "放置或移动干员、装备时临时收起商店并放大棋盘，结束后恢复。默认关闭，不影响手动收起商店。": "Temporarily hide the shop and zoom in while placing or moving operators and equipment, then restore the view. Off by default; manual shop folding is unchanged.",
   "你已在其他同盟中，请先离开当前同盟": "You are already in another Alliance. Leave it first.",
   "你已不在该同盟中": "You are no longer in this Alliance",
   "创建者已离开，同盟已解散": "The host left. The Alliance has been disbanded.",
@@ -2303,5 +2303,7 @@
   "视频声音": "Video sound",
   "暂停视频": "Pause video",
   "视频上限 200MB、最高 1080p，仅保存在当前浏览器。": "Video up to 200MB and 1080p, kept only in this browser.",
-  "视频处理中…": "Processing video…"
+  "视频处理中…": "Processing video…",
+  "本服务器不要求赞助　扫码纯属自愿": "This server does not ask for sponsorship — scanning the code is entirely voluntary",
+  "赞助码（支付宝）": "Sponsorship code (Alipay)"
 }
