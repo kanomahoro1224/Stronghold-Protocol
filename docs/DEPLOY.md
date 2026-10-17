@@ -173,6 +173,38 @@ powershell -ExecutionPolicy Bypass -File scripts\install-service-windows.ps1 -Re
 
 ## 2. 让不在同一网络的朋友加入
 
+### systemd + 文件拷贝（本分支三台线上机）
+
+线上三台（`weishu.xiaolubao.com`、`wei.xiaolubao.com`、`weishuxieyi.xiaolubao.com`）不是 Docker，而是
+systemd 服务 `stronghold` + `node server/index.js` + Nginx。对应两个正式脚本：
+`scripts/deploy-systemd.mjs`（驱动：打包、上传、校验、调度）与 `scripts/deploy-systemd-remote.sh`
+（目标机落地：校验、备份、解包、自检、回滚）。
+
+```bash
+# 只读计划：列出包大小/sha256、目标、是否重启，不传任何东西
+node scripts/deploy-systemd.mjs --target root@1.2.3.4 --identity ~/.ssh/id_ed25519
+# 真正部署
+node scripts/deploy-systemd.mjs --target root@1.2.3.4 --identity ~/.ssh/id_ed25519 --apply
+```
+
+`--apply` 后每个目标机依次执行：
+
+1. `sha256sum -c` + `tar -t` 校验上传的包 —— **不符就直接退出，线上保持原样**；
+2. 备份到 `/root/stronghold-static-<ts>.tar.gz`（排除 `node_modules`、`public/assets`、`state`）；
+3. 解包源码，永不覆盖 `config/announcements.json`；
+4. 解包 `public/build`，不删旧哈希分包（未刷新的页面仍能加载）；
+5. 自检：构建 HTML 的每个引用、入口分包的每个分包都必须存在且 HTTP 200；
+6. 任一失败即从本次备份还原 `public/build`；`--restart` 时还会还原并重启，`/healthz` 不通同样回滚。
+
+纯前端改动用 `--apply` 不必重启（刷新页面生效）；`--restart` 会结束进行中的对局，但会刷新
+`/healthz.build`，让已打开的页面收到自动刷新提示。经中转机部署用
+`--via root@jump --via-identity <中转机私钥> --behind root@host --behind-identity <目标机私钥>`
+（目标机私钥只需存在于中转机）。另有 `--build`（先跑 `npm run build`）、`--skip-bundle`（复用
+`--bundle-dir` 里已有的包）、`--prune-backups`（成功后只保留最近 3 份备份）。
+
+**不要再用临时脚本部署线上。** 2026-10-17 的前端事故就是临时脚本在 `scp` 中断后未校验就解包，
+写出「新 HTML + 缺分包」的半套产物，玩家看到「游戏脚本加载失败，请检查网络连接后刷新页面」。
+
 ### Docker Compose 自动部署与回滚
 
 仓库提供 `scripts/deploy-compose.mjs`，适配游戏服务名为 `stronghold`、Redis 服务名为
