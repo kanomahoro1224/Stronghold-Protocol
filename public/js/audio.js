@@ -589,6 +589,7 @@ export class AudioManager {
     this.bgmToken = 0;
     this.bgmKey = null;       // last requested key, including an asynchronous track that is still loading
     this.lobbyMusic = null;   // browser-local streaming file { url, paused }; never part of the asset manifest
+    this.lobbyVideoAudio = false; // a lobby video backdrop with sound holds the lobby BGM (built-in or local file)
     this.units = new Map();   // battle unit id → defId
     this.pendingSkill = new Map(); // unit id → the 'skill' tuple that arrived before the unit was known (see _track)
     this.lastAttacker = new Map(); // target id → { def, at, skillIndex, skillActive } of the hostile attack aimed at it (its impact sound,
@@ -746,15 +747,40 @@ export class AudioManager {
     if (this.bgmKey === 'lobby') this.playBgm('lobby');
   }
 
+  /**
+   * A lobby video backdrop with sound takes the lobby BGM channel over (ui/hubBackdrop.js announces it, ui/lobbyMusic.js
+   * forwards it): a streamed local file pauses, and the built-in lobby track — a Web Audio buffer, which has no media
+   * element to pause — is faded out instead. Both start again when the video is muted, paused or removed. Only the
+   * `lobby` key is held: the title/room screens share it, while prep and battle music keep playing.
+   * @param {boolean} active
+   */
+  setLobbyVideoAudio(active) {
+    const next = active === true;
+    if (this.lobbyVideoAudio === next) return;
+    this.lobbyVideoAudio = next;
+    this._syncLobbyMusic();
+    if (!next && this.bgmKey === 'lobby') this.playBgm('lobby');
+  }
+
+  /** Does the lobby video hold the music for this key? Only the lobby track — battle and prep music are untouched. */
+  _videoHolds(key) { return this.lobbyVideoAudio && key === 'lobby'; }
+
   _syncLobbyMusic() {
     const current = this.bgm;
-    if (!current?.media) return;
-    if (this.bgmSilent || this.win?.document?.hidden || this.lobbyMusic?.paused) current.media.pause();
-    else {
-      const playing = current.media.play();
-      // Autoplay refusal is retried on the next user gesture; corrupt/unsupported files use the error handler.
-      playing?.catch?.(() => this._armUnlock());
+    if (!current) return;
+    const hold = this.bgmSilent || this.win?.document?.hidden || this.lobbyMusic?.paused;
+    if (current.media) {
+      if (hold || this._videoHolds(current.key)) current.media.pause();
+      else {
+        const playing = current.media.play();
+        // Autoplay refusal is retried on the next user gesture; corrupt/unsupported files use the error handler.
+        playing?.catch?.(() => this._armUnlock());
+      }
+      return;
     }
+    // A manifest track is a Web Audio buffer: it cannot be paused, so it is faded out and started again later.
+    // The token bump stops a start that is still waiting for its download from reviving the held track.
+    if (this._videoHolds(current.key)) { ++this.bgmToken; this._fadeOutBgm(); }
   }
 
   _lobbyTrack(key) {
@@ -920,10 +946,14 @@ export class AudioManager {
       this.bgmKey = key;
       this.lastBgmKey = key;
       if (!this.ctx) { this.wantBgm = key; return; }
-      if (this.bgmSilent) {
+      const held = this._videoHolds(key);
+      if (this.bgmSilent || held) {
         this.wantBgm = key;
-        const silentTrack = this._lobbyTrack(key);
-        if (this.bgm && silentTrack && this.bgm.loopUrl === silentTrack.loop) { this.bgm.key = key; return; }
+        // A muted track may keep playing silently; a lobby track held by a video with sound must actually stop.
+        if (!held) {
+          const silentTrack = this._lobbyTrack(key);
+          if (this.bgm && silentTrack && this.bgm.loopUrl === silentTrack.loop) { this.bgm.key = key; return; }
+        }
         ++this.bgmToken; // a start still waiting for its download stays silent too
         this._fadeOutBgm();
         return;

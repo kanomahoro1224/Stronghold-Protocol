@@ -180,10 +180,48 @@ test('muted songs do not start a media request; failed songs fall back without r
   a.playBgm('prep'); oldError(); assert.equal(a.bgmKey, 'prep');
 });
 
+test('a lobby video with sound holds the built-in lobby BGM, and only the lobby one', async () => {
+  const { manager: a, unlock } = audioHarness(); unlock();
+  a.playBgm('lobby'); await Promise.resolve(); await Promise.resolve();
+  assert.equal(a.bgm.loopUrl, '/default.mp3', 'the manifest track, not a local file');
+  assert.equal(a.bgm.media, undefined, 'the built-in track is a Web Audio buffer, which cannot pause');
+  a.setLobbyVideoAudio(true);
+  assert.equal(a.bgm, null, 'the lobby track fades out while the video has sound');
+  a.playBgm('lobby'); // a store update asks for the lobby track again
+  assert.equal(a.bgm, null, 'the hold survives a later playBgm');
+  a.setLobbyVideoAudio(false); await Promise.resolve(); await Promise.resolve();
+  assert.equal(a.bgm.loopUrl, '/default.mp3', 'the lobby track comes back when the video stops');
+  // battle music is never held, and the flag only clears once
+  a.playBgm('combat:1'); await Promise.resolve(); await Promise.resolve();
+  const battle = a.bgm;
+  a.setLobbyVideoAudio(true); assert.equal(a.bgm, battle, 'battle music keeps playing');
+  a.setLobbyVideoAudio(false); assert.equal(a.bgm, battle, 'and is not restarted');
+});
+
+test('a held lobby track still yields to the battle, and a local song pauses through its media element', async () => {
+  const { manager: a, streams, unlock } = audioHarness(); unlock();
+  a.playBgm('lobby'); await Promise.resolve(); await Promise.resolve();
+  a.setLobbyVideoAudio(true); assert.equal(a.bgm, null);
+  a.playBgm('prep'); await Promise.resolve(); await Promise.resolve();
+  assert.equal(a.bgm.loopUrl, '/prep.mp3', 'the video does not hold the prep screen');
+  a.setLobbyVideoAudio(false); assert.equal(a.bgm.loopUrl, '/prep.mp3', 'and releasing it does not restart the lobby');
+  // an imported song is a media element: it pauses in place instead of fading out
+  a.playBgm('lobby'); a.setLobbyMusic({ url: 'blob:song' });
+  assert.equal(streams.length, 1); assert.equal(streams[0].paused, false);
+  a.setLobbyVideoAudio(true); assert.equal(streams[0].paused, true, 'the local song pauses');
+  assert.equal(a.bgm.loopUrl, 'blob:song', 'and is not torn down');
+  a.setLobbyVideoAudio(false); assert.equal(streams[0].paused, false, 'and resumes');
+  a.bgm.stop();
+});
+
 test('lobby media uses existing modal management and audio bootstrap without changing battle choices', () => {
   const read = (file) => readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
   assert.match(read('public/js/main.js'), /installLobbyMusic\(\)/);
   assert.match(read('public/js/screens/lobby.js'), /title=\$\{t\('大厅背景'\)\}/);
   assert.match(read('public/js/screens/lobby.js'), /open=\$\{bgOpen\} utility=\$\{true\}/);
   assert.match(read('public/js/ui/lobbyMusic.js'), /open=\$\{open\} utility=\$\{true\}/);
+  // the video's sound hold reaches the built-in track too, not only an imported song
+  assert.match(read('public/js/ui/lobbyMusic.js'), /audio\.setLobbyVideoAudio\(videoAudio\)/);
+  assert.match(read('public/js/audio.js'), /setLobbyVideoAudio\(active\)/);
+  assert.match(read('public/js/audio.js'), /_videoHolds\(key\) \{ return this\.lobbyVideoAudio && key === 'lobby'; \}/);
 });

@@ -55,6 +55,9 @@ export function installLobbyMusic() {
   const apply = () => {
     const s = lobbyMusic.get();
     const paused = !!s.record?.paused || videoAudio;
+    // The built-in lobby BGM is not a local file, so setLobbyMusic(null) alone would leave it playing: the video's
+    // sound holds the lobby channel itself, and that hold is released as soon as it is muted, paused or removed.
+    audio.setLobbyVideoAudio(videoAudio);
     if (lastUrl === s.url && lastPaused === paused) return;
     lastUrl = s.url; lastPaused = paused;
     audio.setLobbyMusic(s.url ? { url: s.url, paused } : null);

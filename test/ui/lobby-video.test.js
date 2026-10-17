@@ -74,6 +74,13 @@ test('video sound suspends the lobby music and restores it afterwards', () => {
   assert.match(music, /audio\.setLobbyMusic\(s\.url \? \{ url: s\.url, paused \} : null\)/);
   // the video announces its audio state, and the music module is the only consumer
   assert.match(backdrop, /window\.dispatchEvent\(new CustomEvent\('sp:lobby-video-audio', \{ detail: \{ active \} \}\)/);
+  // the built-in lobby BGM has no media element to pause, so the hold has to reach AudioManager as well
+  const audio = read('public/js/audio.js');
+  assert.match(music, /audio\.setLobbyVideoAudio\(videoAudio\)/);
+  assert.match(audio, /setLobbyVideoAudio\(active\) \{/);
+  assert.match(audio, /_videoHolds\(key\) \{ return this\.lobbyVideoAudio && key === 'lobby'; \}/);
+  assert.match(audio, /if \(this\._videoHolds\(current\.key\)\) \{ \+\+this\.bgmToken; this\._fadeOutBgm\(\); \}/);
+  assert.match(audio, /if \(!next && this\.bgmKey === 'lobby'\) this\.playBgm\('lobby'\);/);
 });
 
 test('every pack carries the video strings', () => {
