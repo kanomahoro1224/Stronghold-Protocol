@@ -216,6 +216,30 @@ test('--patch 就地补 size：不动 URL/hash/version/count，只更新 sized �
   }
 });
 
+test('--resume 跳过半成品里已有的条目，不再发请求', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sp-size-'));
+  try {
+    const { manifest, out } = await fixture(root);
+    const files = [{ url: '/assets/done.png' }, { url: '/assets/todo.png' }];
+    await writeFile(manifest, JSON.stringify({ version: 1, files }));
+    // 半成品里已经有 done.png；如果脚本还去请求它，mock 会给 404 从而变成失败。
+    await writeFile(`${out}.partial`, JSON.stringify({ '/assets/done.png': 1024 }));
+    const mock = await mockR2({ sizeOf: (key) => (key === 'release/assets/done.png' ? null : 2048) });
+    try {
+      const result = await run(['--manifest', manifest, '--out', out, '--resume'], { endpoint: mock.url });
+      assert.equal(result.code, 0, result.stderr);
+      const sizes = JSON.parse(await readFile(out, 'utf8'));
+      assert.deepEqual(sizes, { '/assets/done.png': 1024, '/assets/todo.png': 2048 });
+      assert.equal(mock.state.heads, 1, '已完成的条目不应再发请求');
+      assert.match(result.stdout, /续跑跳过 1 条/);
+    } finally {
+      mock.server.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('--index 产出 resource-packs.json 形态，collectPackSizes 能据此补出站点路径的 size', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sp-size-'));
   try {

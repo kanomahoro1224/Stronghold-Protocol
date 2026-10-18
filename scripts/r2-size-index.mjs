@@ -36,6 +36,7 @@ function usage() {
     '  --patch <文件>         把取到的 size 就地写回清单副本（不动 URL/hash/version，更新 sized/totalBytes）',
     '  --concurrency <n>      并发 HEAD 数（默认 64，或 R2_TRANSFERS；上限 1024）',
     '  --attempts <n>         每个对象最多尝试次数（默认 4，上限 20）',
+    '  --resume               续跑：读回 <out>.partial 或已有输出，跳过已取到 size 的条目',
     '  --prefix <前缀>        覆盖 R2_PREFIX（对象键 = 前缀 + 清单 URL 的路径）',
     '  --limit <n>            只处理前 n 条（调试用）',
     '  --fail-list <文件>     缺失/失败清单写入 JSON',
@@ -63,6 +64,7 @@ function parseCli() {
         patch: { type: 'string' },
         concurrency: { type: 'string' },
         attempts: { type: 'string' },
+        resume: { type: 'boolean', default: false },
         prefix: { type: 'string' },
         limit: { type: 'string' },
         'fail-list': { type: 'string' },
@@ -282,20 +284,44 @@ async function main() {
   const sizes = new Map();
   const missing = [];
   const state = { done: 0, total: entries.length, missing: 0 };
+  const workers = Math.min(options.concurrency, entries.length) || 1;
+  const partialPath = `${options.out}.partial`;
   let next = 0;
   let flushFailList = Promise.resolve();
-  const workers = Math.min(options.concurrency, entries.length) || 1;
+  let flushPartial = Promise.resolve();
+  let lastPartialAt = 0;
+  // 持续高并发会被 Cloudflare 限流（成片 fetch failed、速率骤降），所以失败到一定比例就全局冷却，
+  // 冷却时间按连续坏窗口翻倍，窗口干净后归零。
+  const gate = { until: 0, cooldown: 0, window: [], printed: 0, lastPrint: 0 };
+
+  // --resume：读回上次的半成品（或已完成的输出），跳过已经拿到 size 的条目，避免被中断就得从头再来。
+  if (options.resume) {
+    for (const file of [partialPath, options.out]) {
+      try {
+        const doc = JSON.parse(await fs.readFile(file, 'utf8'));
+        for (const [url, size] of Object.entries(doc)) if (Number.isSafeInteger(size) && size >= 0) sizes.set(url, size);
+        break;
+      } catch { /* 没有半成品就从零开始 */ }
+    }
+    for (const file of entries) if (sizes.has(file.url)) state.done += 1;
+  }
 
   if (!options.quiet) {
-    console.log(`  清单 ${options.manifest}：${entries.length} 条，并发 ${workers}，前缀 ${cfg.prefix || '(空)'}`);
+    console.log(`  清单 ${options.manifest}：${entries.length} 条，并发 ${workers}，前缀 ${cfg.prefix || '(空)'}${state.done ? `，续跑跳过 ${state.done} 条` : ''}`);
   }
 
   await Promise.all(Array.from({ length: workers }, async () => {
     for (let index = next++; index < entries.length; index = next++) {
       const url = entries[index].url;
+      if (sizes.has(url)) continue;
+      const wait = gate.until - Date.now();
+      if (wait > 0) await sleep(wait);
       const key = objectKey(url, cfg.prefix);
       let result = { status: 0, size: null };
       for (let attempt = 0; attempt < options.attempts; attempt++) {
+        // 被限流时先等全局冷却，避免所有 worker 一起重试把连接再打爆一次。
+        const pause = gate.until - Date.now();
+        if (pause > 0) await sleep(pause);
         try {
           result = await headObject(cfg, key);
         } catch (error) {
@@ -304,6 +330,18 @@ async function main() {
         if (result.status === 200 || result.status === 404) break;
         if (!RETRYABLE_STATUS.has(result.status) && result.status !== 0) break;
         await sleep(backoff(attempt));
+      }
+      gate.window.push(result.status === 0 ? 1 : 0);
+      if (gate.window.length > 64) gate.window.shift();
+      if (gate.window.length >= 32) {
+        const bad = gate.window.reduce((sum, value) => sum + value, 0) / gate.window.length;
+        if (bad >= 0.25) {
+          gate.cooldown = Math.min(8000, gate.cooldown ? gate.cooldown * 2 : 500);
+          gate.until = Date.now() + gate.cooldown;
+          gate.window.length = 0;
+        } else if (bad === 0 && gate.cooldown) {
+          gate.cooldown = 0;
+        }
       }
       if (result.status === 200 && result.size != null) sizes.set(url, result.size);
       else {
@@ -316,13 +354,27 @@ async function main() {
         missing.push(failure);
         state.missing = missing.length;
         // 失败立刻报出来并落盘：长时间扫描被中断时，最后汇总的那份清单根本不会写到。
-        console.error(`  ✗ ${failure.status || '网络失败'} ${url}${failure.reason ? ` (${failure.reason})` : ''}`);
+        // 但成片失败时不能逐条刷屏，只报前几个再按时间节流，完整清单在 --fail-list 里。
+        gate.printed += 1;
+        const stamp = Date.now();
+        if (gate.printed <= 5 || stamp - gate.lastPrint > 2000) {
+          gate.lastPrint = stamp;
+          console.error(`  ✗ ${failure.status || '网络失败'} ${url}${failure.reason ? ` (${failure.reason})` : ''}${gate.printed > 5 ? `（第 ${gate.printed} 个失败，完整清单见 --fail-list）` : ''}`);
+        }
         if (options['fail-list']) flushFailList = flushFailList.then(() => fs.writeFile(options['fail-list'], `${JSON.stringify(missing, null, 2)}\n`)).catch(() => {});
       }
       state.done += 1;
       progress.report(state);
+      // 定期把半成品落盘，跑几分钟被中断也不用从头再来。
+      if (Date.now() - lastPartialAt > 3000) {
+        lastPartialAt = Date.now();
+        const snapshot = `${JSON.stringify(Object.fromEntries(sizes))}\n`;
+        flushPartial = flushPartial.then(() => fs.writeFile(partialPath, snapshot)).catch(() => {});
+      }
     }
   }));
+  await flushPartial;
+  await fs.rm(partialPath, { force: true }).catch(() => {});
   progress.report(state, true);
   progress.finish();
 
