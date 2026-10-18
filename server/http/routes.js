@@ -59,6 +59,13 @@ export function healthReport({ startedAt, network, registry, lobby, content = nu
     // it has, when it has some (a page's title screen says so; P1a)
     ...(content ? { content: { vanilla: content.cs, sets: contentSets(lobby), ...pluginCount(lobby) } } : {}),
     sockets: network.connectionCount, sessions: registry.size, ...lobby.stats(),
+    // the main thread's own footprint, sampled per request (process.memoryUsage is a few microseconds): the
+    // monitoring collector (deploy/monitoring) reads these as process_rss_bytes / main_heap_*. Not a game metric -
+    // it is the server's footprint, which is what an operator needs when a large room starts swapping.
+    memory: (() => {
+      const m = process.memoryUsage();
+      return { rss: m.rss, heapUsed: m.heapUsed, heapTotal: m.heapTotal, external: m.external, arrayBuffers: m.arrayBuffers };
+    })(),
   };
   if (trusted && Object.keys(trusted).length) report.plugins = trusted;
   if (withTraffic && traffic) report.traffic = traffic.snapshot();
