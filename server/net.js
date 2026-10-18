@@ -290,8 +290,9 @@ export function sendRaw(ws, data, { droppable = false } = {}) {
   if (!ws || ws.readyState !== WS_OPEN || typeof data !== 'string') return false;
   try {
     const queued = ws.bufferedAmount;
-    if (queued > NET_DEFAULTS.hardBufferBytes) { ws.terminate(); return false; }
-    if (droppable && queued > NET_DEFAULTS.snapDropBytes) return false;
+    // counted, not just dropped: these two numbers are what /healthz reports as the socket pressure signal
+    if (queued > NET_DEFAULTS.hardBufferBytes) { const d = socketDiagnostics.get(ws); if (d) d.slowDisconnects++; ws.terminate(); return false; }
+    if (droppable && queued > NET_DEFAULTS.snapDropBytes) { const d = socketDiagnostics.get(ws); if (d) d.droppedSnapshots++; return false; }
     ws.send(data, socketDiagnostics.get(ws)?.sent(data) || onSendDone);
     return true;
   } catch {
