@@ -55,7 +55,7 @@ Jev 使用服务端 `POST https://api.typesafe.ai/v1/systemone` 和 Bearer API k
 
 默认加载 Vocabulary 下全部 txt，含政治、色情、暴恐及其他名单，范围可能超过这些类别；普通游戏用词、人名也可能误报，需按运营规则审查词库。命中属于服务器昵称政策，不能等同违法认定；词库可能误拦、漏拦，不保证完全合规。
 
-**部署实况（2026-10-17，weishu 线上）**：`/opt/sensitive-lexicon/Vocabulary/` 原本 16 个 txt 共 51102 条，子串匹配下误杀严重（抽样里游戏内人名「阿米娅」被单字「阿」拦下）。运营已把 4 个超大通用词库移出词库目录、只留 12 个定向小词库，条目降到 3751：移出的是 `零时-Tencent.txt`（699 KB）、`非法网址.txt`（214 KB）、`网易前端过滤敏感词库.txt`（111 KB）、`GFW补充词库.txt`（88 KB），文件保存在 `/opt/sensitive-lexicon-vocabulary-removed-<时间戳>/` 可随时移回。移出后 `POST /reload` 热重载即可，不需要重启 stronghold。保留的定向词库仍拦下幼女/习近平/法轮功/台独一类词，普通游戏用词与常见人名放行。该机没有 Docker/Go/pip，因此用仓库内等价的零依赖 `lexicon_server.py` 直接跑，端口与契约同上游；词库目录被重新部署覆盖时会恢复成上游全量，需要按本条重新裁剪。
+**部署实况（2026-10-17 weishu，2026-10-18 wei/weishuxieyi）**：`/opt/sensitive-lexicon/Vocabulary/` 原本 16 个 txt 共 51102 条，子串匹配下误杀严重（抽样里游戏内人名「阿米娅」被单字「阿」拦下）。运营已把 4 个超大通用词库移出词库目录、只留 12 个定向小词库，条目降到 3751：移出的是 `零时-Tencent.txt`（699 KB）、`非法网址.txt`（214 KB）、`网易前端过滤敏感词库.txt`（111 KB）、`GFW补充词库.txt`（88 KB），文件保存在 `/opt/sensitive-lexicon-vocabulary-removed-<时间戳>/` 可随时移回。移出后 `POST /reload` 热重载即可，不需要重启 stronghold。保留的定向词库仍拦下幼女/习近平/法轮功/台独一类词，普通游戏用词与常见人名放行。三台（`weishu`/`wei`/`weishuxieyi`）现已一致：均 12 个 txt、`/health` 报 3751 条，`POST /api/name-moderation` 上「阿米娅」「鹿乃」放行、「幼女」返回 `NAME_REJECTED`，stronghold 启动时间未变（未重启）；后两台的备份目录为 `/opt/sensitive-lexicon-vocabulary-removed-20261018-150602`（weishuxieyi）与 `-20261018-150605`（wei）。该机没有 Docker/Go/pip，因此用仓库内等价的零依赖 `lexicon_server.py` 直接跑，端口与契约同上游；词库目录被重新部署覆盖时会恢复成上游全量，需要按本条重新裁剪。
 
 每个后端默认 4.5 秒服务端超时。HTTP 非成功状态、网络/超时异常、非法 JSON、contains 缺失/非布尔、审核并发/预算耗尽均静默放行；**故障和预算耗尽期间违规昵称或消息可能进入，这是优先保证可用性的取舍**。名字格式和原有 WS 消息限流不变。断线/关停、旧昵称结果不得创建或重命名会话。
 
