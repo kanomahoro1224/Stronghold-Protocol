@@ -4,6 +4,9 @@
 //   * TRUST_PROXY ('auto' default: honour CF-Connecting-IP / X-Real-IP / X-Forwarded-For only from loopback/private
 //     peers such as a local cloudflared; '1' always; '0' never) → net.js trustProxy;
 //   * DEBUG → the console logger's debug level;
+//   * SP_MAX_ROOMS, SP_MAX_ROOMS_PER_ADDR, SP_MAX_MATCHES_PER_ADDR, SP_MAX_CONNECTIONS and SP_MAX_CONNECTIONS_PER_ADDR
+//     override the room / match / socket caps (0 = unlimited for the per-network caps; junk is ignored with a warning;
+//     an explicit startServer() option still wins) — docs/DEPLOY.md §3.4;
 //   * SP_ASSET_INDEX=0 (or the `assetIndex: false` option) → no content-hash index: plain asset URLs, size-mtime ETags
 //     (assetIndex.js); the index of the default public/ persists in .cache/asset-hashes.json;
 //   * the served directories (public/, data/, shared/, the content packs' packs/ and the plugins' plugins/ of this
@@ -97,6 +100,7 @@ export function netOptionsFrom(opts) {
     if (opts[k] != null) netOptions[k] = opts[k];
   }
   if (netOptions.trustProxy == null) netOptions.trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
+  applyEnvLimits(netOptions, NET_LIMIT_ENV);
   return netOptions;
 }
 
@@ -106,7 +110,39 @@ export function lobbyOptionsFrom(opts) {
   for (const k of LOBBY_OPTION_KEYS) {
     if (opts[k] != null) lobbyOptions[k] = opts[k];
   }
+  applyEnvLimits(lobbyOptions, LOBBY_LIMIT_ENV);
   return lobbyOptions;
+}
+
+/** Socket caps that SP_MAX_CONNECTIONS / SP_MAX_CONNECTIONS_PER_ADDR may override (net.js). */
+const NET_LIMIT_ENV = [['maxConnections', 'SP_MAX_CONNECTIONS'], ['maxConnectionsPerAddr', 'SP_MAX_CONNECTIONS_PER_ADDR']];
+/** Room / match caps that SP_MAX_ROOMS / SP_MAX_ROOMS_PER_ADDR / SP_MAX_MATCHES_PER_ADDR may override (lobby.js). */
+const LOBBY_LIMIT_ENV = [['maxRooms', 'SP_MAX_ROOMS'], ['maxRoomsPerAddr', 'SP_MAX_ROOMS_PER_ADDR'], ['maxMatchesPerAddr', 'SP_MAX_MATCHES_PER_ADDR']];
+
+/**
+ * One limit out of the environment: an empty or absent value keeps `fallback`; an unusable one warns and keeps it too,
+ * because a typo must never silently drop a protection ('0' means unlimited for the per-network caps).
+ * @param {string | undefined} raw @param {number | null} fallback @param {string} name @param {any} [log]
+ * @returns {number | null}
+ */
+export function parseEnvLimit(raw, fallback, name, log = null) {
+  const s = String(raw ?? '').trim();
+  if (s === '') return fallback;
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n < 0 || n > 1_000_000) {
+    log?.warn?.(`[http] ${name}=${s} ignored: a non-negative integer is required (docs/DEPLOY.md §3.4)`);
+    return fallback;
+  }
+  return n;
+}
+
+/** Fills each cap from its SP_MAX_* variable unless an explicit startServer() option already set it. */
+function applyEnvLimits(target, table) {
+  for (const [key, envName] of table) {
+    if (target[key] != null) continue;
+    const v = parseEnvLimit(process.env[envName], null, envName);
+    if (v != null) target[key] = v;
+  }
 }
 
 /** TRUST_PROXY env → net.js trustProxy ('auto' unless explicitly on/off). @param {string | undefined} v */
