@@ -545,6 +545,25 @@ export class Network {
   get connectionCount() { return this.conns.size; }
 
   /**
+   * What the sockets are holding: total and worst send-queue bytes (ws.bufferedAmount), and how many are past the
+   * snap-drop threshold. A server that looks idle while megabytes sit queued is one slow client away from the hard
+   * limit; /healthz reports these numbers (docs/DEPLOY.md).
+   * @returns {{ sockets: number, queuedBytes: number, worstBytes: number, slowSockets: number }}
+   */
+  sendQueueStats() {
+    let queuedBytes = 0;
+    let worstBytes = 0;
+    let slowSockets = 0;
+    for (const conn of this.conns.values()) {
+      const n = Number(conn.ws?.bufferedAmount) || 0;
+      queuedBytes += n;
+      if (n > worstBytes) worstBytes = n;
+      if (n > this.opts.snapDropBytes) slowSockets++;
+    }
+    return { sockets: this.conns.size, queuedBytes, worstBytes, slowSockets };
+  }
+
+  /**
    * Upgrade-time admission check (server/http/websocket.js): null to accept, otherwise the reason to refuse.
    * @param {import('node:http').IncomingMessage} req
    * @returns {null | 'shutdown' | 'full' | 'per-address'}
