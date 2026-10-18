@@ -1075,3 +1075,28 @@ blocking `battleCheck` window. Failed grants leave the seat unpicked; auto/bot f
 and skips when none grants [ASSUMED]. Native `g.offer`/`g.offerRefresh` use plugin id, local window id, sequence and slot; `m.public.offers` is a
 reconnectable, spectator-readable snapshot. Bots resolve immediately. Sources, bounds and [ASSUMED] defaults are
 [PLUGINS §10b](PLUGINS.md#10b-offers--interaction-windows); test journals carry declarations and intents.
+
+### Match checkpoints and the persistence worker
+
+A running match can be written down and put back: the point of that is a server that restarts (a deploy, a crash)
+without asking everyone to abandon their game.
+
+- **What a checkpoint holds.** The room and phase, the round, the pool, every player's state, the battle sequence, the
+  pause accounting and each RNG stream's current state. It is a plain document, so it can be stored anywhere (a file, a
+  store, a queue) and read back by a later process.
+- **A checkpoint that does not fit is refused as a whole.** `SNAPSHOT_VERSION` and the shape of the document are checked
+  before anything is touched; a mismatch returns "cannot restore" instead of half-applying state onto a live match, which
+  is the only failure mode worse than losing the checkpoint.
+- **The RNG continues, it does not restart.** Restoring puts each stream back at the saved value, so a replayed save
+  continues the same sequence rather than re-rolling from the seed (state 0 included) — that is what makes a restored
+  match identical to the one that was saved.
+- **The work happens off the main thread.** Encoding a checkpoint is CPU work over the whole match, so `server/persist.js`
+  runs it through `server/workers/persistence.js`: the client detaches the bytes and transfers them, the worker encodes
+  and writes, and the main thread only keeps the last safe checkpoint. A capture that throws keeps the previous one, so a
+  single bad save never leaves the server without a restore point.
+- **Failure is a state, not an exception.** A store that is unreachable or a capture that fails is logged and the game
+  keeps running; the next periodic save tries again.
+
+Values that survive Maps, Sets, non-finite numbers and non-enumerable properties (hidden schedules, draft maps) are the
+reason the codec exists at all — the older JSON path lost exactly those on the way back.
+
