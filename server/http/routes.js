@@ -59,6 +59,12 @@ export function healthReport({ startedAt, network, registry, lobby, content = nu
     // it has, when it has some (a page's title screen says so; P1a)
     ...(content ? { content: { vanilla: content.cs, sets: contentSets(lobby), ...pluginCount(lobby) } } : {}),
     sockets: network.connectionCount, sessions: registry.size, ...lobby.stats(),
+    // the caps this server is actually enforcing (SP_MAX_*, docs/DEPLOY.md §3.4): a full server and a broken one must
+    // not look the same when a player reports "cannot create a room"
+    limits: {
+      rooms: lobby.opts.maxRooms, roomsPerAddr: lobby.opts.maxRoomsPerAddr, matchesPerAddr: lobby.opts.maxMatchesPerAddr,
+      connections: network.opts.maxConnections, connectionsPerAddr: network.opts.maxConnectionsPerAddr,
+    },
   };
   if (trusted && Object.keys(trusted).length) report.plugins = trusted;
   if (withTraffic && traffic) report.traffic = traffic.snapshot();
