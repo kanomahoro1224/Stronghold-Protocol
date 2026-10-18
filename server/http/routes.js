@@ -59,8 +59,6 @@ export function healthReport({ startedAt, network, registry, lobby, content = nu
     // it has, when it has some (a page's title screen says so; P1a)
     ...(content ? { content: { vanilla: content.cs, sets: contentSets(lobby), ...pluginCount(lobby) } } : {}),
     sockets: network.connectionCount, sessions: registry.size, ...lobby.stats(),
-    // bounded timing histograms + event-loop windows (server/netDiagnostics.js): counts and buckets, no per-player data
-    ...(network.diagnostics ? { diagnostics: network.diagnostics.stats() } : {}),
   };
   if (trusted && Object.keys(trusted).length) report.plugins = trusted;
   if (withTraffic && traffic) report.traffic = traffic.snapshot();
@@ -94,6 +92,13 @@ export function createRequestHandler({ serveStatic, health, log, trustProxy = 'a
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.setHeader('Allow', 'GET, HEAD');
       sendError(req, res, 405, '不支持的请求方法 · Method not allowed');
+      return;
+    }
+    if (parts.rawPath === '/metrics.websocket.diagnostics') {
+      // windowed network diagnostics (server/netDiagnostics.js): bounded histograms, event-loop windows and send
+      // samples, aggregated server-side only - counts and buckets, never an address, a message body or per-player data.
+      // They live on their own read-only endpoint so /healthz stays the small, stable probe it has always been.
+      sendJson(req, res, 200, { ok: true, diagnostics: health.network?.diagnostics ? health.network.diagnostics.stats() : null });
       return;
     }
     if (parts.rawPath === '/healthz') {

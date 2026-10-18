@@ -1,4 +1,4 @@
-// test/healthz-diagnostics.test.js — the diagnostics block on GET /healthz (server/http/routes.js).
+// test/metrics-ws-diagnostics.test.js — GET /metrics.websocket.diagnostics (server/http/routes.js).
 //
 // server/netDiagnostics.js answers "is the main thread healthy?" with bounded histograms instead of a growing sample
 // array: per-frame-type handler time, event-loop delay, and an independent 10 s window that a scrape does not reset.
@@ -12,7 +12,7 @@ import { TestClient } from './helpers/wsClient.js';
 test('an idle server reports diagnostics without any traffic', async () => {
   const srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true });
   try {
-    const body = await (await fetch(`http://127.0.0.1:${srv.port}/healthz`)).json();
+    const body = await (await fetch(`http://127.0.0.1:${srv.port}/metrics.websocket.diagnostics`)).json();
     const d = body.diagnostics;
     assert.equal(d.period, 'sinceStart');
     assert.equal(typeof d.elapsedSec, 'number');
@@ -38,7 +38,7 @@ test('a handled frame shows up as counts, per-type handler time and a p95', asyn
     // the ping is counted when the server has handled it: poll briefly instead of racing the frame
     let d = null;
     for (let i = 0; i < 40; i++) {
-      d = (await (await fetch(`http://127.0.0.1:${srv.port}/healthz`)).json()).diagnostics;
+      d = (await (await fetch(`http://127.0.0.1:${srv.port}/metrics.websocket.diagnostics`)).json()).diagnostics;
       if (d.receivedFrames >= 2) break;
       await new Promise((r) => setTimeout(r, 25));
     }
