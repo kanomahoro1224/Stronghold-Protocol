@@ -59,6 +59,13 @@ export function healthReport({ startedAt, network, registry, lobby, content = nu
     // it has, when it has some (a page's title screen says so; P1a)
     ...(content ? { content: { vanilla: content.cs, sets: contentSets(lobby), ...pluginCount(lobby) } } : {}),
     sockets: network.connectionCount, sessions: registry.size, ...lobby.stats(),
+    // the timing knobs the server is actually running with: "why does a reconnect not work?" is answered here, not
+    // by reading server/http/config.js and guessing which option won
+    tuning: {
+      reconnectWindowMs: network.opts.reconnectWindowMs, heartbeatMs: network.opts.heartbeatMs,
+      helloTimeoutMs: network.opts.helloTimeoutMs, lobbyGraceMs: lobby.opts.lobbyGraceMs,
+      resyncMinGapMs: lobby.opts.resyncMinGapMs, soloReconnectWindowMs: lobby.opts.soloReconnectWindowMs,
+    },
   };
   if (trusted && Object.keys(trusted).length) report.plugins = trusted;
   if (withTraffic && traffic) report.traffic = traffic.snapshot();
