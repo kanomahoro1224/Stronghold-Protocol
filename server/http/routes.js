@@ -59,6 +59,8 @@ export function healthReport({ startedAt, network, registry, lobby, content = nu
     // it has, when it has some (a page's title screen says so; P1a)
     ...(content ? { content: { vanilla: content.cs, sets: contentSets(lobby), ...pluginCount(lobby) } } : {}),
     sockets: network.connectionCount, sessions: registry.size, ...lobby.stats(),
+    // bounded timing histograms + event-loop windows (server/netDiagnostics.js): counts and buckets, no per-player data
+    ...(network.diagnostics ? { diagnostics: network.diagnostics.stats() } : {}),
   };
   if (trusted && Object.keys(trusted).length) report.plugins = trusted;
   if (withTraffic && traffic) report.traffic = traffic.snapshot();

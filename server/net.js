@@ -40,6 +40,7 @@
 //   onDisconnect(session)                  the session's socket closed (session kept for the reconnect window)
 //   onExpire(session)                      the session was purged (disconnected longer than the window)
 
+import { NetDiagnostics, socketDiagnostics } from './netDiagnostics.js';
 import { randomBytes } from 'node:crypto';
 import { isIP } from 'node:net';
 import { C2S, validateC2S } from '../shared/protocol.js';
@@ -101,6 +102,8 @@ export class Session {
     this.ws = null;
     /** @type {boolean} */
     this.connected = false;
+    /** @type {string | null} frame type of the frame being handled (diagnostics only) */
+    this.frameType = null;
     /** @type {number | null} local first-welcome stamp of the attached client (optional, not authentication) */
     this.claimAt = null;
     /** @type {number} ms epoch of the last inbound frame / pong */
@@ -289,7 +292,7 @@ export function sendRaw(ws, data, { droppable = false } = {}) {
     const queued = ws.bufferedAmount;
     if (queued > NET_DEFAULTS.hardBufferBytes) { ws.terminate(); return false; }
     if (droppable && queued > NET_DEFAULTS.snapDropBytes) return false;
-    ws.send(data, onSendDone);
+    ws.send(data, socketDiagnostics.get(ws)?.sent(data) || onSendDone);
     return true;
   } catch {
     return false;
@@ -529,6 +532,8 @@ export class Network {
     this.log = log;
     this.now = now;
     this.opts = { ...NET_DEFAULTS, ...options };
+    /** Bounded timing histograms + event-loop windows behind /healthz (server/netDiagnostics.js). */
+    this.diagnostics = new NetDiagnostics();
     /** @type {Map<import('ws').WebSocket, Connection>} */
     this.conns = new Map();
     /** @type {Map<string, number>} open sockets per client network key */
@@ -568,8 +573,12 @@ export class Network {
     const conn = new Connection(ws, clientAddress(req, this.opts.trustProxy), this.now(), this.opts);
     this.conns.set(ws, conn);
     if (conn.key) this.connsPerKey.set(conn.key, (this.connsPerKey.get(conn.key) || 0) + 1);
+    socketDiagnostics.set(ws, this.diagnostics);
     ws.on('message', (data, isBinary) => {
+      const start = performance.now();
+      conn.frameType = 'invalid';
       try { this.onFrame(conn, data, isBinary); } catch (e) { this.log.error('[net] frame handler crashed', e); }
+      finally { this.diagnostics.received(conn.frameType, data.length || 0, performance.now() - start); }
     });
     ws.on('pong', () => { conn.alive = true; if (conn.session && conn.session.ws === ws) conn.session.lastSeen = this.now(); });
     ws.on('error', (e) => { this.log.debug?.('[net] socket error', e?.code || e?.message); });
@@ -602,6 +611,7 @@ export class Network {
     if (isBinary) { this.reply(conn, errorMsg(ERR.BAD_MSG, undefined, 'binary frame')); return; }
     let msg;
     try { msg = JSON.parse(data.toString('utf8')); } catch { this.reply(conn, errorMsg(ERR.BAD_MSG, undefined, 'invalid json')); return; }
+    conn.frameType = msg && typeof msg === 'object' ? msg.t : 'invalid';
     const rid = msg && typeof msg === 'object' ? msg.rid : undefined;
     // Own-property check first: validateC2S alone would accept inherited keys like "constructor".
     if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.t !== 'string' || !Object.hasOwn(C2S, msg.t)) {
@@ -780,6 +790,7 @@ export class Network {
     this.closed = true;
     clearInterval(this.heartbeatTimer);
     clearInterval(this.sweepTimer);
+    this.diagnostics.close();
     for (const conn of this.conns.values()) {
       conn.close(code, reason);
       const t = setTimeout(() => { try { conn.ws.terminate(); } catch { /* ignore */ } }, 1000);
