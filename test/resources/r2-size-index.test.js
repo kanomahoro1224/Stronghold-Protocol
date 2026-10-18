@@ -9,7 +9,7 @@ import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { collectPackSizes } from '../../server/resources.js';
-import { objectKey } from '../../scripts/r2-size-index.mjs';
+import { objectKey, readKnownSizes } from '../../scripts/r2-size-index.mjs';
 
 const script = path.resolve('scripts/r2-size-index.mjs');
 
@@ -214,6 +214,14 @@ test('--patch 就地补 size：不动 URL/hash/version/count，只更新 sized �
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('readKnownSizes 三种形态都能读回（size 映射 / packs 索引 / 清单）', () => {
+  const expected = [['/a.png', 1024], ['/b.png', 2048]];
+  assert.deepEqual(readKnownSizes({ '/a.png': 1024, '/b.png': 2048 }), expected);
+  assert.deepEqual(readKnownSizes({ format: 'stronghold-resource-pack-index', version: 1, packs: [{ files: [{ url: '/a.png', size: 1024 }, { url: '/b.png', size: 2048 }] }] }), expected);
+  assert.deepEqual(readKnownSizes({ version: 'x', files: [{ url: '/a.png', size: 1024 }, { url: '/b.png' }, { url: '/b.png', size: 2048 }] }), expected);
+  assert.deepEqual(readKnownSizes(null), []);
 });
 
 test('--resume 跳过半成品里已有的条目，不再发请求', async () => {

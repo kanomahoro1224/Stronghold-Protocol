@@ -176,6 +176,24 @@ function sign(cfg, method, key, extra = {}) {
   };
 }
 
+/** 从任意一种已写出的结果里读回 [url, size]：size 映射、resource-packs 索引、或清单本身。 */
+export function readKnownSizes(doc) {
+  const pairs = [];
+  const push = (url, size) => {
+    if (typeof url === 'string' && url && Number.isSafeInteger(size) && size >= 0) pairs.push([url, size]);
+  };
+  if (doc && typeof doc === 'object') {
+    if (Array.isArray(doc.packs)) {
+      for (const pack of doc.packs) for (const file of pack?.files || []) push(file?.url, file?.size);
+    } else if (Array.isArray(doc.files)) {
+      for (const file of doc.files) push(file?.url, file?.size);
+    } else {
+      for (const [url, size] of Object.entries(doc)) push(url, size);
+    }
+  }
+  return pairs;
+}
+
 /** 清单 URL -> R2 对象键：前缀 + URL 的路径（绝对 CDN 地址和站点相对路径都适用）。 */
 export function objectKey(url, prefix) {
   let pathname;
@@ -299,7 +317,7 @@ async function main() {
     for (const file of [partialPath, options.out]) {
       try {
         const doc = JSON.parse(await fs.readFile(file, 'utf8'));
-        for (const [url, size] of Object.entries(doc)) if (Number.isSafeInteger(size) && size >= 0) sizes.set(url, size);
+        for (const [url, size] of readKnownSizes(doc)) sizes.set(url, size);
         break;
       } catch { /* 没有半成品就从零开始 */ }
     }
@@ -374,7 +392,8 @@ async function main() {
     }
   }));
   await flushPartial;
-  await fs.rm(partialPath, { force: true }).catch(() => {});
+  // 还有缺失就留着半成品（--resume 直接接着跑），全齐了才清理。
+  if (!missing.length) await fs.rm(partialPath, { force: true }).catch(() => {});
   progress.report(state, true);
   progress.finish();
 
