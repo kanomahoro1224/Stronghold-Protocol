@@ -14,8 +14,8 @@ import { listResourceFiles, collectHashes } from '../../tools/asset-hashes.mjs';
 
 import { createStaticHandler, rewriteAssetPaths } from '../../server/index.js';
 import {
-  RESOURCE_MANIFEST_FILE, RESOURCES_FORMAT, TIER_ESSENTIAL, TIER_REST, buildResourceManifest, collectResourceFiles,
-  createResourceIndex, isResourcePath, localPathFor, resourceType, tierForPath, validateResourceUrl,
+  RESOURCE_MANIFEST_FILE, RESOURCE_PACK_MANIFEST_FILE, RESOURCES_FORMAT, TIER_ESSENTIAL, TIER_REST, buildResourceManifest,
+  collectResourceFiles, createResourceIndex, isResourcePath, localPathFor, resourceType, tierForPath, validateResourceUrl,
 } from '../../server/resources.js';
 import { CUSTOM_EMOTE_ART } from '../../shared/constants.js';
 
@@ -61,8 +61,8 @@ const local = () => ({
   },
 });
 
-/** A temp install: the two manifests (plus optional asset hashes) and the files that actually exist on disk. */
-function install({ assets = manifest(), localDoc = local(), hashesDoc = null, files = [
+/** A temp install: the two manifests (plus optional asset hashes and pack index) and the files that actually exist. */
+function install({ assets = manifest(), localDoc = local(), hashesDoc = null, packsDoc = null, files = [
   'assets/char/avatar/char_002_amiya.png', 'assets/ui/battle/sprite_shadow.png', 'assets/audio/bgm/lobby_loop.mp3',
   'assets/spine/op/char_002_amiya/front/char_002_amiya.skel', 'assets/local/map/autochess/TX_D.png', 'fonts/bender-regular.woff2',
 ] } = {}) {
@@ -71,6 +71,7 @@ function install({ assets = manifest(), localDoc = local(), hashesDoc = null, fi
   if (assets) fs.writeFileSync(path.join(dataDir, 'assets.json'), JSON.stringify(assets));
   if (localDoc) fs.writeFileSync(path.join(dataDir, 'local-assets.json'), JSON.stringify(localDoc));
   if (hashesDoc) fs.writeFileSync(path.join(dataDir, 'asset-hashes.json'), JSON.stringify(hashesDoc));
+  if (packsDoc) fs.writeFileSync(path.join(dataDir, RESOURCE_PACK_MANIFEST_FILE), JSON.stringify(packsDoc));
   for (const rel of files) {
     const abs = path.join(publicDir, rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -652,4 +653,51 @@ describe('the resource index cache', () => {
   assert.notEqual(b.etag, a.etag);
   assert.notEqual(b.manifest.version, a.manifest.version);
   assert.ok(b.manifest.files.filter(f => f.url.includes('/assets/local/fx/')).every(f => f.hash === 'bbbbbbbbbbbb'));
+});
+
+describe('resource sizes published by the pack index', () => {
+  const packIndex = (files) => ({
+    format: 'stronghold-resource-pack-index', version: 1, maxBytes: 16000000,
+    packs: [{ id: 'ui-01', url: '/resource-packs/ui-01-abc123456789.zip', count: files.length, size: 1024, sha1: 'a'.repeat(40), files }],
+  });
+  const manifestOf = async (srv) => (await fetch(`http://127.0.0.1:${srv.address().port}/data/${RESOURCE_MANIFEST_FILE}`)).json();
+
+  test('a CDN-only install sizes every resource the index publishes', async (t) => {
+    const inst = install({ files: [], packsDoc: packIndex([
+      { url: '/assets/char/avatar/char_002_amiya.png', size: 4096, hash: 'aaaabbbbcccc' },
+      { url: '/assets/audio/bgm/lobby_loop.mp3', size: 2048, hash: 'ddddeeeeffff' },
+    ]) });
+    const srv = await serve(inst);
+    t.after(() => { srv.close(); inst.cleanup(); });
+    const m = await manifestOf(srv);
+    const byUrl = new Map(m.files.map((f) => [f.url, f]));
+    assert.equal(byUrl.get('/assets/char/avatar/char_002_amiya.png').size, 4096, 'the pack index knows a size the disk cannot give');
+    assert.equal(byUrl.get('/assets/audio/bgm/lobby_loop.mp3').size, 2048);
+    assert.equal(m.sized, 2, 'nothing else on this install has a size');
+    assert.equal(m.totalBytes, 6144);
+  });
+
+  test('the local file wins for a file on disk, and an indexed size survives the CDN rewrite', async (t) => {
+    const inst = install({ packsDoc: packIndex([
+      { url: '/assets/char/avatar/char_002_amiya.png', size: 999999 },
+      { url: '/assets/spine/enemy/enemy_1007_slime/enemy_1007_slime.skel', size: 777 },
+    ]) });
+    const srv = await serve(inst, 'https://cdn.example.com/static');
+    t.after(() => { srv.close(); inst.cleanup(); });
+    const m = await manifestOf(srv);
+    const byUrl = new Map(m.files.map((f) => [f.url, f]));
+    assert.equal(byUrl.get('https://cdn.example.com/static/assets/char/avatar/char_002_amiya.png').size, 'assets/char/avatar/char_002_amiya.png'.length, 'the file this install has is the truth');
+    assert.equal(byUrl.get('https://cdn.example.com/static/assets/spine/enemy/enemy_1007_slime/enemy_1007_slime.skel').size, 777, 'the index is looked up without the CDN prefix');
+  });
+
+  test('an index of another format is ignored instead of guessing sizes', async (t) => {
+    const inst = install({ files: [], packsDoc: { format: 'stronghold-resource-pack-index', version: 2, packs: [
+      { files: [{ url: '/assets/char/avatar/char_002_amiya.png', size: 4096 }] },
+    ] } });
+    const srv = await serve(inst);
+    t.after(() => { srv.close(); inst.cleanup(); });
+    const m = await manifestOf(srv);
+    assert.equal(m.sized, 0);
+    assert.equal(m.totalBytes, null, 'without a size the client reports files instead of bytes');
+  });
 });

@@ -4,7 +4,8 @@
 // entering a battle never waits on a download: the art comes from the browser cache.
 // That list needs no extra build step: it is derived from the asset manifests this server already serves, and it is
 // rewritten exactly like /data/assets.json (SP_ASSETS_CDN, docs/ASSETS.md「CDN」) — so the client preloads from the
-// CDN. Local file sizes are added when this install has the files on disk (a CDN-only install simply omits them).
+// CDN. Local file sizes are added when this install has the files on disk; a CDN-only install takes them from the
+// published pack index (`data/resource-packs.json`) instead and only omits what neither source knows.
 //
 // Every entry carries a `hash`: the client stores the files under ONE cache name and replaces a file when its hash
 // changes, so an asset update only re-downloads what really changed (docs/ASSETS.md「Preload」) instead of the whole
@@ -198,6 +199,35 @@ export function collectRealHashes(localDoc, hashesDoc) {
 }
 
 /**
+ * Resource sizes published by the optional pack index (`data/resource-packs.json`), keyed by URL path. A CDN-only
+ * install has no local files to stat, so the pack index is the only place its manifest can get sizes from.
+ * @param {any} packsDoc parsed resource-packs.json, optional
+ * @returns {Map<string, number>}
+ */
+export function collectPackSizes(packsDoc) {
+  /** @type {Map<string, number>} */
+  const map = new Map();
+  if (!packsDoc || packsDoc.format !== 'stronghold-resource-pack-index' || packsDoc.version !== 1) return map;
+  if (!Array.isArray(packsDoc.packs)) return map;
+  for (const pack of packsDoc.packs) {
+    if (!pack || !Array.isArray(pack.files)) continue;
+    for (const file of pack.files) {
+      if (!file || !validateResourceUrl(file.url) || !Number.isSafeInteger(file.size) || file.size < 0) continue;
+      const key = pathKey(file.url);
+      if (!map.has(key)) map.set(key, file.size);
+    }
+  }
+  return map;
+}
+
+/** A resource's published size, from a pack-index map keyed by site path (the CDN prefix is not part of that key). */
+function packSize(packSizes, url, cdnBase) {
+  const siteUrl = cdnBase && url.startsWith(cdnBase + '/') ? url.slice(cdnBase.length) : url;
+  const size = packSizes.get(pathKey(siteUrl));
+  return Number.isSafeInteger(size) ? size : packSizes.get(pathKey(url));
+}
+
+/**
  * The hash of every collected file: the real one when known, otherwise a synthetic value that reproduces the old rule
  * (any change to the source manifest's own hash/mtime invalidates everything of that source).
  * @param {{ url: string, source: string }[]} files
@@ -328,19 +358,27 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resource
     }));
   }
 
-  /** File sizes of the files present on disk (bounded concurrency: ~4 000 stats of a real install). */
-  async function measure(files) {
+  /**
+   * File sizes of every resource: the local file's size when this install has it on disk (bounded concurrency:
+   * ~4 000 stats of a real install), otherwise the size the pack index published for it.
+   */
+  async function measure(files, packSizes = null) {
     const sizes = new Map();
     let next = 0;
     const lanes = Math.min(24, files.length);
     await Promise.all(Array.from({ length: lanes }, async () => {
       for (let i = next++; i < files.length; i = next++) {
-        const abs = localPathFor(files[i].url, publicDir, cdnBase);
-        if (!abs) continue;
-        try {
-          const stat = await statFile(abs);
-          if (stat.isFile()) sizes.set(files[i].url, stat.size);
-        } catch { /* not on disk (CDN-only install) — the client preloads it without a size */ }
+        const url = files[i].url;
+        const abs = localPathFor(url, publicDir, cdnBase);
+        let size = null;
+        if (abs) {
+          try {
+            const stat = await statFile(abs);
+            if (stat.isFile()) size = stat.size;
+          } catch { /* not on disk (CDN-only install) — the pack index below may still know the size */ }
+        }
+        if (size == null && packSizes) size = packSize(packSizes, url, cdnBase);
+        if (Number.isSafeInteger(size) && size >= 0) sizes.set(url, size);
       }
     }));
     return sizes;
@@ -369,6 +407,8 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resource
     }
     const [assets, local, hashesDoc, fx] = await Promise.all(sources.map(readJson));
     const packsDoc = await readJson(packSource);
+    // A CDN-only install has no files to stat, so the published pack index is what gives those resources a size.
+    const packSizes = collectPackSizes(packsDoc?.doc);
     const assetsDoc = assets ? rewrite(assets.doc) : null;
     const localDoc = local || fx ? rewrite({ ...(local?.doc || {}), groups: { ...(local?.doc?.groups || {}), ...(fx?.doc?.groups || {}) } }) : null;
     // The emote art follows the same CDN rewrite as the manifest entries (the client preloads from the CDN).
@@ -399,7 +439,7 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resource
     // The version is informational now (the client keys its cache per file), but it must still change whenever the set
     // or any hash does — the settings panel and the /healthz-style diagnostics read it.
     const version = shortHash([cdnBase, ...files.map((f) => `${f.url}|${fileHashes.get(f.url)}|${f.tier}`)].join('\n'));
-    const manifest = buildResourceManifest({ files, sizes: await measure(files), version, hashes: fileHashes });
+    const manifest = buildResourceManifest({ files, sizes: await measure(files, packSizes), version, hashes: fileHashes });
     const packs = packsDoc?.doc;
     if (packs && packs.format === 'stronghold-resource-pack-index' && packs.version === 1) {
       manifest.packs = routeResourcePacks(packs.packs, cdnBase, resourcePackRoutes);

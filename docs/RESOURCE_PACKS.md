@@ -25,6 +25,9 @@ ZIP 使用 stored entries，最终 ZIP 大小（包含清单和 ZIP 开销）才
 不再对可信分包内每个资源重复 SHA-1 或 CRC。路径/顺序、ZIP stored 本地头、声明大小和整包摘要仍需通过。
 未选择的包成员仍被流式读取并纳入整包摘要，但跳过保留。这个加速仅针对部署端生成且带 HTTPS 资源包索引的分包；
 用户手动导入的通用 ZIP 仍逐文件校验 CRC、实际大小和资源摘要。
+服务端也把该索引当作清单大小的来源：素材只在 R2、本机没有文件的部署（CDN-only）按索引里的 `files[].size`
+写入 `/data/resource-manifest.json`，本机磁盘存在的文件仍以磁盘为准；两种来源都没有的资源继续不带 `size`，
+客户端对这类资源按文件数而不是字节数显示进度。
 
 ```powershell
 python tools/resource_packs.py `
