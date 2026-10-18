@@ -80,6 +80,34 @@ node scripts/sync-to-r2-http.mjs --apply --retry-file r2-failures.json
 `--concurrency` 默认 32，`--force` 不跳过、`--checksum` 额外比对本机 MD5 与远端 ETag，
 `--only assets,data` 可只同步部分前缀。凭据只留在内存，不会出现在日志或命令行里。
 
+## CDN-only 部署：为清单补齐 size
+
+素材只在 R2、部署机没有文件时，`/data/resource-manifest.json` 的条目取不到 `size`，
+资源面板会显示「大小待确认」。`scripts/r2-size-index.mjs` 按清单逐条 **HEAD** R2 对象读
+`Content-Length`（不下载正文、不写远端），产出 `data/resource-packs.json` 形态的大小索引，
+或用 `--patch` 把 size 就地写回清单副本；对象键 = `R2_PREFIX` + 清单 URL 的路径，
+地址本身已带前缀时不会重复拼接。
+
+```bash
+# 线上清单直接扫描，产出 data/resource-sizes.json（并发默认 256，或 R2_TRANSFERS）
+node --env-file=.env scripts/r2-size-index.mjs \
+  --manifest https://weishu.xiaolubao.com/data/resource-manifest.json
+# 产出可被清单构建采信的 resource-packs.json 形态
+node --env-file=.env scripts/r2-size-index.mjs --manifest data/resource-manifest.json --index \
+  --out data/resource-packs.json
+# 就地补 size（不动 URL/hash/version/count，只更新 sized 与 totalBytes），可直接上传 R2
+node --env-file=.env scripts/r2-size-index.mjs --manifest data/resource-manifest.json \
+  --patch data/resource-manifest.json
+```
+
+`--attempts`（默认 4）指数退避重试网络错误、408/425/429/5xx；404 与最终失败的对象**立刻打印**
+并计入缺失，`--fail-list` 在每条失败后增量落盘（长时间扫描被中断也留有清单）、退出码 1，
+其余条目照常写入。TTY 下进度原地刷新（条数、百分比、速率、剩余时间、缺失数），
+管道下按固定间隔打行，`--quiet` 只报失败与汇总。并发不是越大越好：实测 512 会把连接打到
+被 Cloudflare 限流（`ECONNRESET`、429），256 是稳定的上限值。
+`--index` 会同时写绝对 URL 与去前缀的站点路径两种键，因为清单 URL 可能是 CDN 绝对地址，
+而 `collectPackSizes()` 既会按站点路径查、也会按 URL 原样查；`--patch` 不能与 `--limit` 同用。
+
 ## 兼容：环境变量与已有 rclone remote
 
 先在部署机安装 `rclone`，然后创建 R2 remote：
