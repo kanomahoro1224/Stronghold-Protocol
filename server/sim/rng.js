@@ -46,8 +46,11 @@ function rngFromState(s) {
   rng.state = () => s;
   /** Independent stream at the same position, including internal state zero. */
   rng.clone = () => rngFromState(s);
+  rng.setState = (v) => { s = Number(v) >>> 0; };
   return rng;
 }
+
+export function createRngFromState(state) { return rngFromState(Number(state) >>> 0); }
 
 /** Derive a child seed deterministically (e.g. per field). */
 export function deriveSeed(seed, salt) {

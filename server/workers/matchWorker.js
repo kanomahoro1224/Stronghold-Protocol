@@ -4,7 +4,6 @@
 // lifecycle. Messages are serialized per match by the parent pool; callbacks are event messages back to the parent.
 import { parentPort } from 'node:worker_threads';
 import { getData, setData } from '../data.js';
-import { serialize } from 'node:v8';
 
 const matches = new Map();
 const quiet = { info() {}, warn() {}, error() {}, debug() {} };
@@ -28,8 +27,8 @@ const metaOf = (match) => ({
   })) : [],
 });
 
-const emit = (event, transfer = []) => {
-  try { parentPort.postMessage(event, transfer); return true; }
+const emit = (event) => {
+  try { parentPort.postMessage(event); return true; }
   catch (error) {
     // Never swallow an uncloneable command reply: answer with an error rather than timing out the whole lane.
     if (event.requestId) throw error;
@@ -41,7 +40,7 @@ const emit = (event, transfer = []) => {
 const sameOrder = (a, b) => Array.isArray(a) && a.length === b.length
   && a.every((player, i) => PLAYER_META_KEYS.every((key) => player[key] === b[i][key]));
 
-function emitWithMetadata(event, match, full = false, transfer = []) {
+function emitWithMetadata(event, match, full = false) {
   const previous = sentMetadata.get(match);
   const next = metaOf(match);
   const changes = {};
@@ -50,7 +49,7 @@ function emitWithMetadata(event, match, full = false, transfer = []) {
     changes[key] = value;
   }
   // Failed structured clones must not advance the metadata baseline.
-  if (emit({ ...event, ...(Object.keys(changes).length ? { meta: changes } : {}) }, transfer)) sentMetadata.set(match, next);
+  if (emit({ ...event, ...(Object.keys(changes).length ? { meta: changes } : {}) })) sentMetadata.set(match, next);
 }
 
 function encodeMessage(msg) {
@@ -73,16 +72,10 @@ function makeOptions(key, instanceId, input, isReady) {
   // Restore can legitimately finish a match before the parent has attached its context.
   // Its final public/result travel in ready metadata instead of premature callbacks.
   base.send = (playerId, msg, encoded) => {
-    if (!isReady()) return;
-    const json = encoded ?? encodeMessage(msg);
-    emit({ type: 'send', key, instanceId, playerId,
-      ...(json === null ? { msg, encoded: null } : { kind: msg.t, encoded: json }) });
+    if (isReady()) emit({ type: 'send', key, instanceId, playerId, msg, encoded: encoded ?? encodeMessage(msg) });
   };
   base.broadcast = (msg) => {
-    if (!isReady()) return;
-    const json = encodeMessage(msg);
-    emit({ type: 'broadcast', key, instanceId,
-      ...(json === null ? { msg, encoded: null } : { kind: msg.t, encoded: json }) });
+    if (isReady()) emit({ type: 'broadcast', key, instanceId, msg, encoded: encodeMessage(msg) });
   };
   base.onEnd = (summary) => {
     if (isReady()) emitWithMetadata({ type: 'end', key, instanceId, summary }, matchFor(key, instanceId));
@@ -99,16 +92,8 @@ function matchFor(key, instanceId) {
 async function call(key, instanceId, requestId, method, args = []) {
   const match = matchFor(key, instanceId);
   let value;
-  let transfer = [];
   if (method === 'snapshot') value = snapshotMatch(match);
   else if (method === 'capture') value = captureMatch(match);
-  else if (method === 'captureBytes') {
-    const capture = captureMatch(match);
-    // Preserve Maps/undefined and the non-enumerable schedule side channel. Complex checkpoint encoding stays
-    // in the dedicated persistence Worker. Use an owned allocation, never transfer a pooled Buffer's slab.
-    value = capture ? Uint8Array.from(serialize(capture)) : null;
-    if (value) transfer = [value.buffer];
-  }
   else if (method === 'dispose') {
     try { value = match.dispose?.(); }
     finally { matches.delete(instanceId); }
@@ -119,7 +104,7 @@ async function call(key, instanceId, requestId, method, args = []) {
     value = fn.apply(match, args);
   }
   if (value && typeof value.then === 'function') value = await value;
-  emitWithMetadata({ type: 'result', requestId, value: value && typeof value === 'object' ? value : value ?? null, key, instanceId }, match, false, transfer);
+  emitWithMetadata({ type: 'result', requestId, value: value && typeof value === 'object' ? value : value ?? null, key, instanceId }, match);
 }
 
 parentPort.on('message', async (message) => {
