@@ -43,6 +43,7 @@ import { WS_MAX_PAYLOAD, createSessionStack, attachWebSocket } from './http/webs
 import { siteCsp } from './http/csp.js';
 import { DATA_SHIM_JS, createStaticHandler } from './http/static.js';
 import { createPluginRegistry } from './plugins/registry.js';
+import { warmPluginHashes } from './plugins/hashWarm.js';
 import { computeVanillaContent } from './plugins/identity.js';
 import { createVisualSets } from './plugins/visualSet.js';
 import { createContentSets } from './plugins/contentSets.js';
@@ -109,6 +110,10 @@ export async function startServer(opts = {}) {
   // whenever their folders change
   const scriptMode = process.env.SP_PLUGIN_SCRIPTS;
   const packs = createPluginRegistry({ publicDir, dataDir, packsDir, pluginsDir }, { log, scriptHost:host, scriptMode });
+  // Hash the plugin folders off the main thread before the first scan. The scan has to stay synchronous (every
+  // accessor of the registry calls it lazily), it simply finds the hashes already in its cache - and hashFile
+  // still re-reads any file whose stat identity changed since, so this is an optimisation, never a source of truth.
+  packs.seedHashes(await warmPluginHashes({ publicDir, packsDir, pluginsDir }, { log }));
   packs.refresh(true);
   // the content hashes of the art (built in the background once listening) and the manifests served with them
   const indexOptions = assetIndexOptionsFrom(opts, publicDir);

@@ -965,6 +965,9 @@ export function createPluginRegistry(dirs, { log = { info: noop, warn: noop }, a
       if (state) applyTrust(state.plugins, { pluginsDir:dirs.pluginsDir, host:scriptHost, mode:scriptMode, log });
     },
     /** Re-read the folders now if they changed (force: even within recheckMs). */
+    /** Seed hashes computed off the main thread (server/plugins/hashWarm.js) so a scan does not have to read and
+     * hash every plugin file on this thread. hashFile still re-hashes anything whose stat identity changed. */
+    seedHashes(entries) { for (const [abs, rec] of entries || []) hashCache.set(abs, rec); },
     refresh: (force = false) => { refresh(force); },
     /**
      * Re-read the folders now even when their names, sizes and times look unchanged: a served file was found changed
