@@ -9,7 +9,7 @@
 //   * a server that cannot start exits 1 (with a hint when the port is in use); unhandled rejections and uncaught
 //     exceptions are logged, not fatal;
 //   * graceful shutdown on SIGINT/SIGTERM (rooms get room.closed{reason:'shutdown'}, sockets close 1001); a second
-//     signal exits at once, and the process exits anyway 5 s after the first.
+//     signal exits at once. The first allows up to SP_SHUTDOWN_TIMEOUT_MS (default 60 s) for final persistence;
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -82,6 +82,17 @@ export function printBanner(srv) {
 }
 
 /**
+ * How long a graceful shutdown may take before the process gives up (SP_SHUTDOWN_TIMEOUT_MS, default 60 s).
+ * Persisting the final state writes to Redis/disk, so the old hard-coded 5 s could cut a save short.
+ * @param {string | undefined} [value]
+ * @returns {number} milliseconds, clamped to a sane range
+ */
+export function shutdownTimeoutMs(value = process.env.SP_SHUTDOWN_TIMEOUT_MS) {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n >= 1000 && n <= 300_000 ? n : 60_000;
+}
+
+/**
  * The process main: finish a pending update package, start the server, print the banner, stop gracefully on SIGINT /
  * SIGTERM.
  * @param {() => Promise<{ url: string, host: string, port: number, close: () => Promise<void> }>} start index.js startServer
@@ -107,7 +118,10 @@ export async function runMain(start) {
     if (stopping) { console.log('forced exit'); process.exit(1); }
     stopping = true;
     console.log(`\n[${signal}] shutting down…`);
-    setTimeout(() => process.exit(0), 5000).unref();
+    setTimeout(() => {
+      console.error('[shutdown] timeout before graceful close completed; final state may not have been saved');
+      process.exit(1);
+    }, shutdownTimeoutMs()).unref();
     srv.close().then(() => process.exit(0), () => process.exit(1));
   };
   process.on('SIGINT', () => stop('SIGINT'));
