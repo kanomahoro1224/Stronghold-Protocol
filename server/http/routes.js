@@ -48,7 +48,7 @@ function contentSets(lobby) {
  *   content: the server's vanilla content (server/plugins/identity.js)
  * @param {boolean} [withTraffic]
  */
-export function healthReport({ startedAt, network, registry, lobby, content = null, traffic, assetIndex, views, trusted }, withTraffic = false) {
+export function healthReport({ startedAt, network, registry, lobby, content = null, traffic, assetIndex, views, trusted }, withTraffic = false, counters = null) {
   const report = {
     ok: true, version: PROTOCOL_VERSION, app: APP_VERSION, uptimeSec: Math.round((Date.now() - startedAt) / 1000),
     // the runtime the server is serving right now (public/js/ui/buildGuard.js): a page whose own build is
@@ -58,7 +58,7 @@ export function healthReport({ startedAt, network, registry, lobby, content = nu
     // hold now (P1c, §32.6 — a room's cosmetic plugins leave its cs the vanilla one, §32.3); how many unofficial plugins
     // it has, when it has some (a page's title screen says so; P1a)
     ...(content ? { content: { vanilla: content.cs, sets: contentSets(lobby), ...pluginCount(lobby) } } : {}),
-    sockets: network.connectionCount, sessions: registry.size, ...lobby.stats(),
+    sockets: network.connectionCount, sessions: registry.size, ...(counters ?? lobby.stats()),
     // the main thread's own footprint, sampled per request (process.memoryUsage is a few microseconds): the
     // monitoring collector (deploy/monitoring) reads these as process_rss_bytes / main_heap_*. Not a game metric -
     // it is the server's footprint, which is what an operator needs when a large room starts swapping.
@@ -72,6 +72,33 @@ export function healthReport({ startedAt, network, registry, lobby, content = nu
   // content-hashed asset URLs (assetIndex.js / assetViews.js): off, building, or ready with how many files and URLs
   if (withTraffic) report.assetHashes = assetIndex ? { ...assetIndex.stats(), views: views ? views.stats() : null } : null;
   return report;
+}
+
+/**
+ * One bounded per-server health body, so a probe storm does not rebuild the lobby counters every time.
+ * The cached part is only `lobby.stats()` (a walk over rooms/seats); sockets, sessions, uptime and build stay current,
+ * room topology changes invalidate it immediately, and anything else refreshes within maxAgeMs (default 1 s).
+ * @param {{ lobby: { rooms: Map<string, unknown>, stats: () => object } }} health
+ * @param {{ now?: () => number, maxAgeMs?: number }} [opts]
+ * @returns {() => object} a function returning a fresh report
+ */
+export function createHealthBody(health, { now = Date.now, maxAgeMs = 1000 } = {}) {
+  const { lobby } = health;
+  // a caller (or test) that only needs a report, not the cache, may pass a lobby without rooms: stay live then
+  if (!lobby?.rooms || typeof lobby.stats !== 'function') return () => healthReport(health, false);
+  let counters = null;
+  let expiresAt = -Infinity;
+  let roomCount = -1;
+  return () => {
+    const at = now();
+    const rooms = lobby.rooms.size;
+    if (!counters || at >= expiresAt || rooms !== roomCount) {
+      counters = lobby.stats();
+      expiresAt = at + maxAgeMs;
+      roomCount = rooms;
+    }
+    return healthReport(health, false, counters);
+  };
 }
 
 /** Does the query ask for the traffic counters (`traffic`, `traffic=1`, `traffic=true`)? */
@@ -103,11 +130,15 @@ export function createRequestHandler({ serveStatic, health, log, trustProxy = 'a
     }
     if (parts.rawPath === '/healthz') {
       const withTraffic = wantsTraffic(parts.query) && isLocalIp(clientAddress(req, trustProxy).ip);
-      sendJson(req, res, 200, healthReport(health, withTraffic));
+      sendJson(req, res, 200, withTraffic ? healthReport(health, true) : healthBody());
       return;
     }
     await serveStatic(req, res, parts.rawPath, parts.query);
   }
+
+  // the plain probe (the common case: buildGuard polls it every 60 s, monitors every 10 s) reuses a cached counters
+  // snapshot; ?traffic=1 is an explicit, rare request and always builds a live report
+  const healthBody = createHealthBody(health);
 
   return (req, res) => {
     setSecurityHeaders(res);
