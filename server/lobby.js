@@ -28,7 +28,7 @@
 //     the lobby then broadcasts room.state and, in a match, calls match.onReconnect(playerId).
 //     Solo runs (下半: "休整期及机变阶段没有时间限制…24小时内随时返回", research 01 §1 / 06 §17): a session that drops
 //     while its solo room's match runs stays resumable for the official `config.constants.singleReconnectTime`
-//     (86400 s; option `soloReconnectWindowMs` overrides it) instead of the 10-minute window — the untimed solo match
+//     (6 h by default; option `soloReconnectWindowMs` overrides it) instead of the 10-minute window — the untimed solo match
 //     simply waits (net.js session.resumeWindowMs, set at every disconnect). Only after that does expiry turn into
 //     match.onLeave ('abandoned'). The extension outlives the match, so a run that ended meanwhile (e.g. a server-run
 //     Final Assault) still shows its result on the player's return.
@@ -185,11 +185,11 @@ export const LOBBY_DEFAULTS = Object.freeze({
   maxRoomsPerAddr: 16,    // rooms created from one client network that may exist at once (0 = unlimited)
   maxMatchesPerAddr: 8,   // matches started from one client network that may run at once (0 = unlimited)
   resyncMinGapMs: 1000,   // heavy resyncs (match state / result replay) per session at most this often on repeated hellos
-  soloReconnectWindowMs: null, // a dropped solo run stays resumable this long (null = data singleReconnectTime, 24 h)
+  soloReconnectWindowMs: 6 * 60 * 60_000, // reclaim a dropped solo run after 6 h (null = data singleReconnectTime)
 });
 
-/** Official `singleReconnectTime` (s) when the data lacks it (constData, research 01 §1). */
-export const SOLO_RECONNECT_FALLBACK_SEC = 86_400;
+/** Solo retention (s) when neither the option nor the data gives one. */
+export const SOLO_RECONNECT_FALLBACK_SEC = 6 * 60 * 60;
 
 /** Display names for AI teammates (the tutorial NPCs first, then a few familiar faces). */
 export const BOT_NAMES = Object.freeze(['AI·华法琳', 'AI·阿米娅', 'AI·惊蛰', 'AI·杜宾', 'AI·凯尔希', 'AI·可露希尔']); // i18n-ignore: player names (docs/I18N.md)
@@ -1664,7 +1664,7 @@ export class Lobby {
     try { return this.getData(); } catch (e) { this.log.error('[lobby] getData failed', e); return Object.freeze({}); }
   }
 
-  /** How long a dropped solo run stays resumable (ms): the option, else data singleReconnectTime, else 24 h. */
+  /** How long a dropped solo run stays resumable (ms): the option, else data singleReconnectTime, else 6 h. */
   soloResumeWindowMs() {
     const o = this.opts.soloReconnectWindowMs;
     if (typeof o === 'number' && Number.isFinite(o) && o > 0) return o;
