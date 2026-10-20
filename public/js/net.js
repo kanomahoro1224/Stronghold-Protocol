@@ -1,6 +1,6 @@
 // WebSocket client for the game server (DESIGN §8).
 //
-// - One socket at ws(s)://<host>/ws, JSON text frames `{ t, ...payload }`.
+// - One socket at SP_WS_URL or ws(s)://<host>/ws, JSON text frames `{ t, ...payload }`.
 // - Auto-reconnect with exponential backoff + jitter; a heartbeat (`ping`) measures latency and
 //   detects dead sockets (a ping left unanswered — no inbound frame at all — for DEAD_AFTER_MS ⇒
 //   close ⇒ reconnect). Measured from the oldest unanswered ping, not from the last inbound frame,
@@ -34,6 +34,7 @@ import { PROTOCOL_VERSION, ERR_TEXT } from '../../shared/constants.js';
 import { validateC2S } from '../../shared/protocol.js';
 import { N_ } from '../../shared/i18n.js';
 import { StateReceiver, STATE_DELTA_VERSION } from '../../shared/stateDelta.js';
+import { WS_URL } from './ws-config.js';
 
 export const REQUEST_TIMEOUT_MS = 8000;
 export const HELLO_TIMEOUT_MS = 8000;
@@ -97,11 +98,13 @@ export function backoffDelay(attempt, rand = Math.random) {
 }
 
 /**
- * WebSocket URL for the current page (`ws(s)://host/ws`).
+ * Runtime WebSocket endpoint, falling back to the current page (`ws(s)://host/ws`).
  * @param {{protocol: string, host: string}} [loc]
+ * @param {string} [configuredUrl]
  * @returns {string}
  */
-export function defaultWsUrl(loc = globalThis.location) {
+export function defaultWsUrl(loc = globalThis.location, configuredUrl = WS_URL) {
+  if (configuredUrl) return configuredUrl;
   if (!loc || !loc.host) return 'ws://localhost:3000/ws';
   return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/ws`;
 }
@@ -116,7 +119,7 @@ const NAME_REVIEW_ERRORS = new Set(['NAME_REJECTED', 'NAME_REVIEW_UNAVAILABLE', 
 export class Net {
   /**
    * @param {object} [opts]
-   * @param {string} [opts.url] socket URL (default: derived from location at connect time)
+   * @param {string} [opts.url] socket URL (default: SP_WS_URL, then location at connect time)
    * @param {any} [opts.WebSocket] WebSocket constructor (default: globalThis.WebSocket)
    * @param {() => (string|null)} [opts.getToken] reconnect-token provider for `hello`
    * @param {() => ({ noReplace: boolean, claimAt?: number })} [opts.getTokenClaim] local ownership for this hello

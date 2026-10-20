@@ -317,6 +317,17 @@ server {
 
 https / wss 说明：页面通过 https 打开时客户端自动连接 `wss://同一域名/ws`；http 时用 `ws://`。服务器本身只提供 http，证书由代理 / 隧道负责。代理与服务器在同一台机器或内网时，`TRUST_PROXY=auto` 会信任它的 `X-Forwarded-For` / `X-Real-IP`；代理在公网另一台机器上时设 `TRUST_PROXY=1`（同时确保游戏端口只对代理开放）。
 
+**指定 WebSocket 后端：** 在提供页面的 Node 服务上设置 `SP_WS_URL`，例如 PowerShell：
+
+```powershell
+$env:SP_WS_URL = 'wss://game.example.com/ws'
+npm start
+```
+
+填写浏览器可访问的完整 `ws://` 或 `wss://` 地址（包含实际路径和端口，例如 `ws://192.168.1.10:3000/ws`）。HTTPS 页面应配置 `wss://`。目标后端或代理须支持该路径的 WebSocket 升级。未设置或留空时仍连接当前页面域名的 `/ws`；非法地址会在启动时警告并回退默认地址。程序调用可传 `startServer({ wsUrl: 'wss://game.example.com/ws' })`，显式空字符串可覆盖环境变量。
+
+配置通过 `/js/ws-config.js` 运行时下发，首次部署此功能需重新构建客户端并重启服务；之后修改地址只需重启服务并刷新页面。首次连接和自动重连均使用同一配置。纯静态托管时可直接修改 `public/js/ws-config.js` 中的 `WS_URL`，并将该文件部署到 `/js/ws-config.js`。此项仅切换 WebSocket，HTTP 数据、素材及插件等仍按各自原有地址加载；页面与后端须使用兼容版本及内容集。
+
 ### 2.5 本分支素材管理
 
 标题页统一使用本分支预载资源面板；不提供上游“下载完整素材”、“导入素材包”或 `tools/package.mjs --assets`。
