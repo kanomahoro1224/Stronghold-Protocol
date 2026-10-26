@@ -1,3 +1,4 @@
+import { BackgroundClient } from '../workers/backgroundClient.js';
 // server/http/static.js — the static file server (routes.js hands it every GET / HEAD that is not an API route):
 // (i18n-ignore-file: the error pages are bilingual by design, 中文 · English — docs/I18N.md)
 //
@@ -101,7 +102,7 @@ const CS_FILE = /^\/cs\/([0-9a-f]{16})\/([A-Za-z0-9._\/-]{1,200})$/;
  *   packs: the server pack registry; runtime CDN and Vite behavior remain branch-owned.
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, rawPath: string, query: string) => Promise<void>}
  */
-export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), packsDir = path.join(ROOT, 'packs'), pluginsDir = path.join(path.dirname(path.resolve(packsDir)), 'plugins'), packs = null, content = null, visual = null, contents = null, log = noopLog, cdnBase = '', dataCdnBase = '', resourcePackRoutes = [], clientBuild = true }) {
+export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), packsDir = path.join(ROOT, 'packs'), pluginsDir = path.join(path.dirname(path.resolve(packsDir)), 'plugins'), packs = null, content = null, visual = null, contents = null, log = noopLog, cdnBase = '', dataCdnBase = '', wsUrl = '', resourcePackRoutes = [], clientBuild = true }) {
   const registry = packs || createPluginRegistry({ publicDir, dataDir, packsDir, pluginsDir }, { log: /** @type {any} */ (log) });
   const cdn = typeof cdnBase === 'string' ? cdnBase : '';
   const builtIndex = path.join(publicDir, 'build', 'index.html');
@@ -110,6 +111,8 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
   const resources = createResourceIndex({ dataDir, publicDir, cdnBase: cdn, resourcePackRoutes, rewrite: (v) => (cdn ? rewriteAssetPaths(v, cdn) : v), log });
   /** @type {Map<string, { mtimeMs: number, size: number, body: Buffer }>} rewritten manifests (per file path) */
   const cdnCache = new Map();
+  const cdnPending = new Map();
+  const manifestEncoder = new BackgroundClient(new URL('../workers/manifestEncode.js', import.meta.url));
   const sets = visual || (typeof registry.pluginFile === 'function' ? createVisualSets({ registry, log }) : null);
   let vanilla = content;
   const vanillaContent = () => (vanilla ||= computeVanillaContent({ simDir, sharedDir, dataDir, shim: DATA_SHIM_JS, log: /** @type {any} */ (log) }));
@@ -134,6 +137,8 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
   // A small runtime module supplies the base before client data/asset loaders run; no separate config fetch needed.
   const cdnConfigBody = Buffer.from(`export const ASSETS_CDN = ${JSON.stringify(cdn)};\nexport const DATA_CDN = ${JSON.stringify(dataCdnBase)};\n`);
   const cdnConfigTag = `"asset-cdn-${createHash('sha256').update(cdnConfigBody).digest('hex')}"`;
+  const wsConfigBody = Buffer.from(`export const WS_URL = ${JSON.stringify(wsUrl)};\n`);
+  const wsConfigTag = `"ws-config-${createHash('sha256').update(wsConfigBody).digest('hex')}"`;
 
   const serveStatic = async function (req, res, rawPath, query) {
     let decoded;
@@ -144,6 +149,14 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
     }
     if (useBuiltClient && (decoded === '/' || decoded === '/index.html')) {
       await serveFile(req, res, builtIndex, await fsp.stat(builtIndex), 'public', ['build', 'index.html'], query, gzipCache, log);
+      return;
+    }
+    if (decoded === '/js/ws-config.js') {
+      const headers = { 'Content-Type': MIME['.js'], 'Cache-Control': 'no-cache', ETag: wsConfigTag };
+      if (isNotModified(req, wsConfigTag, new Date(0))) { res.writeHead(304, headers); res.end(); return; }
+      headers['Content-Length'] = wsConfigBody.length;
+      res.writeHead(200, headers);
+      res.end(req.method === 'HEAD' ? undefined : wsConfigBody);
       return;
     }
     // The runtime CDN setting is served by the game origin, independent of the data CDN.
@@ -358,11 +371,19 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
     // assets CDN: the manifests are rewritten on the way out, so every client keeps requesting /data/assets.json
     if (cdn && mount.name === 'data' && segments.length === 1 && CDN_MANIFESTS.has(segments[0].toLowerCase())) {
       const cached = cdnCache.get(absPath);
-      let body = cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size ? cached.body : null;
+      let body = cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size
+        && cached.ctimeMs === stat.ctimeMs && cached.ino === stat.ino ? cached.body : null;
       if (!body) {
         try {
-          body = Buffer.from(JSON.stringify(rewriteAssetPaths(JSON.parse(fs.readFileSync(absPath, 'utf8')), cdn)));
-          cdnCache.set(absPath, { mtimeMs: stat.mtimeMs, size: stat.size, body });
+          const identity = `${absPath}:${stat.mtimeMs}:${stat.size}:${stat.ctimeMs}:${stat.ino}`;
+          let pending = cdnPending.get(identity);
+          if (!pending) {
+            pending = manifestEncoder.request({ file: absPath, cdn }).then((bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+              .finally(() => cdnPending.delete(identity));
+            cdnPending.set(identity, pending);
+          }
+          body = await pending;
+          cdnCache.set(absPath, { mtimeMs: stat.mtimeMs, size: stat.size, ctimeMs: stat.ctimeMs, ino: stat.ino, body });
         } catch (e) {
           log.error(`[http] cannot rewrite ${segments[0]} for the CDN`, e);
           sendError(req, res, 500, '服务器内部错误 · Internal error');
@@ -374,6 +395,7 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
     }
     await serveFile(req, res, absPath, stat, mount.name, segments, query, gzipCache, log);
   };
+  serveStatic.close = () => manifestEncoder.close();
   serveStatic.cacheStats = () => ({ gzipBytes: gzipCache.total, gzipEntries: gzipCache.map.size, gzipLimitBytes: gzipCache.maxTotal, gzipInflight: gzipCache.inflight.size });
   return serveStatic;
 }

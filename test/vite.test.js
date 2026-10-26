@@ -25,7 +25,7 @@ before(async () => {
   await build({ configFile: path.join(root, 'vite.config.js'), logLevel: 'silent', build: { outDir } });
   manifest = JSON.parse(await fs.readFile(path.join(outDir, '.vite/manifest.json'), 'utf8'));
   const handler = createStaticHandler({ publicDir, dataDir: path.join(root, 'data'), sharedDir: path.join(root, 'shared'),
-    cdnBase: 'https://art.example.com/game', dataCdnBase: 'https://data.example.com/game' });
+    cdnBase: 'https://art.example.com/game', dataCdnBase: 'https://data.example.com/game', wsUrl: 'wss://backend.example.com/ws' });
   server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     handler(req, res, url.pathname, url.search.slice(1)).catch((err) => { res.statusCode = 500; res.end(String(err)); });
@@ -38,12 +38,23 @@ after(async () => {
   if (temp) await fs.rm(temp, { recursive: true, force: true });
 });
 
+test('built client keeps the WebSocket endpoint as an external runtime setting', async () => {
+  const entry = await fs.readFile(path.join(outDir, manifest['index.html'].file), 'utf8');
+  assert.match(entry, /["']\/js\/ws-config\.js["']/);
+  const response = await fetch(`${origin}/js/ws-config.js`);
+  assert.equal(response.headers.get('cache-control'), 'no-cache');
+  const runtime = await import('data:text/javascript,' + encodeURIComponent(await response.text()));
+  assert.equal(runtime.WS_URL, 'wss://backend.example.com/ws');
+});
+
 test('management density overrides are bundled after touch rules without bypassing mandatory landscape', async () => {
   const cssFiles = manifest['index.html'].css || [];
   assert.ok(cssFiles.length);
   const css = (await Promise.all(cssFiles.map((file) => fs.readFile(path.join(outDir, file), 'utf8')))).join('\n');
   assert.match(css, /\.modal--utility/);
-  assert.match(css, /--utility-text:\s*max\(var\(--t\),\s*64px\)/);
+  assert.match(css, /--ui-unit:\s*var\(--sp-ui-unit,\s*1rem\)/);
+  assert.match(css, /--utility-text:\s*calc\(var\(--t\)\s*\*\s*var\(--sp-ui-scale,\s*1\)\)/);
+  assert.doesNotMatch(css, /--utility-text:\s*max\(var\(--t\),\s*64px\)/);
   assert.match(css, /\.sp-rotatable \.rotate-hint\s*\{\s*display:\s*grid/);
   assert.doesNotMatch(css, /\.sp-rotatable:(?:not|is)\(/);
   assert.match(css, /data-viewport-docked/);
@@ -52,8 +63,8 @@ test('management density overrides are bundled after touch rules without bypassi
   assert.match(css, /\.room-screen--coop/);
   assert.match(css, /\.room-topbar__tools/);
   assert.match(css, /grid-template-areas:[^;}]*controls title invite/);
-  assert.ok(css.lastIndexOf('.settings-modal .set-row--fps') > css.indexOf('.set-row--fps'),
-    'compact overrides follow original settings styles');
+  assert.ok(css.lastIndexOf('.settings-modal .set-seg--fps button') > css.indexOf('.set-row--fps'),
+    'local-unit overrides follow original settings and coarse-pointer styles');
   assert.ok(css.lastIndexOf('.combat-metrics__body') > css.indexOf('.combat-metrics__body'),
     'compact scroll override follows short-screen fallback');
 });

@@ -33,7 +33,7 @@ import http from 'node:http';
 import { nameModerationFromEnv } from './nameModeration.js';
 import { createNameModerationRoute } from './http/nameModeration.js';
 import path from 'node:path';
-import { parseAssetCdn, parseEnvLimit, parseWsCompression } from './http/config.js';
+import { parseAssetCdn, parseEnvLimit, parseWsCompression, parseWsUrl } from './http/config.js';
 import { openStoreFromEnv } from './redis.js';
 import { Persister, restoreServer, SAVE_MS } from './persist.js';
 import { SimulationPool, workerSettings } from './workers/pool.js';
@@ -83,11 +83,11 @@ export {
  *   MatchClass?: Function, seedFn?: () => number,
  *   lobbyGraceMs?: number, matchmakingTickMs?: number, reconnectWindowMs?: number, heartbeatMs?: number, helloTimeoutMs?: number,
  *   ratePerSec?: number, rateBurst?: number, maxConnections?: number, maxRooms?: number,
- *   maxConnectionsPerAddr?: number, maxRoomsPerAddr?: number, maxMatchesPerAddr?: number, resyncMinGapMs?: number,
+ *   maxConnectionsPerAddr?: number, maxPendingConnections?: number, maxRoomsPerAddr?: number, maxMatchesPerAddr?: number, resyncMinGapMs?: number,
  *   heavyPerSec?: number, heavyBurst?: number, trustProxy?: 'auto' | boolean, soloReconnectWindowMs?: number,
  *   store?: object | null, resume?: boolean, saveMs?: number, assetsCdn?: string, dataCdn?: string, resourcePackRoutes?: string[] | string, studio?: boolean, matchHost?: object,
  *   workers?: number, roomWorkers?: number, matchWorkers?: number, workerQueue?: number, workerTimeoutMs?: number, workerPool?: SimulationPool | null,
- *   announcementsFile?: string | null, announcementPollMs?: number, wsCompression?: boolean, clientBuild?: boolean,
+ *   announcementsFile?: string | null, announcementPollMs?: number, wsCompression?: boolean, wsUrl?: string, clientBuild?: boolean,
  * }} [opts]
  * @returns {Promise<{ port: number, host: string, url: string, server: http.Server, wss: import('ws').WebSocketServer,
  *                     lobby: import('./lobby.js').Lobby, network: import('./net.js').Network,
@@ -102,6 +102,11 @@ export async function startServer(opts = {}) {
   const simDir = path.join(ROOT, 'server', 'sim');
 
   const clientBuild = opts.clientBuild ?? !process.argv.includes('--source-client');
+  const rawWsUrl = opts.wsUrl ?? process.env.SP_WS_URL;
+  const wsUrl = parseWsUrl(rawWsUrl);
+  if (String(rawWsUrl ?? '').trim() && !wsUrl) {
+    log.warn('[http] SP_WS_URL ignored: a complete ws(s):// URL without credentials or fragments is required (docs/DEPLOY.md)');
+  }
   const resourcePackRoutes = parseResourcePackRoutes(opts.resourcePackRoutes ?? process.env.SP_RESOURCE_PACK_ROUTES);
   // assets CDN: a serving-time rewrite of the two manifests (docs/DEPLOY.md §3.2)
   const rawCdn = opts.assetsCdn != null ? opts.assetsCdn : (process.env.SP_ASSETS_CDN ?? process.env.ASSETS_CDN);
@@ -127,8 +132,8 @@ export async function startServer(opts = {}) {
   // language packs and plugins (docs/PACKS.md, docs/PLUGINS.md): scanned now — the start log names them — and again
   // whenever their folders change
   const scriptMode = process.env.SP_PLUGIN_SCRIPTS;
-  const packs = createPluginRegistry({ publicDir, dataDir, packsDir, pluginsDir }, { log, scriptHost:host, scriptMode });
-  packs.refresh(true);
+  const packs = createPluginRegistry({ publicDir, dataDir, packsDir, pluginsDir }, { log, scriptHost:host, scriptMode, background: true });
+  await packs.refresh(true);
   // the visual sets of the cosmetic plugins (DESIGN §32 P1a): what a room's host switches on, served at /vs/ and /p/
   const visual = createVisualSets({ registry: packs, log });
   // the server owner's policy (plugins/config.json), the content sets of the gameplay plugins (served at /cs/<cs16>/…),
@@ -204,7 +209,7 @@ export async function startServer(opts = {}) {
   const serveNameReview = createNameModerationRoute({ moderation: nameModeration, trustProxy: network.opts.trustProxy });
   const serveApi = async (req, res, pathname) => await serveNameReview(req, res, pathname) || await servePublicApi(req, res, pathname);
 
-  const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, simDir, packsDir, pluginsDir, packs, content, log, visual, contents, cdnBase: assetsCdn, dataCdnBase: dataCdn, resourcePackRoutes, clientBuild });
+  const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, simDir, packsDir, pluginsDir, packs, content, log, visual, contents, cdnBase: assetsCdn, dataCdnBase: dataCdn, wsUrl, resourcePackRoutes, clientBuild });
   // the plugin studio (DESIGN §32.9): its page and API for this machine and the local network; it watches plugins/ only
   // once it is used (hot reload), and rooms whose host is the author or alone follow a plugin's changes by themselves
   const studio = opts.studio === false ? null : createStudio({ publicDir, pluginsDir, dataDir, registry: packs, lobby, sessions: registry, log, fetch: opts.fetch });
@@ -253,7 +258,7 @@ export async function startServer(opts = {}) {
     // Check the kernel's address too: aliases/DNS and bind fallback cannot weaken the owner gate.
     const actual = server.address();
     const scriptHost = actual && typeof actual === 'object' ? actual.address : '';
-    packs.setScriptHost(scriptHost);
+    await packs.setScriptHost(scriptHost);
     if (!trustedHostAllowed(scriptHost, scriptMode)) {
       lobby.trustedRuntime = null;
       await trustedRuntime?.close();
@@ -268,6 +273,8 @@ export async function startServer(opts = {}) {
     if (ownsWorkerPool) await workerPool?.close();
     if (ownsMatchWorkerPool) await matchWorkerPool?.close();
     studio?.close();
+    await packs.close();
+    await serveStatic.close?.();
     await trustedRuntime?.close();
     throw e;
   }
@@ -298,6 +305,8 @@ export async function startServer(opts = {}) {
       if (ownsWorkerPool) await workerPool?.close();
       if (ownsMatchWorkerPool) await matchWorkerPool?.close();
       studio?.close();
+      await packs.close();
+      await serveStatic.close?.();
       await trustedRuntime?.close();
       await new Promise((resolve) => {
         server.close(() => resolve());
