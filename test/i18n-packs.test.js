@@ -142,8 +142,16 @@ test('the server: GET /packs/index.json lists the packs live, GET /packs/<id>/<f
     assert.equal(raw, 404);
     assert.equal((await get('/i18n/qaa.json')).status, 200, 'a single-file pack: the language folder');
     put(root, 'public/i18n/qag.json', { 开始: 'G' });
-    await new Promise((r) => setTimeout(r, 1100)); // the registry looks again after a second
-    assert.ok((await (await get('/packs/index.json')).json()).packs.some((p) => p.id === 'qag'), 'a dropped pack shows on the next request');
+    // The scan runs on a background thread (server/workers/pluginScan.js), so a dropped pack reaches the index a
+    // little after the folders change: the first request kicks the scan off, a later one sees its snapshot.
+    const hasQag = async () => (await (await get('/packs/index.json')).json()).packs.some((p) => p.id === 'qag');
+    const deadline = Date.now() + 8000;
+    let seen = false;
+    while (!seen && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 250));
+      seen = await hasQag();
+    }
+    assert.ok(seen, 'a dropped pack shows on a later request');
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });

@@ -65,7 +65,10 @@ test('the renderer swaps the photo div for a looping muted video element', () =>
   assert.match(backdrop, /t\('视频处理中…'\)/);
   // blur/dim still apply to a video backdrop
   assert.match(backdrop, /style=\$\{\{ filter: `blur\(\$\{pref\.blur\}px\)` \}\}/);
-  assert.match(css, /\.hub-bg__video \{ position: absolute; inset: -32px;/);
+  // the ui-unit (1920x1080 design unit) conversion of the old -32px bleed: 0.32 * var(--ui-unit, 1rem)
+  assert.match(css, /\.hub-bg__video \{ position: absolute; inset: calc\(-0\.32 \* var\(--ui-unit, 1rem\)\);/);
+  assert.match(css, /\.hub-bg__video \{[^}]*width: calc\(100% \+ 0\.64 \* var\(--ui-unit, 1rem\)\);/);
+  assert.match(css, /\.hub-bg__video \{[^}]*height: calc\(100% \+ 0\.64 \* var\(--ui-unit, 1rem\)\);/);
 });
 
 test('video sound suspends the lobby music and restores it afterwards', () => {
