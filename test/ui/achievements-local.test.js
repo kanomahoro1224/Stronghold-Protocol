@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import postcss from 'postcss';
 import { achievementStats, bondOperators, recordBonds, ACHIEVEMENTS, ACHIEVEMENT_GROUPS } from '../../public/js/ui/achievementModel.js';
-import { AchievementView, AchievementEntryView, AchievementMark } from '../../public/js/ui/achievements.js';
+import { AchievementView, AchievementMark } from '../../public/js/ui/achievements.js';
 import {
   STATS_VERSION, FULL_KEEP, MAX_RECORDS, MAX_CHARS, buildRecord, compactRecord, normalizeRecord,
   emptyStats, loadStats, saveStats, subscribeStats, exportStats, importStats, aggregateStats, fitToBudget,
@@ -219,33 +219,33 @@ function* walk(v) {
 const text = (v) => v == null || typeof v === 'boolean' ? '' : typeof v !== 'object' ? String(v)
   : Array.isArray(v) ? v.map(text).join('') : text(v.props?.children);
 
-test('the local view uses the reference panel/header, preserves empty/newer states and links to existing stats', () => {
+test('the local view uses the upstream .achv Modal shell, preserves empty/newer states and links to existing stats', () => {
   const s = achievementStats([]);
-  let opened = 0;
-  const entry = AchievementEntryView({ s, onOpen: () => opened++ });
-  entry.props.onClick();
-  assert.equal(opened, 1);
-  assert.match(text(entry), /成就统计.*本机记录/);
   let closed = 0, openedStats = 0;
   const tree = AchievementView({ me: { name: '<script>' }, ready: true, gd: {}, local: {}, s,
     onClose: () => closed++, onStats: () => openedStats++ });
-  assert.equal(tree.type, 'div');
-  assert.equal(tree.props.class, 'ach');
-  const dialog = [...walk(tree)].find((v) => v.props?.role === 'dialog');
-  assert.equal(dialog.props['aria-modal'], 'true');
-  assert.equal(dialog.props['aria-label'], '成就统计');
-  assert.equal(dialog.props.class, 'ach__box');
-  assert.equal([...walk(tree)].some((v) => v.type === Modal), false);
-  [...walk(tree)].find((v) => v.props?.class === 'ach__close').props.onClick();
-  [...walk(tree)].find((v) => v.props?.class === 'ach-local__stats').props.onClick();
+  // The window is the project Modal (focus trap, Escape, focus restored, veil), not a hand-rolled overlay: its
+  // .modal__box is built inside Modal, so the shell is asserted on the vnode and the records on its children.
+  assert.equal(tree.type, Modal);
+  assert.equal(tree.props.open, true);
+  assert.equal(tree.props.class, 'achv');
+  assert.equal(tree.props.veilClass, 'achv-veil');
+  assert.equal(tree.props.utility, true, 'the utility veil owns the safe areas and the local design units');
+  assert.equal(tree.props.ariaLabel, '成就统计', 'the banner replaces the Modal title, so the dialog is named here');
+  const nodes = [...walk(tree)];
+  assert.equal(nodes.find((v) => v.props?.['data-testid'] === 'achievement-dialog')?.props.class, 'achv__scroll');
+  assert.equal(nodes.find((v) => v.props?.class === 'achv__close')?.props['data-autofocus'], true);
+  nodes.find((v) => v.props?.class === 'achv__close').props.onClick();
+  nodes.find((v) => v.props?.class === 'achv__more').props.onClick();
   assert.equal(closed, 1);
   assert.equal(openedStats, 1);
   assert.match(text(tree), /当前浏览器保留的对局.*不上传服务器/s);
-  assert.equal([...walk(tree)].filter((v) => v.type === AchievementMark).length, 30);
-  assert.equal([...walk(tree)].some((v) => v.type === 'select' || /ach-(?:banner|filters|goal)/.test(v.props?.class || '')), false);
-  const names = [...walk(tree)].map((v) => v.type?.name);
+  assert.equal(nodes.filter((v) => v.type === AchievementMark).length, 30);
+  assert.equal(nodes.filter((v) => v.type?.name === 'SectionBar').length, 4, '成就 plus the three record sections');
+  assert.equal(nodes.some((v) => v.type === 'select' || /ach-(?:banner|filters|goal)/.test(v.props?.class || '')), false);
+  const names = nodes.map((v) => v.type?.name);
   for (const name of ['Plate', 'ModeTable', 'TitleHex', 'BestRecord', 'Maxima', 'BondRecord', 'BandRecord']) assert.ok(names.includes(name), name);
-  const plate = [...walk(tree)].find((v) => v.type?.name === 'Plate');
+  const plate = nodes.find((v) => v.type?.name === 'Plate');
   const renderedPlate = plate.type(plate.props);
   assert.match(text(renderedPlate), /<script>/, 'the name is a text vnode, not markup');
   assert.equal([...walk(renderedPlate)].some((v) => v.props?.dangerouslySetInnerHTML), false);
@@ -254,30 +254,36 @@ test('the local view uses the reference panel/header, preserves empty/newer stat
   assert.equal([...walk(newer)].some((v) => v.type?.name === 'BestRecord'), false);
 });
 
-test('the achievement entry remains local-only and the original design keeps shared focus and responsive sizing', () => {
+test('the achievement window stays local-only, keeps the shared Modal lifecycle and the reference records', () => {
   const view = read('public/js/ui/achievements.js');
   assert.match(view, /subscribeStats\(refresh\)/);
   assert.match(view, /addEventListener\?\.\('storage', storage\)/);
   assert.match(view, /removeEventListener\?\.\('storage', storage\)/);
   assert.doesNotMatch(view, /setInterval|accountApi|localStorage\.setItem|net\.request|fetch\(/);
   assert.doesNotMatch(view, /from ['"].*(?:accounts|friends|cloudStats|namecards|trophies)\.js/);
-  assert.match(read('public/js/screens/lobby.js'), /panel === 'achievements' \? html`<\$\{AchievementPanel\}/);
+  // Modal owns the focus trap, Escape and the focus restore; the panel keeps only its reveal delay and close fade.
+  assert.match(view, /<\$\{Modal\} open=\$\{true\} onClose=\$\{onClose\} utility=\$\{true\} ariaLabel=\$\{t\('成就统计'\)\}/);
+  assert.doesNotMatch(view, /useModalFocus|role="dialog"|aria-modal/);
+  assert.match(view, /260 - \(Date\.now\(\) - opened\.current\)/);
+  assert.match(view, /useLeave\(onClose, 180\)/);
+  const lobby = read('public/js/screens/lobby.js');
+  assert.match(lobby, /<\$\{AchievementCard\} onOpen=\$\{\(\) => setAchPanel\(true\)\} \/>/);
+  assert.match(lobby, /achPanel \? html`<\$\{AchievementPanel\} me=\$\{me\} onClose=\$\{\(\) => setAchPanel\(false\)\}/);
   for (const file of ['public/css/screens/lobby.css', 'public/css/utility-mobile.css']) {
     const sheet = postcss.parse(read(file));
     sheet.walkDecls('--t', () => assert.fail('only theme.css may define the text root'));
   }
-  const css = read('public/css/utility-mobile.css');
-  assert.match(view, /useModalFocus\(true, close, boxRef\)/);
-  assert.match(view, /260 - \(Date\.now\(\) - opened\.current\)/);
-  assert.match(view, /useLeave\(onClose, 180\)/);
   const sheet = read('public/css/screens/lobby.css');
   assert.match(sheet, /\.ach-top-area \{ display: grid; grid-template-columns: minmax\(0, calc\(9\.1 \* var\(--ui-unit, 1rem\)\)\) minmax\(0, 1fr\)/);
   assert.match(sheet, /\.ach-marks--list \{ display: grid; grid-template-columns: repeat\(auto-fill, minmax\(calc\(4\.6 \* var\(--ui-unit, 1rem\)\), 1fr\)\)/);
+  // upstream's stats.css is the only frame: no second window geometry of our own, only the close fade and the loader
+  assert.doesNotMatch(sheet, /\.ach__box|\.ach__pending|\.ach \{/);
+  assert.match(sheet, /\.modal__box\.achv\.is-closing \{ animation: achv-in 180ms reverse forwards; \}/);
   const mobile = read('public/css/utility-mobile.css');
   assert.doesNotMatch(mobile, /\.ach-marks--list \{ grid-template-columns:/, 'same card columns as the reference canvas');
   assert.match(mobile, /\.ach-mark__text small \{ white-space: normal; overflow-wrap: anywhere;/);
-  assert.match(sheet, /\.ach__box \{[^}]*width: min\(calc\(17\.4 \* var\(--ui-unit, 1rem\)\)/);
-  assert.match(css, /\.ach__box \{[^}]*--sa-l[^}]*--sp-vh/);
+  assert.doesNotMatch(mobile, /\.ach__box|\.ach \{/, '.modal--utility already owns the safe areas and the design units');
   const pending = AchievementView({ ready: false, s: achievementStats([]), local: {}, gd: {}, onClose() {} });
   assert.ok([...walk(pending)].some((v) => v.props?.class === 'ach__loader'));
+  assert.equal([...walk(pending)].some((v) => v.type?.name === 'BestRecord'), false, 'the records wait for their data');
 });

@@ -12,10 +12,8 @@ import { bountyText, bountyCard } from '../choices.js';
 export class PlayerViews {
   pieceView(p, rc = null) {
     const rec = p.kind === 'item' ? this.gd.item(p.id) : p.kind === 'token' ? this.gd.token(p.id) : this.gd.chess(p.id);
-    // 皮肤 (docs/SKINS.md): the prep board / hand / temp views carry the skin too, so a piece shows it before it is
-    // deployed; baseId again, for a golden piece (setSkins keeps base ids only)
-    const baseId = (rec && rec.baseId) || p.id;
-    const skin = p.kind === 'chess' && !this.fieldsStandIn(p.id) ? (this.skins[baseId] || this.skins[p.id] || null) : null;
+    // 皮肤 (docs/SKINS.md): skinFor resolves the effective body, including stand-ins and 自选 picks, on every surface.
+    const skinId = p.kind === 'chess' ? this.skinFor(rec) : null;
     const v = {
       uid: p.uid,
       kind: p.kind,
@@ -25,7 +23,9 @@ export class PlayerViews {
       items: p.kind === 'chess' ? (p.items || []).map((it) => ({ uid: it.uid, id: it.id })) : [],
       count: p.kind === 'token' ? (p.count || 1) : 1,
       ownerUid: p.kind === 'token' ? p.ownerUid ?? null : null,
-      ...(skin ? { skin } : {}),
+      // 皮肤: the prep board / hand / temp views carry it too, so a piece shows its appearance before it is deployed and
+      // the deploy wheel's preview matches the model that will actually fight
+      ...(skinId ? { skin: skinId } : {}),
     };
     if (rc) { v.row = rc[0]; v.col = rc[1]; v.dir = pieceDir(p); }
     return v;
@@ -66,6 +66,7 @@ export class PlayerViews {
     return {
       t: 'm.private',
       playerId: this.playerId,
+      ...(Number.isInteger(this.aiTakeoverRound) ? { aiTakeoverRound: this.aiTakeoverRound } : {}),
       seat: this.seat,
       alive: this.alive,
       lp: this.lp,
@@ -86,6 +87,7 @@ export class PlayerViews {
         refreshPrice: free ? 0 : this.gd.refreshPrice,
         freeRefreshes: this.shop.freeRefreshes,
         frozen: this.shop.frozen,
+        layout: { ...(this.shop.layout || this.gd.shopSlots(this.shop.level)) },
         slots,
         // `source` 'merge' = the promotion reward (晋升奖励); any other offer (a strategy, an item, a 特质) carries the
         // `label` the bar shows instead; `queued` = offers waiting behind it (player report #6 after 0.1.0)

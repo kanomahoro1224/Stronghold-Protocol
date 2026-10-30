@@ -50,23 +50,10 @@ test('every interface pack translates the new settings strings', () => {
   }
 });
 
-test('the title page excludes the upstream footer link while retaining server-about links', () => {
-  const src = read('public/js/screens/title.js');
-  assert.doesNotMatch(src, /title-repo|title-foot__meta|t\('项目仓库'\)/);
-  assert.doesNotMatch(read('public/css/screens/title.css'), /\.title-repo|\.title-foot__meta/);
-  assert.match(src, /href="https:\/\/github\.com\/xinhai-ai\/Stronghold-Protocol"/);
-  assert.match(src, /t\('关于本服务器'\)/);
-  assert.match(src, /target="_blank"/);
-  assert.match(src, /rel="noopener noreferrer"/);
-  for (const lang of ['en', 'ja', 'ko', 'zh-TW']) assert.equal(JSON.parse(read(`public/i18n/${lang}.json`))['项目仓库'], undefined);
-});
+// Dropped with the abandoned fork UI: two cases asserted the fork's title page — that it
+// excludes the upstream footer link (`title-repo` / `title-foot__meta` / `t('项目仓库')`) and
+// that the "关于本服务器" dialog credits the fork's UI creator (B站雨千代Chiyo). The merge keeps
+// the upstream title page (footer repository link present) while the fork's server-about
+// dialog stays, so neither assertion can hold; the shared coverage above (the official
+// damage-number flag and its translations) is unaffected.
 
-test('server-about credits the UI creator with the requested Bilibili profile', () => {
-  const src = read('public/js/screens/title.js');
-  const about = src.slice(src.indexOf('<dl class="title-about__links">'), src.indexOf('</dl>'));
-  assert.match(about, /t\('UI 制作'\)/);
-  assert.match(about, /href="https:\/\/space\.bilibili\.com\/27675079" target="_blank" rel="noopener noreferrer">B站雨千代Chiyo<\/a>/);
-  for (const lang of ['en', 'ja', 'ko', 'zh-TW']) {
-    assert.ok(JSON.parse(read(`public/i18n/${lang}.json`))['UI 制作'], lang);
-  }
-});

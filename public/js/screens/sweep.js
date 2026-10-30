@@ -1,19 +1,35 @@
-// S.W.E.E.P. report adapted from isomerpoi UI b2bd17af; existing local game data only, no new protocol or rule state.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from '../../vendor/hooks.module.js';
-import { html, Icon, roman } from '../ui/components.js';
+// S.W.E.E.P.报告: the event's report screen (laid out after the event video 2:17 – 3:03; the backdrop is drawn in CSS,
+// every picture is the game's own icon or art), opened from the lobby's top bar. Read-only: it shows the season's data
+// and changes nothing. Three tabs —
+//   盟约报告 — 核心盟约 / 附加盟约 tiles (bonds.json isCore); the left panel: the glyph, the name, 激活所需人数 and the
+//              thresholds, the description, 对应干员 (visibleMembers by tier; 替补 on an operator marked 未持有 in 干员持有);
+//   策略报告 — the strategies (bands.json) as tiles; the left: icon, name, 初始生命值, the effect, the modes it is offered
+//              in and its bonds;
+//   敌方资料 — 领袖 (bosses.json, the hidden variants left out) and 战术特训敌人 (factions.json types) tiles; the left: art,
+//              name, text and the leader with its escorts / the type's enemies; 查看 opens the enemy codex (全部 / 普通 /
+//              精英 / 领袖, a search; per stat the official handbook's letter grade — factions.json handbookLevels, from
+//              enemy_handbook_table levelInfoList: E … SS — with the enemy's own number beside it).
+// ⓘ opens 玩法说明 at its 进阶图鉴 chapter. The report and the codex are full-screen Modals (focus trap; Esc closes the
+// codex first, then the report; the focus returns to the lobby's button). The tab is remembered (sp.pref).
+// Styles: css/screens/sweep.css (sw-*).
+// The panels are this repository's own: local game data only, no new protocol or rule state (adapted from isomerpoi UI b2bd17af).
+
+import { useMemo, useState } from '../../vendor/hooks.module.js';
+import { html, Button, Icon, Modal, roman } from '../ui/components.js';
 import { Img, RichText, GIcon } from '../ui/gameComponents.js';
 import { bondIconUrl, bandIconUrl, enemyIconUrl, factionIconUrl, chessAvatarUrl } from '../ui/assetUrls.js';
 import { attackInterval, fmtNum } from '../ui/gameLogic.js';
 import { abilityRows } from '../ui/abilityLines.js';
 import { data, useData } from '../data.js';
+import { contentSet, pageVersion, retryContentSet } from '../content.js';
+import { DEFAULT_VERSION, shownVersion } from '../versions.js';
 import { useStore, loadPref, savePref } from '../store.js';
 import { loadoutStore, openLoadout } from '../ui/loadoutSync.js';
-import { openGuide, guidePages, guideStore } from '../ui/guide.js';
+import { openGuide, guidePages } from '../ui/guide.js';
 import { t, N_ } from '../../../shared/i18n.js';
 
 const cx = (...p) => p.flat().filter(Boolean).join(' ');
 const TAB_PREF = 'sweep.tab';
-export const sweepTab = (v) => ['bonds', 'bands', 'enemies'].includes(v) ? v : 'bonds';
 const TABS = [
   { id: 'bonds', name: N_('盟约报告'), icon: () => html`<${Icon} name="link" />` },
   { id: 'bands', name: N_('策略报告'), icon: () => html`<${Icon} name="rook" />` },
@@ -26,33 +42,25 @@ const DMG = { phys: N_('物理'), arts: N_('法术'), heal: N_('治疗') };
 
 // ---- enemy grades ------------------------------------------------------------------------------------------------------
 
-const GRADES = ['E', 'D', 'C', 'B', 'B+', 'A', 'A+', 'S'];
 /**
- * Cut points per stat (a value at or past cut i earns GRADES[i + 1]), read off the spread of enemies.json — the codex's
- * letters say where an enemy stands among this game's enemies; the number beside each is the real one. `low`: smaller is
- * better (the attack interval).
+ * Letter grade of one stat by the official enemy handbook (factions.json `handbookLevels`, generated from
+ * enemy_handbook_table `levelInfoList`: ten grades E … SS, each a [min, max) band per stat; `interval` — the attack
+ * interval in seconds — grades the other way round). '—' when the enemy has no such value (no attack, no movement) or the
+ * value is in no band. [ASSUMED] the bands share their edges: a value on an edge takes the band that starts there.
+ * @param {string} key enemies.json stat (maxHp, atk, def, res, moveSpeed, interval, elementRes, elementDmgRes)
+ * @param {number|null|undefined} v @param {any[]} [levels] handbookLevels (default: the loaded factions.json)
+ * @returns {string}
  */
-const CUTS = {
-  maxHp: [2000, 5000, 10000, 20000, 40000, 80000, 200000],
-  atk: [200, 300, 450, 650, 850, 1100, 1600],
-  def: [50, 150, 300, 500, 800, 1100, 1600],
-  res: [10, 20, 35, 50, 60, 70, 85],
-  moveSpeed: [0.5, 0.7, 0.9, 1.1, 1.3, 1.6, 2],
-  interval: { low: true, cuts: [5, 3.5, 2.5, 2, 1.6, 1.2, 0.8] },
-  elementRes: [1, 3, 5, 8, 10, 15, 20],
-  elementDmgRes: [1, 5, 10, 20, 30, 40, 50],
-};
-
-/** Letter grade of one stat ('—' when the enemy has none: no attack, no movement). @param {string} key @param {any} v */
-export function enemyGrade(key, v) {
-  const spec = CUTS[key];
+export function enemyGrade(key, v, levels = data.get('factions')?.handbookLevels) {
   const n = Number(v);
-  if (!spec || v == null || !Number.isFinite(n)) return '—';
-  const low = !Array.isArray(spec) && spec.low;
-  const cuts = Array.isArray(spec) ? spec : spec.cuts;
-  let g = 0;
-  for (let i = 0; i < cuts.length; i++) if (low ? n <= cuts[i] : n >= cuts[i]) g = i + 1;
-  return GRADES[g];
+  if (v == null || !Number.isFinite(n) || !Array.isArray(levels)) return '—';
+  for (const l of levels) {
+    const band = l?.[key];
+    if (!Array.isArray(band)) continue;
+    const [lo, hi] = band;
+    if (n >= lo && (hi == null || n < hi)) return l.level;
+  }
+  return '—';
 }
 
 /**
@@ -277,9 +285,9 @@ function EnemiesTab({ m, sel, onSel, onCodex }) {
 
 const STAT_ROWS = [
   ['maxHp', N_('生命值'), 'plus'], ['moveSpeed', N_('移动速度'), 'chevrons'],
-  ['atk', N_('攻击力'), 'sword'], ['interval', N_('攻击速度'), 'hourglass'],
+  ['atk', N_('攻击力'), 'sword'], ['interval', N_('攻击间隔'), 'hourglass'],
   ['def', N_('防御力'), 'shield'], ['elementRes', N_('元素抗性'), 'snow'],
-  ['res', N_('法术抗性'), 'info'], ['elementDmgRes', N_('损伤抵抗'), 'box'],
+  ['res', N_('法术抗性'), 'bolt'], ['elementDmgRes', N_('损伤抵抗'), 'warn'],
 ];
 
 function statValue(e, key) {
@@ -298,7 +306,7 @@ function statText(key, v) {
   return fmtNum(v);
 }
 
-export function CodexDetail({ e, m }) {
+function CodexDetail({ e, m }) {
   const s = e.stats || {};
   const factions = data.get('factions')?.types || {};
   const types = (Array.isArray(e.acTypes) ? e.acTypes : e.acType ? [e.acType] : []).filter((k) => factions[k]);
@@ -316,12 +324,12 @@ export function CodexDetail({ e, m }) {
     <div class="sw-cd__main">
       <div class="sw-cd__art">
         <span class="sw-cd__img"><${Img} src=${enemyIconUrl(m, e.key)} fallback=${html`<${GIcon} name="skull" />`} /></span>
-        <span class="sw-cd__mass" title=${t('重量等级：越重越难被推动或拉动')}><${Icon} name="box" />${t('重量')}<b class="num">${s.massLevel ?? 0}</b></span>
+        <span class="sw-cd__mass" title=${t('重量等级：越重越难被推动或拉动')}>${t('重量')}<b class="num">${s.massLevel ?? 0}</b></span>
       </div>
       <div class="sw-cd__stats">${STAT_ROWS.map(([k, label, icon]) => {
         const v = statValue(e, k);
         return html`<span key=${k} class="sw-stat">
-          <span class="sw-stat__k"><${Icon} name=${icon} />${t(label)}</span>
+          <span class="sw-stat__k"><${GIcon} name=${icon} />${t(label)}</span>
           <small class="sw-stat__v num">${statText(k, v)}</small>
           <b class=${cx('sw-stat__g', `g-${enemyGrade(k, v).replace('+', 'p').replace('—', 'none')}`)}>${enemyGrade(k, v)}</b>
         </span>`;
@@ -339,161 +347,119 @@ export function CodexDetail({ e, m }) {
 
 const RANK_TABS = [['all', N_('全部')], ['NORMAL', N_('普通')], ['ELITE', N_('精英')], ['BOSS', N_('领袖')]];
 
-/** The enemy codex is an in-page destination, not a dialog over the report. */
+/** The enemy codex over the report: a list at the left, the detail at the right. */
 function EnemyCodex({ open, m, onClose }) {
   const [rank, setRank] = useState('all');
   const [q, setQ] = useState('');
   const [scope, setScope] = useState(open.keys);
   const [sel, setSel] = useState(open.key);
-  const all = useMemo(() => data.list('enemies') || [], [data.get('enemies'), data.locale()]);
-  const model = codexSelection(all, { scope, rank, query: q, selected: sel });
-  return html`<${EnemyCodexView} model=${model} scope=${scope} rank=${rank} query=${q} open=${open} m=${m}
-    onClose=${onClose} onScope=${setScope} onQuery=${setQ} onRank=${setRank} onSelect=${setSel} />`;
-}
-
-/** Pure filter model; the search/grade display never writes game data or battle rules. */
-export function codexSelection(all, { scope = null, rank = 'all', query = '', selected = null } = {}) {
-  const byKey = new Map(all.map((e) => [e.key, e]));
-  const pool = scope ? [...new Set(scope)].map((k) => byKey.get(k)).filter(Boolean) : codexEnemies(all);
-  const needle = String(query || '').trim().toLowerCase();
+  const all = useMemo(() => codexEnemies(data.list('enemies') || []), [data.get('enemies')]);
+  const pool = scope ? scope.map((k) => data.lookup('enemies', k)).filter(Boolean) : all;
+  const needle = q.trim().toLowerCase();
   const list = pool.filter((e) => (rank === 'all' || e.rank === rank)
     && (!needle || String(e.name || '').toLowerCase().includes(needle) || String(e.handbookIndex || '').toLowerCase().includes(needle)));
-  const cur = list.find((e) => e.key === selected) || list[0] || null;
+  const cur = list.find((e) => e.key === sel) || list[0] || null;
   const counts = Object.fromEntries(RANK_TABS.map(([k]) => [k, pool.filter((e) => k === 'all' || e.rank === k).length]));
-  return { list, cur, counts };
-}
-
-export function EnemyCodexView({ model: { list, cur, counts }, scope, rank, query, open, m, onClose, onScope, onQuery, onRank, onSelect }) {
-  return html`<section class="sw-codex" aria-label=${t('敌方图鉴')}>
+  return html`<${Modal} open=${true} onClose=${onClose} class="sw-codex" veilClass="sw-veil" closeOnBackdrop=${false}>
     <div class="sw-codex__top">
       <button type="button" class="sw-back" onClick=${onClose} aria-label=${t('返回')} title=${t('返回 (Esc)')}><${Icon} name="chevronLeft" /></button>
       <span class="sw-codex__title">${t('敌方图鉴')}</span>
-      ${scope ? html`<button type="button" class="sw-scope" onClick=${() => onScope(null)} title=${t('显示全部敌人')}>${open.title || t('筛选')}<${Icon} name="close" /></button>` : null}
-      <label class="sw-search"><${Icon} name="search" /><input type="search" value=${query} aria-label=${t('名称或编号')} placeholder=${t('名称或编号')} onInput=${(ev) => onQuery(ev.currentTarget.value)} /></label>
+      ${scope ? html`<button type="button" class="sw-scope" onClick=${() => setScope(null)} title=${t('显示全部敌人')}>${open.title || t('筛选')}<${Icon} name="close" /></button>` : null}
+      <label class="sw-search"><${Icon} name="search" /><input type="search" value=${q} aria-label=${t('名称或编号')} placeholder=${t('名称或编号')} onInput=${(ev) => setQ(ev.currentTarget.value)} /></label>
     </div>
     <div class="sw-codex__body">
       <div class="sw-codex__list">
-        ${list.length ? list.map((e) => html`<${EnemyThumb} key=${e.key} e=${e} m=${m} size="md" on=${cur?.key === e.key} onClick=${() => onSelect(e.key)} />`)
+        ${list.length ? list.map((e) => html`<${EnemyThumb} key=${e.key} e=${e} m=${m} size="md" on=${cur?.key === e.key} onClick=${() => setSel(e.key)} />`)
           : html`<p class="sw-codex__empty">${t('没有符合条件的敌人')}</p>`}
       </div>
       <div class="sw-codex__side">
-        <p class="sw-grade-note">${t('评级为本地图鉴的相对分档，不是官方评级；数值为基础数据，对局中会受难度和效果影响。')}</p>
         <div class="sw-ranks" role="tablist">
           <span class="sw-ranks__n num" title=${t('当前列表')}>${list.length}</span>
           ${RANK_TABS.map(([k, label]) => html`<button key=${k} type="button" role="tab" aria-selected=${rank === k ? 'true' : 'false'} class=${cx(rank === k && 'is-on')}
-            disabled=${k !== 'all' && !counts[k]} onClick=${() => onRank(k)}>${t(label)}</button>`)}
+            disabled=${k !== 'all' && !counts[k]} onClick=${() => setRank(k)}>${t(label)}</button>`)}
         </div>
         ${cur ? html`<${CodexDetail} e=${cur} m=${m} />` : null}
       </div>
     </div>
-  </section>`;
+  <//>`;
 }
 
 // ---- the screen --------------------------------------------------------------------------------------------------------
 
 /** First page of 玩法说明's 进阶图鉴 chapter (0 when the pages are not listed). */
-export function handbookPage() {
+function handbookPage() {
   const i = guidePages().findIndex((p) => p.key === 'autochess_handbook_1');
   return i < 0 ? 0 : i;
 }
 
-/** Escape ownership is decided before any higher layer handles (and closes on) the same event. */
-export function sweepEscapeAction(ev, { loadoutOpen, guideOpen, dialogOpen, codexOpen }) {
-  if (ev.key !== 'Escape' || ev.defaultPrevented || ev.isComposing || loadoutOpen || guideOpen || dialogOpen) return null;
-  // Let the native search field clear its query first.
-  if (ev.target?.type === 'search' && ev.target.value) return null;
-  return codexOpen ? 'codex' : 'report';
-}
-
-/** Full-page report; the lobby is not mounted underneath. @param {{ onClose: () => void }} props */
+/**
+ * The report overlay. @param {{ onClose: () => void }} props
+ */
 export function SweepReport({ onClose }) {
-  const ready = useData('bonds', 'bands', 'bosses', 'factions', 'enemies', 'chess', 'assets');
+  const filesReady = useData('bonds', 'bands', 'bosses', 'factions', 'enemies', 'chess', 'assets');
+  useData('local');
+  const version = useStore(shownVersion);
+  const content = useStore((s) => s, Object.is, contentSet);
+  // useData can already be ready for the PREVIOUS version: content.js keeps that set until the new one checks.
+  // Subscribe to the requested version's progress too, and never present the previous set as its report.
+  const failed = content.kind === 'version' && content.version === version && content.status === 'failed';
+  const ready = filesReady && pageVersion() === version
+    && (version === DEFAULT_VERSION || (content.version === version && content.status === 'ready'));
+  const m = data.get('assets');
   const notOwned = useStore((s) => s.notOwned, Object.is, loadoutStore);
-  const loadoutOpen = useStore((s) => s.open, Object.is, loadoutStore);
-  const guideOpen = useStore((s) => s.open, Object.is, guideStore);
-  const [tab, setTabState] = useState(() => sweepTab(loadPref(TAB_PREF, 'bonds')));
+  const [tab, setTabState] = useState(() => { const v = loadPref(TAB_PREF, 'bonds'); return TABS.some((x) => x.id === v) ? v : 'bonds'; });
+  const setTab = (v) => { setTabState(v); savePref(TAB_PREF, v); };
   const [bondSel, setBondSel] = useState(null);
   const [bandSel, setBandSel] = useState(null);
   const [enemySel, setEnemySel] = useState(null);
   const [codex, setCodex] = useState(null);
-  const pageRef = useRef(null);
-  const returnFocus = useRef(null);
-  const navigation = useRef(null);
-  navigation.current = { codexOpen: !!codex, onClose };
-  const setTab = (v) => { const next = sweepTab(v); setTabState(next); savePref(TAB_PREF, next); setCodex(null); };
-  const openCodex = (v) => { returnFocus.current = document.activeElement; setCodex(v); };
-  useLayoutEffect(() => {
-    if (loadoutOpen || guideOpen) return;
-    const target = !codex && returnFocus.current?.isConnected ? returnFocus.current
-      : pageRef.current?.querySelector(codex ? '.sw-codex .sw-back' : '.sw-back');
-    target?.focus();
-  }, [codex, loadoutOpen, guideOpen]);
-  useEffect(() => {
-    const onKey = (ev) => {
-      const action = sweepEscapeAction(ev, {
-        ...navigation.current, loadoutOpen: loadoutStore.get().open, guideOpen: guideStore.get().open,
-        dialogOpen: !!document.querySelector('.modal, .guide, [aria-modal="true"]'),
-      });
-      if (!action) return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (action === 'codex') setCodex(null);
-      else navigation.current.onClose();
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, []);
-  return html`<${SweepShell} loadoutOpen=${loadoutOpen} guideOpen=${guideOpen} pageRef=${pageRef}>
-    <div class="sw-report-page" hidden=${!!codex}>
-      <${SweepView} ready=${ready} tab=${tab} notOwned=${notOwned} bondSel=${bondSel} bandSel=${bandSel} enemySel=${enemySel}
-        onClose=${onClose} onTab=${setTab} onBond=${setBondSel} onBand=${setBandSel} onEnemy=${setEnemySel} onCodex=${openCodex} />
-    </div>
-    ${codex ? html`<${EnemyCodex} key=${`${codex.title}|${codex.key}`} open=${codex} m=${data.get('assets')} onClose=${() => setCodex(null)} />` : null}
-  <//>`;
-}
 
-/** No backdrop or focus trap. Existing operator/guide layers alone own modal interactions. */
-export function SweepShell({ loadoutOpen, guideOpen, pageRef, children }) {
-  const suspended = !!(loadoutOpen || guideOpen);
-  return html`<main ref=${pageRef} class="screen sweep-host" aria-label=${t('S.W.E.E.P.报告')}
-    inert=${suspended ? '' : undefined} aria-hidden=${suspended ? 'true' : undefined}>${children}</main>`;
-}
-
-/** Hook-free report view. All panels read the same installed, localized data as the rest of the client. */
-export function SweepView({ ready, tab, notOwned, bondSel, bandSel, enemySel, onClose, onTab, onBond, onBand, onEnemy, onCodex }) {
-  const m = data.get('assets');
-  const bonds = ready ? data.list('bonds').filter((b) => b?.bondId).sort((a, b) => (a.identifier ?? 99) - (b.identifier ?? 99)) : [];
-  const bands = ready ? data.list('bands').filter((b) => b?.bandId).sort((a, b) => (a.sortId ?? 99) - (b.sortId ?? 99)) : [];
-  const bond = data.lookup('bonds', bondSel) || bonds[0];
-  const band = data.lookup('bands', bandSel) || bands[0];
+  // defaults once the data is there: the first tile of each tab
+  const bonds = ready ? (data.list('bonds') || []).filter((b) => b && b.bondId).sort((a, b) => (a.identifier ?? 99) - (b.identifier ?? 99)) : [];
+  const bands = ready ? (data.list('bands') || []).filter((b) => b && b.bandId).sort((a, b) => (a.sortId ?? 99) - (b.sortId ?? 99)) : [];
+  const bond = data.lookup('bonds', bondSel) || bonds[0] || null;
+  const band = data.lookup('bands', bandSel) || bands[0] || null;
   const firstBoss = ready ? bossList()[0] : null;
   const eSel = enemySel || (firstBoss ? { kind: 'boss', id: firstBoss.bossId } : null);
-  let left = null, right;
-  if (!ready) right = html`<p class="sw-loading" role="status">${t('正在读取报告…')}</p>`;
-  else if (tab === 'bonds') {
+
+  let left = null;
+  let right;
+  if (failed) {
+    right = html`<div class="sw-loading" role="alert"><p>${t('版本数据校验失败')}</p>
+      <${Button} onClick=${retryContentSet}>${t('重试')}<//></div>`;
+  } else if (!ready) {
+    right = html`<p class="sw-loading">${t('正在读取报告…')}</p>`;
+  } else if (tab === 'bonds') {
     left = bond ? html`<${BondPanel} key=${bond.bondId} bond=${bond} m=${m} notOwned=${notOwned} />` : null;
-    right = html`<${BondsTab} m=${m} sel=${bond?.bondId} onSel=${onBond} />`;
+    right = html`<${BondsTab} m=${m} sel=${bond?.bondId} onSel=${setBondSel} />`;
   } else if (tab === 'bands') {
     left = band ? html`<${BandPanel} key=${band.bandId} band=${band} m=${m} />` : null;
-    right = html`<${BandsTab} m=${m} sel=${band?.bandId} onSel=${onBand} />`;
+    right = html`<${BandsTab} m=${m} sel=${band?.bandId} onSel=${setBandSel} />`;
   } else {
-    left = eSel ? html`<${EnemyPanel} key=${`${eSel.kind}:${eSel.id}`} sel=${eSel} m=${m} onCodex=${onCodex} />` : null;
-    right = html`<${EnemiesTab} m=${m} sel=${eSel || {}} onSel=${onEnemy} onCodex=${onCodex} />`;
+    left = eSel ? html`<${EnemyPanel} key=${`${eSel.kind}:${eSel.id}`} sel=${eSel} m=${m} onCodex=${setCodex} />` : null;
+    right = html`<${EnemiesTab} m=${m} sel=${eSel || {}} onSel=${setEnemySel} onCodex=${setCodex} />`;
   }
-  return html`<div class="sw" data-tab=${tab}>
+
+  // the codex is the report's sibling, not its child: the report's body lifts its children over the backdrop
+  // (position: relative), which would pull a nested Modal out of its fixed layer
+  return html`<${Modal} open=${true} onClose=${onClose} class="sw" veilClass="sw-veil" closeOnBackdrop=${false}>
     <div class="sw__bg" aria-hidden="true"><i class="sw__mist"></i><i class="sw__lines"></i></div>
     <header class="sw-top">
       <div class="sw-top__left">
-        <button type="button" class="sw-back" onClick=${onClose} aria-label=${t('返回大厅')} title=${t('返回 (Esc)')}>
+        <button type="button" class="sw-back" onClick=${onClose} aria-label=${t('返回')} title=${t('返回 (Esc)')}>
           <${Icon} name="chevronLeft" /><span class="sw-back__mark" aria-hidden="true">S.W.E.E.P.</span>
         </button>
         <button type="button" class="sw-info" onClick=${() => openGuide(handbookPage())} aria-label=${t('进阶图鉴')} title=${t('进阶图鉴：敌人类型、盟约、策略与轮选')}><${Icon} name="info" /></button>
       </div>
       <nav class="sw-tabs" role="tablist" aria-label=${t('S.W.E.E.P.报告')}>
         ${TABS.map((x) => html`<button key=${x.id} type="button" role="tab" aria-selected=${tab === x.id ? 'true' : 'false'} class=${cx('sw-tab', tab === x.id && 'is-on')}
-          onClick=${() => onTab(x.id)}><span class="sw-tab__icon">${x.icon()}</span><span>${t(x.name)}</span></button>`)}
+          onClick=${() => setTab(x.id)}><span class="sw-tab__icon">${x.icon()}</span><span>${t(x.name)}</span></button>`)}
       </nav>
     </header>
-    <div class="sw-body"><aside class="sw-left">${left}</aside><div class="sw-right">${right}</div></div>
-  </div>`;
+    <main class="sw-body" data-tab=${tab}>
+      <aside class="sw-left">${left}</aside>
+      <div class="sw-right">${right}</div>
+    </main>
+  <//>
+  ${codex ? html`<${EnemyCodex} key=${`${codex.title}|${codex.key}`} open=${codex} m=${m} onClose=${() => setCodex(null)} />` : null}`;
 }

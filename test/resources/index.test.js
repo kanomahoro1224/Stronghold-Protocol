@@ -35,21 +35,21 @@ const FILES = [
 ];
 const MANIFEST = { format: 1, version: 'testversion', count: FILES.length, tier1: 2, sized: FILES.length, totalBytes: 22, files: FILES };
 
-const SKIN_FILES = [
+const REST_FILES = [
   { url: '/assets/ui/base.png', tier: 1, size: 4 },
   { url: '/assets/audio/sfx/deploy.mp3', tier: 2, size: 4 },
-  { url: '/assets/char/avatar/skin/char_x_winter_1.png', tier: 2, size: 4 },
-  { url: '/assets/spine/op/char_x/char_x_winter_1/front/char_x.skel', tier: 2, size: 4 },
+  { url: '/assets/char/avatar/char_x_winter.png', tier: 2, size: 4 },
+  { url: '/assets/spine/op/char_x/front/char_x.skel', tier: 2, size: 4 },
 ];
-const SKIN_MANIFEST = { ...MANIFEST, version: 'skin-scope', files: SKIN_FILES, tier1: 1, totalBytes: 16 };
+const REST_MANIFEST = { ...MANIFEST, version: 'rest-scope', files: REST_FILES, tier1: 1, totalBytes: 16 };
 
-test('all selected pack requests precede slow essential per-file fallback, including skins', async (t) => {
-  const files = [SKIN_FILES[0], SKIN_FILES[2]].map((file) => ({
+test('all selected pack requests precede slow essential per-file fallback', async (t) => {
+  const files = [REST_FILES[0], REST_FILES[2]].map((file) => ({
     ...file, hash: createHash('sha1').update('b'.repeat(file.size)).digest('hex').slice(0, 12),
   }));
-  const pack = { id: 'skins-1', tier: 2, size: 100, sha1: 'a'.repeat(40),
-    url: '/resource-packs/skins-1.zip', urls: ['https://mirror.example/data/skins-1.zip'], files: [files[1]] };
-  const env = stubEnv({ manifest: { ...SKIN_MANIFEST, files, packs: [pack] } });
+  const pack = { id: 'rest-1', tier: 2, size: 100, sha1: 'a'.repeat(40),
+    url: '/resource-packs/rest-1.zip', urls: ['https://mirror.example/data/rest-1.zip'], files: [files[1]] };
+  const env = stubEnv({ manifest: { ...REST_MANIFEST, files, packs: [pack] } });
   t.after(env.restore);
   const fetcher = globalThis.fetch;
   const order = [];
@@ -59,7 +59,7 @@ test('all selected pack requests precede slow essential per-file fallback, inclu
     return fetcher(url, options);
   };
   const mod = await import('../../public/js/resources/index.js?packs-before-gaps');
-  await mod.syncResources(true, false, 'cn', true);
+  await mod.syncResources(true, true, 'cn');
   assert.ok(order.indexOf(pack.urls[0]) < order.indexOf(pack.url));
   assert.ok(order.indexOf(pack.url) < order.indexOf(ORIGIN + files[0].url));
   assert.equal(mod.resourceState().selectionComplete, true);
@@ -92,63 +92,24 @@ test('continue retries incomplete files even when aggregate Cache.keys fails and
   await mod.syncResources(false);
 });
 
-test('skin preloading is independent: optional audio never opts in skins, skins need no audio opt-in', async t => {
-  const env = stubEnv({ manifest: SKIN_MANIFEST }); t.after(env.restore);
-  const mod = await import('../../public/js/resources/index.js?skins-independent');
-  await mod.syncResources(true, true, 'cn', false);
-  assert.deepEqual(env.calls.fetch.slice(1), SKIN_FILES.slice(0, 2).map(cacheKey));
-  assert.equal(mod.resourceState().selectionComplete, true);
-  assert.equal(mod.resourceState().groups.find(g => g.id === 'skins').selected, false);
-  await mod.syncResources(true, false, 'cn', true);
-  assert.deepEqual(env.calls.fetch.slice(3), SKIN_FILES.slice(2).map(cacheKey));
-  assert.equal(mod.resourceState().selectedWanted, 3);
-  assert.equal(mod.resourceState().groups.find(g => g.id === 'sfx').selected, false);
-  const fetched = env.calls.fetch.length;
-  await mod.syncResources(true, true, 'cn', false);
-  assert.equal(env.calls.fetch.length, fetched, 'changing scope keeps valid cached files');
-  assert.equal(mod.resourceState().done, 4);
-  await mod.syncResources(false, false, 'cn', false);
-});
-
-test('changing skin scope during combat defers downloads and respects a manual pause', async t => {
-  const env = stubEnv({ manifest: SKIN_MANIFEST }); t.after(env.restore);
-  const mod = await import('../../public/js/resources/index.js?skins-combat');
+test('changing the optional scope during combat defers downloads and respects a manual pause', async t => {
+  const env = stubEnv({ manifest: REST_MANIFEST }); t.after(env.restore);
+  const mod = await import('../../public/js/resources/index.js?optional-combat');
   await mod.syncResourceCombat(true);
-  await mod.syncResources(true, false, 'cn', true);
-  await mod.syncResources(true, true, 'cn', false);
+  await mod.syncResources(true, true, 'cn');
+  await mod.syncResources(true, false, 'cn');
   await mod.inspectResources();
   assert.deepEqual(env.calls.fetch, []);
   await mod.syncResourceCombat(false);
-  assert.deepEqual(env.calls.fetch.slice(1), SKIN_FILES.slice(0, 2).map(cacheKey), 'only latest scope resumes');
+  assert.deepEqual(env.calls.fetch.slice(1), REST_FILES.slice(0, 1).map(cacheKey), 'only latest scope resumes');
   await mod.syncResourceCombat(true); mod.pauseResources();
-  await mod.syncResources(true, false, 'cn', true);
+  await mod.syncResources(true, true, 'cn');
   const n = env.calls.fetch.length;
   await mod.syncResourceCombat(false);
-  assert.equal(env.calls.fetch.length, n, 'changing skins does not override manual pause');
+  assert.equal(env.calls.fetch.length, n, 'changing the scope does not override manual pause');
   await mod.startResources();
-  assert.deepEqual(env.calls.fetch.slice(n), SKIN_FILES.slice(2).map(cacheKey));
-  await mod.syncResources(false, false, 'cn', false);
-});
-
-test('ZIP retains validated skins even when unselected, then fills only the selected missing category', async t => {
-  const files = SKIN_FILES.map(f => ({ ...f, hash: createHash('sha1').update('b'.repeat(f.size)).digest('hex').slice(0, 12) }));
-  const source = new ResourceStore({ ...SKIN_MANIFEST, files: files.slice(2, 3) }, {
-    caches: new MemoryCaches(), origin: ORIGIN, fetcher: async () => new Response('b'.repeat(4)),
-  });
-  await source.download();
-  const { blob } = await exportResourceZip(source);
-  const env = stubEnv({ manifest: { ...SKIN_MANIFEST, files } }); t.after(env.restore);
-  const mod = await import('../../public/js/resources/index.js?skins-zip');
-  await mod.syncResources(false, true, 'cn', false);
-  await mod.importResources(blob); await mod.startResources();
-  assert.deepEqual(env.calls.fetch.slice(1), files.slice(0, 2).map(cacheKey));
-  assert.equal(mod.resourceState().groups.find(g => g.id === 'skins').present, 1);
-  assert.equal((await mod.exportResources()).count, 3);
-  const n = env.calls.fetch.length;
-  await mod.syncResources(true, false, 'cn', true);
-  assert.deepEqual(env.calls.fetch.slice(n), files.slice(3).map(cacheKey));
-  assert.equal(mod.resourceState().selectionComplete, true);
-  await mod.syncResources(false, false, 'cn', false);
+  assert.deepEqual(env.calls.fetch.slice(n), REST_FILES.slice(1).map(cacheKey), 'resuming downloads the latest scope');
+  await mod.syncResources(false, false, 'cn');
 });
 
 test('required-only preload stops after visuals; opting in later downloads only missing optional files', async (t) => {

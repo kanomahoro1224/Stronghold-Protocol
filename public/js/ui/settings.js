@@ -23,36 +23,60 @@
 //
 // 界面主题 (uiTheme, applied by applyUiTheme): `<html data-ui-theme>`; 'glass' is the 液态玻璃 skin of css/glass.css,
 // switched from the lobby top bar's theme button (ui/theme.js) next to 添加到桌面. A skin only paints.
+// 异形屏适配 (ui/screenFit.js): imported here, ahead of main.js's first render, so the stored offsets are on at boot.
+//
+// 快捷键 (keys, the upstream v0.3.3 Q/X hover + rebind scheme the owner chose on 2026-10-29): the key map lives in the
+// settings store (`settingsStore.keys`, saved with the rest of 设置) and the 快捷键 section of this modal rebinds it
+// in place; `shortcutsStore` stays only as a read-compatible view of the same map (see below), so the HUD's key hints
+// and the modules that still read the map keep working.
 
 import { useEffect, useLayoutEffect, useRef, useState } from '../../vendor/hooks.module.js';
-import { html, Modal, Button, Icon, MicroLabel } from './components.js';
-import { createStore, useStore, loadPref, savePref, store } from '../store.js';
-import { sanitizeSettings, DEFAULT_SHORTCUTS, sanitizeShortcuts, shortcutLabel, VOICE_LANGS, TEXT_SIZES, UI_THEMES } from './gameLogic.js';
+import { html, Modal, Button, Icon, MicroLabel, Tooltip, confirmDialog } from './components.js';
+import { useStore, savePref, store } from '../store.js';
+import { settingsStore } from './settingsStore.js';
+export { settingsStore } from './settingsStore.js';
+import { sanitizeSettings, HOTKEY_ACTIONS, DEFAULT_HOTKEYS, hotkeyLabel, rebindHotkey, isDefaultHotkeys, captureHotkey, VOICE_LANGS, TEXT_SIZES, UI_THEMES } from './gameLogic.js';
 import { GIcon } from './gameComponents.js';
 import { audio } from '../audio.js';
 import { openGuide } from './guide.js';
-import { detectFeatures } from './device.js';
+import { detectFeatures, isIOS } from './device.js';
 import { ResourceRow } from './resourcePanel.js';
 import { FRAME_RATES } from '../frameRate.js';
 import { LangToggle, machineTranslationNote } from './lang.js';
-import { t, tc, N_ } from '../../../shared/i18n.js';
+import { t, tc, tParts, N_ } from '../../../shared/i18n.js';
 import { errorCount, currentBattle, diagnosticsText } from '../diag.js';
 import { copyText } from './clipboard.js';
-import { catalog, loadCatalog, cosmeticPlugins, installedCount, personal, personalApplied, personalSet, pluginName, setPersonalPlugin } from '../content.js';
+import { catalog, loadCatalog, cosmeticPlugins, installedCount, isPersonalCosmetic, personal, personalApplied, personalSet, pluginName, setPersonalPlugin } from '../content.js';
+import { resolveThemeVars, themeVarsOf } from '../../../shared/plugins/theme.js';
 import { setUiPlugin, uiPluginEntries, uiPlugins } from './uiPlugins.js';
 import { UI_LIMITS } from '../../../shared/plugins/ui.js';
 import { toast, describeError } from './toasts.js';
 import { pluginMicro } from './pluginTag.js';
+// 皮肤 (docs/SKINS.md): the global display rule the 显示其他玩家的皮肤 switch follows. ui/skins.js costs nothing new here:
+// it is already on the boot path (main.js → screens/loadout.js / ui/loadoutSync.js) and imports only store.js and
+// data.js, both of which settings.js reaches through content.js — no cycle, no asset store (it must NOT load assets.js:
+// test/ui/plugins.e2e.test.js pins that a server without plugins never fetches it).
+import { hasAnySkinChoices } from './skins.js';
 import { fxAvailable } from '../render/vfx/available.js';
 import { resolveOfficialFx } from '../render/vfx/tier.js';
+import { ScreenFitSection } from './screenFit.js';
+import { cosmetics } from '../cosmetics.js';
 
 import { AnnouncementButton } from './announcement.js';
 const cx = (...parts) => parts.filter(Boolean).join(' ');
 
-/** Settings store: volumes, voices, damageNumbers, officialDamageNumbers, ammoCount, deploymentZoom, quality, textSize, fpsLimit and preload options. Shortcuts persist separately. */
-export const settingsStore = createStore(sanitizeSettings(loadPref('settings', null)));
-export const shortcutsStore = createStore(sanitizeShortcuts(loadPref('shortcuts', DEFAULT_SHORTCUTS)));
-
+/**
+ * The branch's own key map is retired: 快捷键 is the upstream v0.3.3 rebind scheme now (AGENTS.md, the owner's
+ * 2026-10-29 decision), so the map lives in the settings store (`settingsStore.keys`, persisted with the rest of
+ * 设置) and `HotkeySection` edits it. `shortcutsStore` stays as a read-compatible view of that same map so the
+ * modules that still import it (the facing wheel, the underframe's key hints, the game screen) keep reading the live
+ * bindings without a second persisted copy.
+ */
+export const shortcutsStore = {
+  get: () => settingsStore.get().keys,
+  set: (patch) => updateSettings({ keys: { ...settingsStore.get().keys, ...patch } }),
+  subscribe: (fn) => settingsStore.subscribe((s, prev) => fn(s.keys, prev?.keys)),
+};
 /**
  * 设置 →「文字大小」: put the step on <html data-text> — css/theme.css turns it into the text root `--t`
  * (`:root[data-text="md"] { --t: … }`), which every readable font-size reads; no layout value does. The attribute
@@ -94,7 +118,6 @@ settingsStore.subscribe((s) => {
   applyTextSize(s.textSize);
   applyUiTheme(s.uiTheme);
 });
-shortcutsStore.subscribe((s) => savePref('shortcuts', sanitizeShortcuts(s)));
 audio.setVolumes(settingsStore.get());
 audio.setVoiceLang(settingsStore.get().voiceLang, settingsStore.get().voiceOverrides);
 audio.setVoiceNative(settingsStore.get().voiceNative);
@@ -109,14 +132,18 @@ export function updateSettings(patch) {
 
 /** Preact hook: current settings. */
 export const useSettings = () => useStore((s) => s, Object.is, settingsStore);
-export const useShortcuts = () => useStore((s) => s, Object.is, shortcutsStore);
+/**
+ * The player's key map, as a hook — the branch's reader for modules that still render key hints from the map itself
+ * (ui/underframe.js passes it to `shortcutLabel`). Same map as `settingsStore.keys`: no second persisted copy.
+ */
+export const useShortcuts = () => useStore((s) => s.keys, Object.is, settingsStore);
 
 /**
  * The label of the key a rebindable shortcut has right now ('R', 'Space' …) — the HUD's key hints (shop bar, ready /
  * pause, underframe). Read at render: the game screen re-renders when the settings dialog closes.
  * @param {'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready'} action
  */
-export const hotkeyLabelOf = (action) => shortcutLabel(shortcutsStore.get(), action);
+export const hotkeyLabelOf = (action) => hotkeyLabel(settingsStore.get().keys?.[action]);
 
 function Slider({ label, micro, value, onInput, icon }) {
   const pct = Math.round(value * 100);
@@ -136,7 +163,8 @@ function Toggle({ label, micro, value, onChange }) {
   </div>`;
 }
 
-const QUALITY = [['high', N_('高')], ['medium', N_('中')], ['low', N_('低')]];
+/** Display order only: 低 / 中 / 高, the same direction as 官方特效 关 / 精简 / 完整. Stored values stay high | medium | low. */
+const QUALITY = [['low', N_('低')], ['medium', N_('中')], ['high', N_('高')]];
 /**
  * 官方特效 (0.3.0, render/vfx): the official battle effects the server's owner extracted from their own client (the
  * server serves them: every player of that server sees the owner's extraction) — normal attacks, projectiles, hits,
@@ -157,6 +185,90 @@ const TEXT_SCALES = [['sm', N_('小')], ['md', N_('中')], ['lg', N_('大')], ['
  */
 const VOICE_LANG_NAMES = { cn: '中文', jp: '日本語', en: 'English', kr: '한국어' }; // i18n-ignore
 const VOICE_LANG_TAGS = { cn: 'zh', jp: 'ja', en: 'en', kr: 'ko' };
+/** The rebindable shortcuts' names (msgids), by action. */
+const HOTKEY_NAMES = { buy: N_('购买鼠标指向的商品'), refresh: N_('刷新商店'), freeze: N_('冻结 / 解冻商店'), levelUp: N_('升级调度中心'), retreat: N_('撤退干员（选中优先）'),
+  sell: N_('出售干员（选中优先）'), ready: N_('准备就绪 / 暂停（独立模拟）') };
+
+/**
+ * 快捷键: each shortcut with its key. Click its key (or Enter / Space on it) and press the new one: Esc cancels (the
+ * dialog stays open), Tab leaves, a key held with Ctrl / Alt / ⌘ or one the interface keeps is refused, a key another
+ * shortcut has is swapped — the line under the list says what happened; 恢复默认 restores the keys of 0.1.4. Esc
+ * (cancel / close) is fixed. On a touch-only device the section says the keys need a keyboard and folds the list (an
+ * attached keyboard still uses it).
+ * @param {{ keys: Record<string, string>, touchUi: boolean }} props
+ */
+function HotkeySection({ keys, touchUi }) {
+  const [waiting, setWaiting] = useState(null); // the action waiting for its new key
+  const [note, setNote] = useState(null);       // { text, warn }: the result line
+  // a layout effect: the key listener is on as soon as the key shows that it waits (an Esc right after the click must
+  // end the wait, never reach the dialog's own Esc)
+  useLayoutEffect(() => {
+    if (!waiting) return undefined;
+    const name = t(HOTKEY_NAMES[waiting]);
+    const onKey = (e) => {
+      const r = captureHotkey(e);
+      if (r.kind === 'leave') { setWaiting(null); return; } // Tab: the focus moves on
+      // ahead of the dialog's own Esc (it stays open), a focused button's Enter / Space and every other key handler
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (r.kind === 'ignore') return;
+      const cur = settingsStore.get().keys;
+      if (r.kind === 'cancel') {
+        setWaiting(null);
+        setNote({ text: t('已取消，「{action}」仍是 {key}', { action: name, key: hotkeyLabel(cur[waiting]) }) });
+        return;
+      }
+      if (r.kind === 'refuse') {
+        setNote({ warn: true, text: r.reason === 'modifier' ? t('快捷键只能是单个按键，不能搭配 Ctrl、Alt 或 ⌘')
+          : t('{key} 不能设为快捷键：Esc、Tab、Enter、方向键和功能键留给界面使用', { key: r.name }) });
+        return;
+      }
+      const res = rebindHotkey(cur, waiting, r.code);
+      updateSettings({ keys: res.keys });
+      setWaiting(null);
+      const key = hotkeyLabel(r.code);
+      setNote({ text: res.swapped
+        ? t('「{action}」已改为 {key}；「{other}」原来用 {key}，已换成 {old}', { action: name, key, other: t(HOTKEY_NAMES[res.swapped]), old: hotkeyLabel(res.keys[res.swapped]) })
+        : t('「{action}」已改为 {key}', { action: name, key }) });
+    };
+    // a press anywhere but the waiting key ends the wait (another key starts its own)
+    const onDown = (e) => { if (!(e.target instanceof Element) || !e.target.closest('.set-key.is-waiting')) setWaiting(null); };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onDown, true);
+    return () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('pointerdown', onDown, true); };
+  }, [waiting]);
+
+  const status = note ? note.text : waiting ? t('请按下「{action}」的新按键（Esc 取消）', { action: t(HOTKEY_NAMES[waiting]) }) : '';
+  const list = html`<ul class="set-keys__list">
+    ${HOTKEY_ACTIONS.map((a) => {
+      const on = waiting === a;
+      const label = hotkeyLabel(keys?.[a]);
+      return html`<li key=${a} class="set-keys__row">
+        <span class="set-keys__name">${t(HOTKEY_NAMES[a])}</span>
+        <button type="button" class=${cx('set-key', on && 'is-waiting')} data-action=${a} aria-pressed=${on ? 'true' : 'false'}
+          aria-label=${t('更改「{action}」的快捷键（当前：{key}）', { action: t(HOTKEY_NAMES[a]), key: label })}
+          onClick=${() => { setNote(null); setWaiting((w) => (w === a ? null : a)); }}>
+          ${on ? html`<span class="set-key__wait">${t('按下新按键…')}</span>` : html`<kbd>${label}</kbd>`}
+        </button>
+      </li>`;
+    })}
+    <li class="set-keys__row is-fixed">
+      <span class="set-keys__name">${t('取消 / 关闭')}</span>
+      <span class="set-key is-fixed"><kbd>Esc</kbd><small>${t('不可更改')}</small></span>
+    </li>
+  </ul>
+  <p class=${cx('set-keys__note', note?.warn && 'is-warn')} role="status" aria-live="polite">${status}</p>`;
+  return html`<section class="set-keys" aria-labelledby="set-keys-title">
+    <div class="set-keys__head">
+      <span class="set-row__label" id="set-keys-title">${t('快捷键')}<${MicroLabel}>HOTKEYS<//></span>
+      <${Button} variant="ghost" size="sm" icon="refresh" class="set-keys__reset" disabled=${isDefaultHotkeys(keys)}
+        onClick=${() => { setWaiting(null); updateSettings({ keys: DEFAULT_HOTKEYS }); setNote({ text: t('已恢复默认快捷键') }); }}>${t('恢复默认')}<//>
+    </div>
+    ${touchUi ? html`<p class="set-hint">${t('快捷键需要实体键盘；触屏设备连接键盘后可用')}</p>
+      <details class="set-keys__more"><summary>${t('查看 / 更改快捷键')}</summary>${list}</details>` : list}
+  </section>`;
+}
+
 /** Where a report goes: the upstream issue tracker (shown as text the player can select; a link may open nothing). */
 export const ISSUES_URL = 'https://github.com/sganggs/Stronghold-Protocol/issues';
 
@@ -215,18 +327,39 @@ function CosmeticSection() {
   const cat = useStore((s) => s, Object.is, catalog);
   const ids = useStore((s) => s.ids, Object.is, personal);
   const installed = useStore(installedCount);
+  const s = useSettings();
   useEffect(() => { if (installed) loadCatalog({ force: true }); }, [installed]);
-  const list = installed ? cosmeticPlugins(cat.plugins, 'personal') : [];
-  if (!list.length) return null;
-  const set = personalSet(ids, list.filter((p) => typeof p.vs === 'string'));
+  const entries = installed ? cosmeticPlugins(cat.plugins, 'personal') : [];
+  const list = entries.filter(isPersonalCosmetic);
+  // The 显示其他玩家的皮肤 switch is on screen with or without a PERSONAL plugin — an appearance can also come from a
+  // set the player is not in (a watched match's cosmetics are the watcher's own layers), and a switch that appears only
+  // when the catalogue happens to have loaded would look like a bug. It follows the same GLOBAL rule the 皮肤 section
+  // does (ui/skins.js hasAnySkinChoices: at least one operator of the composed manifest has a wear-able skin), so a
+  // session with no such appearance draws nothing here — an installation without a cosmetic layer keeps exactly the
+  // settings it had before this feature, the switch included (test/ui/plugins.e2e.test.js asserts the section is absent
+  // on a server without plugins). The list below is NOT gated: it is where a switched-off plugin is switched back on.
+  if (!list.length) {
+    if (!hasAnySkinChoices()) return null;
+    return html`<section class="set-plugins" aria-labelledby="set-skins-title" data-testid="personal-plugins">
+      <div class="set-keys__head"><span class="set-row__label" id="set-skins-title">${t('外观插件')}<${MicroLabel}>COSMETIC PLUGINS<//></span></div>
+      <${OtherSkinsRow} value=${s.otherSkins !== false} onSet=${(v) => updateSettings({ otherSkins: v })} />
+    </section>`;
+  }
+  const set = personalSet(ids, entries);
   const applied = new Set(set.order);
   const auto = new Set(set.auto);
+  const winners = resolveThemeVars(set.order.map((id) => {
+    const p = entries.find((x) => x.id === id);
+    return { id, vars: themeVarsOf(p) };
+  }));
   const flip = (id, on) => { const r = setPersonalPlugin(id, on); if ('error' in r) toast(describeError(r.error), 'warn'); };
   return html`<section class="set-plugins" aria-labelledby="set-plugins-title" data-testid="personal-plugins">
     <div class="set-keys__head">
       <span class="set-row__label" id="set-plugins-title">${t('外观插件')}<${MicroLabel}>COSMETIC PLUGINS<//></span>
     </div>
     <p class="set-hint">${t('只改变你自己看到的画面和声音，不影响其他博士，也不影响战斗；插件为非官方制作。')}</p>
+    <${OtherSkinsRow} value=${s.otherSkins !== false} onSet=${(v) => updateSettings({ otherSkins: v })} />
+    ${winners.map((w) => html`<p key=${w.name} class="set-hint set-theme-win">${t('{token} 由「{name}」生效', { token: w.name, name: pluginName(list.find((p) => p.id === w.pluginId) || { id: w.pluginId }) })}</p>`)}
     ${list.map((p) => {
       // on: applied (chosen, or 「自动」: another one needs it) — or chosen but left out now (a conflict): switch it off
       const skipped = set.skipped.includes(p.id);
@@ -240,6 +373,21 @@ function CosmeticSection() {
       </div>`;
     })}
   </section>`;
+}
+
+/**
+ * 设置「显示其他玩家的皮肤」 (docs/SKINS.md): whether this browser draws the appearance another player chose
+ * (`UnitInfo.skin`, published by the match — `Match.publicView().players[].skins`).
+ *
+ * Pure client preference, never sent: turning it off makes every OTHER seat's piece draw the operator's own model,
+ * 干员调配 its own choice alone. The asymmetry is deliberate and documented — their screen keeps showing their skin, so
+ * a co-op's players may see different models for the same piece. On by default: the appearance is what its owner chose
+ * it for, and this is the switch for a player who prefers the official model of everyone else.
+ * @param {{ value: boolean, onSet: (v: boolean) => void }} props
+ */
+function OtherSkinsRow({ value, onSet }) {
+  return html`<${Toggle} label=${t('显示其他玩家的皮肤')} micro="OTHER SKINS"
+    value=${value} onChange=${(v) => onSet(v)} />`;
 }
 
 /**
@@ -284,7 +432,6 @@ export function SettingsModal({ open, onClose }) {
   const s = useSettings();
   const [tested, setTested] = useState(false);
   const [touchUi] = useState(() => detectFeatures().coarse && !detectFeatures().fine);
-  const [shortcutOpen, setShortcutOpen] = useState(false);
   const mtNote = machineTranslationNote(); // a pack marked as machine translation says so under the switch
   const [fxOk, setFxOk] = useState(false);  // effects extracted from the local client: the 官方特效 row shows
   // only while it is open (the title page keeps the modal mounted, closed), and from the effects' own file list: the
@@ -293,8 +440,10 @@ export function SettingsModal({ open, onClose }) {
   useEffect(() => {
     if (!open) return undefined;
     let live = true;
-    fxAvailable(null).then((ok) => { if (live) setFxOk(!!ok); }, () => {});
-    return () => { live = false; };
+    const update = () => fxAvailable(null).then((ok) => { if (live) setFxOk(!!ok || Object.values(cosmetics.apply({}).fx || {}).some(e => Object.keys(e.config?.flipbooks || {}).length || e.index)); }, () => {});
+    update();
+    const off = cosmetics.subscribe(update);
+    return () => { live = false; off(); };
   }, [open]);
   const fxTier = resolveOfficialFx(s.officialFx, true);
   return html`<${Modal} open=${open} onClose=${onClose} title=${t('设置')} micro="SETTINGS" width="7.4rem" utility=${true} class="settings-modal"
@@ -325,17 +474,24 @@ export function SettingsModal({ open, onClose }) {
       <${Toggle} label=${t('显示伤害数字')} micro="DAMAGE NUMBERS" value=${s.damageNumbers} onChange=${(v) => updateSettings({ damageNumbers: v })} />
       <${Toggle} label=${t('官方伤害数字')} micro="OFFICIAL NUMBERS" value=${s.officialDamageNumbers} onChange=${(v) => updateSettings({ officialDamageNumbers: v })} />
       <p class="set-hint">${t('只显示达到官方暴击条件的红色数字。关闭时仍显示每一次命中。')}</p>
-      <${Toggle} label=${t('弹药数量')} micro="AMMO COUNT" value=${s.ammoCount} onChange=${(v) => updateSettings({ ammoCount: v })} />
-      <p class="set-hint">${t('弹药类技能开启时，在弹药条下方显示剩余弹药 / 总弹药数（如 13/14）。官方界面没有这个数字。')}</p>
-      <${Toggle} label=${t('部署时镜头缩放')} micro="DEPLOYMENT ZOOM" value=${s.deploymentZoom} onChange=${(v) => updateSettings({ deploymentZoom: v })} />
-      <p class="set-hint">${t('放置或移动干员、装备时临时收起商店并放大棋盘，结束后恢复。默认关闭，不影响手动收起商店。')}</p>
+      <${Toggle} label=${t('显示弹药与能量数量')} micro="AMMO & ENERGY" value=${s.ammoEnergyCount} onChange=${(v) => updateSettings({ ammoEnergyCount: v })} />
+      <p class="set-hint">${t('弹药类技能开启时，在弹药条下方显示剩余弹药 / 总弹药数（如 13/14）；秘术师的血条下方显示储存的攻击能量 / 上限（如 2/3）。官方界面没有这些数字。')}</p>
+      <${Toggle} label=${t('盟约效果剩余时间')} micro="BOND TIMERS" value=${s.bondTimers} onChange=${(v) => updateSettings({ bondTimers: v })} />
+      <p class="set-hint">${t('在选中单位的详情中显示叙拉古、萨尔贡效果的剩余时间；萨尔贡显示层数与下一层到期时间。官方界面没有这些数字。')}</p>
+      <${Toggle} label=${t('作战统计')} micro="COMBAT STATS" value=${s.combatMetrics} onChange=${(v) => updateSettings({ combatMetrics: v })} />
+      <p class="set-hint">${t('打开后，对局左下角可以查看自己干员的伤害、治疗和 DPS / HPS。官方界面没有这个窗口。改变玩法的插件对局在 Worker 里演算，统计不到，按钮不显示。')}</p>
+      <${Toggle} label=${t('部署时收起商店')} micro="DEPLOY FOLD" value=${s.prepDeployFold} onChange=${(v) => updateSettings({ prepDeployFold: v })} />
+      <p class="set-hint">${t('拖起干员、装备或召唤物，以及放下后选择朝向时，临时收起商店并放大棋盘。关闭后，拿起时既不改变商店的收起状态，也不缩放镜头。')}</p>
+      <${Toggle} label=${t('全屏时保持屏幕常亮')} micro="SCREEN WAKE LOCK" value=${s.fullscreenWakeLock} onChange=${(v) => updateSettings({ fullscreenWakeLock: v })} />
+      <p class="set-hint" data-testid="wake-lock-hint">${tParts(isIOS()
+        ? N_('全屏期间始终保持屏幕常亮（{support}）；iOS低电量模式下可能不生效。')
+        : N_('全屏期间始终保持屏幕常亮（{support}）。'), {
+        support: html`<${Tooltip} tap=${true} id="wake-lock-requirements" placement="bottom"
+          text=${t('需要 HTTPS 或可信的本地地址（如 localhost），浏览器支持 Screen Wake Lock API，且页面保持在前台。系统设置仍可能限制生效。')}>
+          <button type="button" class="set-hint__help" aria-describedby="wake-lock-requirements">${t('需要环境支持')}<${Icon} name="info" /></button>
+        <//>`,
+      })}</p>
       <${ResourceRow} enabled=${s.preload} onChange=${(v) => updateSettings({ preload: v })} />
-      <${Toggle} label=${t('启用皮肤')} micro="SKINS" value=${s.skinsEnabled} onChange=${(v) => updateSettings({ skinsEnabled: v })} />
-      <p class="set-hint">${t('开启后可在干员调配中选择皮肤，并显示其他玩家的皮肤。关闭时全部显示默认外观，保留已选皮肤。')}</p>
-      <div class="set-row"><span class="set-row__label"><${Icon} name="keyboard" />${t('快捷键')}<${MicroLabel}>SHORTCUTS<//></span>
-        <${Button} variant="secondary" icon="edit" onClick=${() => setShortcutOpen(true)}>${t('修改快捷键')}<//></div>
-      <${Toggle} label=${t('秘术师能量')} micro="STORED ENERGY" value=${s.mysticEnergy} onChange=${(v) => updateSettings({ mysticEnergy: v })} />
-      <p class="set-hint">${t('在秘术师的血条下方显示储存的攻击能量 / 上限（如 2/3）。官方用干员身上的特效表示，没有这个数字。')}</p>
       <div class="set-row">
         <span class="set-row__label">${t('画面质量')}<${MicroLabel}>QUALITY<//></span>
         <div class="set-seg" role="radiogroup">
@@ -359,6 +515,8 @@ export function SettingsModal({ open, onClose }) {
         </div>
       </div>
       <p class="set-hint set-textsize-note">${t('调整界面文字大小，棋盘保持原比例。')}</p>
+      <${ScreenFitSection} />
+      <${HotkeySection} keys=${s.keys} touchUi=${touchUi} />
       <${CosmeticSection} />
       <${UiPluginSection} />
       <${DiagSection} />
@@ -372,44 +530,7 @@ export function SettingsModal({ open, onClose }) {
       </div>
       ${touchUi
         ? html`<p class="set-hint">${t('触屏操作：点击单位选中（撤退 / 出售）· 长按单位或卡牌查看详情 · 拖动部署后滑动选择朝向')}</p>`
-        : html`<p class="set-hint">${t('快捷键可在“修改快捷键”中自定义。')}<kbd>Esc</kbd> ${t('关闭弹窗 · 右键查看详情')}</p>`}
-    </div>
-    <${ShortcutModal} open=${shortcutOpen} onClose=${() => setShortcutOpen(false)} />
-  <//>`;
-}
-
-const SHORTCUT_LABELS = {
-  viewEnemies: [N_('查看本回合怪物'), 'W'], freeze: [N_('冻结'), 'S'], refresh: [N_('刷新'), 'R'], ready: [N_('准备'), 'C'],
-  sell: [N_('售卖当前选中干员'), 'X'], retreat: [N_('撤离当前干员'), 'Q'], levelUp: [N_('升级等级'), 'G'], pause: [N_('暂停/继续作战'), N_('空格')],
-};
-
-function ShortcutModal({ open, onClose }) {
-  const shortcuts = useShortcuts();
-  const [editing, setEditing] = useState(null);
-  const [error, setError] = useState('');
-  const listenRef = useRef(null);
-  useEffect(() => { if (editing) listenRef.current?.focus?.(); }, [editing]);
-  const setKey = (action, e) => {
-    e.preventDefault(); e.stopPropagation();
-    if (e.ctrlKey || e.metaKey || e.altKey || e.key === 'Escape') return;
-    const code = e.code;
-    if (!code || !/^Key[A-Z]|^Digit[0-9]|^Space$|^Arrow/.test(code)) { setError(t('请使用字母、数字、方向键或空格')); return; }
-    const other = Object.entries(shortcuts).find(([a, v]) => a !== action && v === code);
-    if (other) { setError(t('与“{0}”重复', { 0: t(SHORTCUT_LABELS[other[0]]?.[0] || other[0]) })); return; }
-    shortcutsStore.set({ [action]: code }); setEditing(null); setError('');
-  };
-  const reset = () => { shortcutsStore.set({ ...DEFAULT_SHORTCUTS }); setEditing(null); setError(''); };
-  const display = (code) => code === 'Space' ? t('空格') : code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '方向');
-  return html`<${Modal} open=${open} title=${t('修改快捷键')} micro="KEYBOARD SHORTCUTS" width="6.5rem" onClose=${onClose} utility=${true} class="settings-shortcuts-modal"
-      actions=${html`<${Button} variant="secondary" icon="refresh" onClick=${reset}>${t('重置默认')}<//><${Button} variant="primary" icon="check" onClick=${onClose}>${t('完成')}<//>`}>
-    <div class="shortcut-list">
-      ${Object.entries(SHORTCUT_LABELS).map(([action, [label]]) => html`<div key=${action} class="shortcut-row">
-        <span>${t(label)}</span>
-        ${editing === action
-          ? html`<button ref=${listenRef} type="button" class="shortcut-key is-listening" onKeyDown=${(e) => setKey(action, e)}>${t('请按键…')}</button>`
-          : html`<button type="button" class="shortcut-key" onClick=${() => { setEditing(action); setError(''); }}>${display(shortcuts[action])}</button>`}
-      </div>`)}
-      ${error ? html`<p class="shortcut-error">${error}</p>` : html`<p class="set-hint">${t('点击按键后，再按下要绑定的新键。重复按键会被拒绝。')}</p>`}
+        : html`<p class="set-hint">${t('右键查看详情')}</p>`}
     </div>
   <//>`;
 }

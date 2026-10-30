@@ -43,8 +43,7 @@ export async function serveMedia(req, res, rest, query, publicDir, gzipCache, lo
       stat = await fsp.stat(absPath);
     } catch { continue; }
     if (!stat.isFile()) continue;
-    // serveFile decides Content-Type from the resolved name (`.mp3` → audio/mpeg) — Range/ETag handling is shared.
-    // Cache policy stays the same as the direct public audio path (one day).
+    // serveFile decides Content-Type from the resolved name (`.mp3` → audio/mpeg) and applies shared Range/ETag handling.
     // eslint-disable-next-line no-await-in-loop
     await serveFile(req, res, absPath, stat, 'public', ['assets', 'audio', ...segments], query, gzipCache, log);
     return;

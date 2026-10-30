@@ -334,6 +334,23 @@ html[data-script="alphabetic"] .title-login .btn--xl { letter-spacing: .3em; }
 /* the server's plugins (DESIGN §32 P1a): 「本服务器安装了 N 个插件」, a button listing them (ui/pluginPanel.js InstalledPlugins) */
 .title-plugins {
   display: inline-flex; align-items: center; gap: calc(0.06 * var(--ui-unit, 1rem)); padding: calc(0.03 * var(--ui-unit, 1rem)) calc(0.1 * var(--ui-unit, 1rem));
+  min-height: calc(0.34 * var(--ui-unit, 1rem));
   border: 1px solid rgba(255, 159, 67, .5); color: #ffb066; background: rgba(255, 159, 67, .08); font-size: inherit;
 }
 .title-plugins .icon { width: calc(0.15 * var(--ui-unit, 1rem)); height: calc(0.15 * var(--ui-unit, 1rem)); }
+/* 公告 (ui/notices.js): absent when the catalogue has none. The dot is unread. The popup body keeps newlines as text. */
+.notice-slot { display: inline-flex; align-items: center; }
+.notice-entry {
+  display: inline-flex; align-items: center; gap: calc(0.06 * var(--ui-unit, 1rem)); padding: calc(0.03 * var(--ui-unit, 1rem)) calc(0.1 * var(--ui-unit, 1rem));
+  border: 1px solid rgba(246, 163, 41, .55); color: #f6a329; background: rgba(246, 163, 41, .1);
+  font-size: calc(.15 * var(--utility-text, var(--t))); cursor: pointer;
+}
+.notice-entry__dot {
+  width: calc(0.08 * var(--ui-unit, 1rem)); height: calc(0.08 * var(--ui-unit, 1rem)); border-radius: 50%;
+  background: #f6a329; background: var(--amber);
+}
+.notice-list { display: flex; flex-direction: column; gap: calc(0.12 * var(--ui-unit, 1rem)); max-height: 60vh; overflow: auto; }
+.notice-card { padding: calc(0.08 * var(--ui-unit, 1rem)) calc(0.1 * var(--ui-unit, 1rem)); border: 1px solid var(--line); background: rgba(0, 0, 0, .22); }
+.notice-card__meta { margin: 0; font-size: calc(.13 * var(--utility-text, var(--t))); color: var(--text-dim); overflow-wrap: anywhere; }
+.notice-card__title { margin: calc(0.02 * var(--ui-unit, 1rem)) 0; font-size: calc(.16 * var(--utility-text, var(--t))); color: var(--text-hi); overflow-wrap: anywhere; }
+.notice-card__body { margin: 0; font-size: calc(.15 * var(--utility-text, var(--t))); color: var(--text-md); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }

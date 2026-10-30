@@ -3,9 +3,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from '../../vendor/hooks
 import { html, Icon, Modal, Button } from './components.js';
 import { Img } from './gameComponents.js';
 import { chessAvatarUrl } from './assetUrls.js';
+import { data, useData } from '../data.js';
 import { cardAvatarUrl, cardAvatarSkins, cardPortraitUrl, cardPortraitSkins } from './seatArt.js';
 import { cardStore } from './playerCard.js';
-import { data, useData } from '../data.js';
 import { cardAvatarOperatorId } from '../../../shared/playerCard.js';
 import { t } from '../../../shared/i18n.js';
 
@@ -84,6 +84,8 @@ export function AvatarPickerView({ current, list, m, onPick, onClose, operator, 
 }
 
 function AvatarVariants(props) {
+  // the optional skins catalogue (docs/SKINS.md), requested only after choosing an operator; the composed manifest
+  // (chars[charId].skins) proves each picture
   const ready = useData('skins'); // optional catalogue: requested only after choosing an operator
   const status = !ready ? 'loading' : data.status('skins') === 'missing' ? 'missing' : 'ready';
   const variants = props.kind === 'portrait' ? cardPortraitSkins : cardAvatarSkins;

@@ -22,8 +22,13 @@ async function fixture(t, opts = {}) {
   return { srv, connect };
 }
 
+// A lane Worker answers room.start only once the match is settled there; on a cold lane that outruns the helper's 2 s
+// default. The local path keeps the strict default so a real hang still fails fast.
+const startTimeout = (matchWorkers) => (matchWorkers ? 15000 : 2000);
+
 for (const matchWorkers of [0, 2]) test(`real four-player room (${matchWorkers ? 'Match Workers' : 'local'}): mixed clients, exact public delta, private isolation, spectator, full resync/reconnect`, async (t) => {
   const { srv, connect } = await fixture(t, { matchWorkers });
+  const slow = startTimeout(matchWorkers);
   const modern = await connect(true), legacy = await connect(false), p3 = await connect(true), p4 = await connect(true);
   assert.equal((await modern.request({ t: 'room.create', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
   const room = await modern.waitFor('room.state');
@@ -31,10 +36,10 @@ for (const matchWorkers of [0, 2]) test(`real four-player room (${matchWorkers ?
     assert.equal((await c.request({ t: 'room.join', code: room.code })).t, 'ok');
     await c.request({ t: 'room.ready', ready: true });
   }
-  assert.equal((await modern.request({ t: 'room.start' })).t, 'ok');
+  assert.equal((await modern.request({ t: 'room.start' }, slow)).t, 'ok');
   const rx = new StateReceiver();
-  const fullPub = await modern.waitFor('m.state', (m) => m.kind === 'm.public');
-  const fullPriv = await modern.waitFor('m.state', (m) => m.kind === 'm.private');
+  const fullPub = await modern.waitFor('m.state', (m) => m.kind === 'm.public', slow);
+  const fullPriv = await modern.waitFor('m.state', (m) => m.kind === 'm.private', slow);
   assert.ok(fullPub.full);
   assert.equal(fullPriv.full.playerId, modern.id);
   rx.receive(fullPub); rx.receive(fullPriv);
@@ -70,6 +75,7 @@ for (const matchWorkers of [0, 2]) test(`real four-player room (${matchWorkers ?
 
 for (const matchWorkers of [0, 2]) test(`standalone FIFO matchmaking (${matchWorkers ? 'Match Workers' : 'local'}) also uses delta transport, without sending a private view to another owner`, async (t) => {
   const { connect } = await fixture(t, { matchWorkers });
+  const slow = startTimeout(matchWorkers);
   const clients = [];
   for (let i = 0; i < 4; i++) {
     const c = await connect(i !== 1);
@@ -78,17 +84,17 @@ for (const matchWorkers of [0, 2]) test(`standalone FIFO matchmaking (${matchWor
   }
   for (let i = 0; i < 4; i++) {
     const c = clients[i];
-    if (i === 1) assert.equal((await c.waitFor('m.private')).playerId, c.id);
+    if (i === 1) assert.equal((await c.waitFor('m.private', undefined, slow)).playerId, c.id);
     else {
-      assert.ok((await c.waitFor('m.state', (m) => m.kind === 'm.public')).full);
-      assert.equal((await c.waitFor('m.state', (m) => m.kind === 'm.private')).full.playerId, c.id);
+      assert.ok((await c.waitFor('m.state', (m) => m.kind === 'm.public', slow)).full);
+      assert.equal((await c.waitFor('m.state', (m) => m.kind === 'm.private', slow)).full.playerId, c.id);
     }
   }
   await clients[0].request({ t: 'g.infoReady' });
-  assert.ok((await clients[0].waitFor('m.state', (m) => m.kind === 'm.public' && m.patch)).patch);
+  assert.ok((await clients[0].waitFor('m.state', (m) => m.kind === 'm.public' && m.patch, slow)).patch);
   await clients[0].request({ t: 'hello', name: 'Repeat', version: PROTOCOL_VERSION, stateDelta: 1 });
-  assert.ok((await clients[0].waitFor('m.state', (m) => m.kind === 'm.public' && m.full)).full);
-  assert.equal((await clients[0].waitFor('m.state', (m) => m.kind === 'm.private' && m.full)).full.playerId, clients[0].id);
+  assert.ok((await clients[0].waitFor('m.state', (m) => m.kind === 'm.public' && m.full, slow)).full);
+  assert.equal((await clients[0].waitFor('m.state', (m) => m.kind === 'm.private' && m.full, slow)).full.playerId, clients[0].id);
 });
 
 test('modern result replay is full after reconnect; a second match starts with independent baselines', async (t) => {

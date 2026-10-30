@@ -1,5 +1,9 @@
 # 合并上游时的仓库约定
 
+- 2026-10-30 用户裁决（取代 2026-10-14「采用 fork 皮肤实现（本地安装管线）」、2026-10-15「当前皮肤支持所有现有立绘位置」与 2026-10-15「修复干员调配皮肤冲突」三条的**实现方式**，保留其中提到、但不依赖本地安装管线的界面行为）：皮肤改用上游 v0.3.3 的模型。**没有安装通道**——皮肤来自外观插件（`plugins/<id>/plugin.json` 的 `chars[charId].illust` 与 `chars[charId].skins[skinKey] = { name, group, avatar, avatarE2, portrait, portraitE2, illust, spine }`），服务端由 `shared/plugins/visual.js` 校验并以 `/vs/<vs16>/overlay.json` 下发，浏览器在已加载素材清单上 `cosmetics.apply` 合成，所有界面继续只读 `data.get('assets')`。选择键是**干员 charId**（`room.skins = { [charId]: skinId }`，`shared/protocol.js` 的 `isSkinSelection`/`checkSkinSelection`/`operatorCharIds`）；观看者开关是 `settings.otherSkins`（默认开），没有 `skinsEnabled`。已删除本分支的本地安装版：`data/skins.json`、`data/skins-installed.json`、`docs/research/08-skins.json`、`tools/install-skins.mjs`、`tools/build-skins.mjs`、`public/js/ui/operatorPortrait.js`（站内统一用 `ui/gameComponents.js` 的 `OperatorImage`，它按 `ownerSkin(charId, …)` 解析所属玩家的皮肤）、`skinsEnabled` / `preloadSkins` 两个设置键与「干员皮肤」预载组（`RESOURCE_GROUPS` 不再有 `skins`，`syncResources(enabled, includeOptional, voiceLang)` 只剩三个参数）。保留：精锐共用所属玩家皮肤、准备期/联防/首领/观战与 DOM 回退、皮肤只换外观不改模拟、`sp.pref.room.card` 的 `{ charId, avatar }` 房间名片与头像二级选择（服务端按所属干员校验、独立于 `otherSkins`）。缺失、未部署或请求失败的皮肤一律回退默认立绘，不再"保留已选但显示默认"之外的状态机。文档以 `docs/SKINS.md`（上游版）为准；验证 `test/skins.test.js`、`test/ui/skin-picker.test.js`、`test/ui/skins-sync.test.js`、`test/ui/picture-skins.test.js`、`test/ui/standin-ui.test.js`。
+
+- 2026-10-30 用户裁决（取代 2026-10-15 成就统计「窗口尺寸同参考 17.4rem / 9.06rem」与「复用管理 Modal 焦点生命周期但不套其视觉外壳」两条）：成就统计窗口改用上游 v0.3.3 的 `.achv` 外壳（`public/css/screens/stats.css` 的 `.modal__box.achv` 13rem×8.8rem、橙色横幅 `.achv__banner`、`.achv__close`、`.achv__more`）。`public/js/ui/achievements.js` 的 `AchievementView` 改为渲染项目 `Modal`：`utility: true` 由 `.modal--utility` 提供安全区、动态视口与局部设计单位，`class="achv"`、`veilClass="achv-veil"`，`Modal` 新增可选 `ariaLabel` 在自有横幅取代 `title`/`micro` 时命名对话框。删除 `useModalFocus`、自绘 `.ach__box` 外壳、`.ach__pending` 以及 `lobby.css` / `utility-mobile.css` 中的分支外壳 CSS 与其 `:is(...)` 根列表条目，只保留关闭淡出 `.modal__box.achv.is-closing` 和菱形加载器 `.ach__loader`。七组 30 项、名片/奖杯/已达成数、模式表、六边形评语、战果/盟约/策略纪录、本机数据口径（`sp.pref.stats`、只读 `peekStatsRecords`、原导入/导出/清空与保存预算）、`260 - (Date.now() - opened.current)` 揭示延迟与 `useLeave(onClose, 180)` 淡出全部保留；`查看完整统计`（`.achv__more`，页脚）仍打开 `screens/stats.js` 的统计数据。上游 e2e 钩子保留：`.achv__scroll` 带 `data-testid="achievement-dialog"`、`.achv__close` 带 `data-autofocus`。大厅仍只由 `AchievementCard` 打开这一个窗口；同时删除无人使用的 `AchievementEntry` / `AchievementEntryView` 导出（上游 `AchievementCard` 渲染同一 `.hub-ach` 标记）。`test/ui/sweep.test.js` 的成就画布断言随之改为读 `stats.css` 的 `.modal__box.achv`，不再断言分支的 1740px/906px。
+
 - 2026-10-26 WebSocket 回落：优先连接 `SP_WS_URL`，首次连接失败、建立连接超过八秒、hello/心跳超时后可回落当前网页域名的 `/ws`；已收到 welcome 或有效 pong 的端点断线后先给原地址三十秒恢复期，1001 停服／1012 重启关闭给六十秒，失败重连不延长同次恢复期，恢复正常通信后重置。本页回落后持续沿用网页地址，刷新重新优先配置地址。容量已满和身份替换继续停止自动重连；主动关闭、4002 标题页空闲换连接、1008 策略关闭及业务拒绝不触发换线。显式 `Net({ url })` 保持固定地址，未配置或与网页 `/ws` 等价时不增加回落路线。保留原 token、hello、状态全量恢复和退避；两条路线须指向同一有状态后端实例。部署需重建客户端并重启服务，Node 测试及构建不替代浏览器／线上重启验收。
 
 - 2026-10-20 WebSocket 后端可通过提供页面的服务的 `SP_WS_URL` / `startServer({ wsUrl })` 指定完整 ws(s) 地址，经 `/js/ws-config.js` 运行时下发并在 Vite 中保持外部导入；未设置或留空仍使用当前页面的 `/ws`，非法配置警告并回退。首次连接优先配置地址，后续按上述回落规则重连，仅改变 WebSocket 传输端点，保留现有身份、容量拒绝与重连协议；HTTP 数据、插件及素材地址保持各自配置。
@@ -16,6 +20,14 @@
 
 本文件适用于整个仓库，记录本分支相对上游增加的行为及合并验证要求。合并时保留上游的功能更新，同时维护以下约定；不要用整文件覆盖的方式解决冲突。用户明确调整需求时，以用户指示为准，并同步更新本文。
 
+## 禁止整份覆盖文件（硬规则）
+
+- **任何情况下都不得用“取一边”的方式替换整个文件。** 禁止 `git checkout <ref> -- <path>`、`git checkout --ours/--theirs`、`git restore --source=<ref>`、整份复制粘贴另一版本、`git merge -X ours|theirs` 及其等价变体。
+- 共享文件必须按职责逐段合并。游戏规则和数值采用上游；本分支的服务端优化、自研界面与接线必须保留；双方都需要的内容取并集。
+- 合并完成后必须核对本分支接线：客户端从 `public/js/main.js` 检查 import 可达性；服务端确认 `attachWorkerState` 等分支独有导出仍有调用方。
+- 若文件因上游整体重写而无法逐段合并，先停下来询问用户，不自行整份取一边。
+- **文档例外（2026-10-29 用户决定）：** 解决冲突时文档不再逐段合并，一律直接取上游版本（`git show <theirs-ref>:<path>` 整份写出）。适用于 `*.md`、`docs/**` 与 `test/golden/README.md`；本分支不保留文档侧的独有改动，也不为其编写逐段合并结果。本文件 `AGENTS.md` 不受此例外约束，仍按本分支约定维护。
+
 ## 上游合并优先级
 
 - 本仓库是上游的服务端优化分支。后端、网络、WebSocket、房间/匹配、持久化、监控、Worker、部署、CDN 服务端和高并发优化以本仓库为准；上游删除或重写这些能力时不接受直接删除。
@@ -25,7 +37,7 @@
 
 
 - 2026-10-16 合并固定上游 `v0.3.0`（`c24e17eec3af1e6dedfa9935a6d15245cf2f4586`）。不合入标题页新增“导入素材包”及其独立导入器、SW、缓存、打包模式、翻译和测试预期；仅保留本仓库资源管理原有预载与 ZIP 导入/导出、指纹、流式分包、线路切换与 CDN。普通素材 URL/缓存策略仍用本仓库实现，插件自己的内容哈希 URL 独立保留。
-- 0.3.0 重复功能继续使用本仓库：作战统计始终在本机记录、默认当前战斗、仅自身、同名合并及移动端定位；成就和 S.W.E.E.P. 保持既有参考设计；快捷键保持自定义绑定与原默认，不接受上游悬停 Q/X/W 行为。保留 FPS、皮肤、房间名片、媒体、公告、聊天审核及真人匹配。插件模拟 Worker 也在自身线程收集有效伤害/治疗，回传本机展示，统计不进入联网战斗结果。
+- 0.3.0 重复功能继续使用本仓库：作战统计始终在本机记录、默认当前战斗、仅自身、同名合并及移动端定位；成就保持既有参考设计；S.W.E.E.P. 自 2026-10-29 起改用上游 v0.3.3 的 Modal 实现（仍按需加载，详见下文 2026-10-29 条目）；快捷键自 2026-10-29 起采用上游 v0.3.3 的悬停 Q/X 与重绑定方案（用户明确取消保留本分支旧默认键位），继续保留设置入口与浏览器持久化。保留 FPS、皮肤、房间名片、媒体、公告、聊天审核及真人匹配。插件模拟 Worker 也在自身线程收集有效伤害/治疗，回传本机展示，统计不进入联网战斗结果。
 - 0.3.0 插件/模式、沙箱和工作室按上游内容契约接入，本仓库完整 Match Worker 仍用于原版对局；玩法插件使用独立内容 Host，不能加入原版公共匹配。房间内容描述和 cs/requireCs 进入持久化，重启必须解析同一内容集；缺失或哈希改变则保留 recovery 检查点，不按原版规则恢复。恢复同版本插件后可再次重启接续。
 - 0.3.0 模拟默认明确导入移至 `public/js/battle/simLoader.js`；主页面仍由 Vite 延迟打包，插件 Worker 使用同源 `/js/battle/simWorker.js` 原始模块入口以保持其 realm 内 SDK/数据单例。生产 buildTag 同时覆盖该 Worker、模拟源码及 shared/plugins。官方特效独立清单 `data/local-fx.json` 进入 CDN、指纹和 ZIP，JSON 仅放行 fx/index.json、textures.json、prefabs/*.json 和 mesh/*.json，保留原地图/场景白名单，不能泛化为任意 JSON。
 - 2026-10-16 用户明确本次 v0.3.0 合并不处理 `data/assets.json`，提交保留合并前版本，不覆盖或提交主工作树本机清单。原有公告、安装清单及本地脚本保持未提交；完整合并验证和发布限制见 `docs/MERGE_0.3.0.md`。
@@ -83,17 +95,19 @@
 
 - 2026-10-15 房间立绘及其外框均按 1:2 等比完整展示：外框随座位宽度拉高，图片填满框内区域，不使用宽框内居中窄图的方式留下两侧空白；边框不改变框内 1:2 比例。座位网格行随立绘及名牌自动增高，短屏可滚动，窄屏宽度不得溢出；切换立绘或刷新素材清单后重新尝试此前失败的图片。皮肤名片需要已加载新 `room.card` 校验的服务进程，更新源码及前端构建后必须重启旧服务，不能只刷新页面。
 
-- 2026-10-15 用户要求当前皮肤支持所有现有立绘位置。游戏立绘沿用所属玩家的基础 chessId 皮肤及观看者 `skinsEnabled`，精锐共用，战斗单位优先使用该场携带的 skin；AI、补位和自选槽位保持默认。调配、商店、详情、结算统一解析已部署 `skins[skinId].portrait`，缺失或请求失败回退原普通/精锐立绘。房间更换立绘采用干员/默认或皮肤两步，按需目录及加载/重试/空状态，取消不保存；`sp.pref.room.card` 与 `room.card` 仍仅 `{ charId, avatar }`，其中 `charId` 兼容干员 ID 并接受完整皮肤 ID，服务端按所属干员校验，独立于头像及战场显示/预载开关，不要求模型。房间、观战、结算各用所属玩家选择，沿用同步、Session/座位持久化且不进入模拟状态。部署端原皮肤管线下载官方表 `portraitId` 对应的 180×360 PNG，`install-skins.mjs portraits` 只补当前已安装立绘；纳入可选皮肤预载、CDN、指纹和 ZIP，不引入浏览器安装或全尺寸原画。验证皮肤立绘、工具续传、房间同步/恢复、既有 UI/资源及 Vite 回归。
+- 2026-10-15 用户要求当前皮肤支持所有现有立绘位置（**本地安装管线部分已被 2026-10-30 裁决取代**：皮肤改由外观插件 overlay 提供，`skinsEnabled`/`install-skins`/可选皮肤预载组均已移除；仍保留：调配、商店、详情、结算统一按所属玩家解析立绘、缺失回退默认，房间名片只存 `{ charId, avatar }` 且与战场开关独立）。游戏立绘沿用所属玩家的基础 chessId 皮肤及观看者 `skinsEnabled`，精锐共用，战斗单位优先使用该场携带的 skin；AI、补位和自选槽位保持默认。调配、商店、详情、结算统一解析已部署 `skins[skinId].portrait`，缺失或请求失败回退原普通/精锐立绘。房间更换立绘采用干员/默认或皮肤两步，按需目录及加载/重试/空状态，取消不保存；`sp.pref.room.card` 与 `room.card` 仍仅 `{ charId, avatar }`，其中 `charId` 兼容干员 ID 并接受完整皮肤 ID，服务端按所属干员校验，独立于头像及战场显示/预载开关，不要求模型。房间、观战、结算各用所属玩家选择，沿用同步、Session/座位持久化且不进入模拟状态。部署端原皮肤管线下载官方表 `portraitId` 对应的 180×360 PNG，`install-skins.mjs portraits` 只补当前已安装立绘；纳入可选皮肤预载、CDN、指纹和 ZIP，不引入浏览器安装或全尺寸原画。验证皮肤立绘、工具续传、房间同步/恢复、既有 UI/资源及 Vite 回归。
 
-- 2026-10-15 修复干员调配皮肤冲突：每个干员详情只挂载一个 `SkinSection`，基础调配加载不依赖可选 `skins.json`；仅启用选择器后加载目录。开启后必须保留加载中、失败/重试、无目录皮肤及尚未部署模型的可见状态和关闭开关，不能因可用皮肤为空返回空区域。只提供已部署模型，暂不可用的已选皮肤保留并显示默认回退。`loadout.css` 仅保留一套皮肤卡样式，移动密度继续由最后加载的 `utility-mobile.css` 适配。验证 `test/ui/skin-picker-state.test.js`、皮肤布局/同步、调配与 Vite 回归。
+- 2026-10-15 修复干员调配皮肤冲突（**已被 2026-10-30 裁决取代**：皮肤列表来自外观插件 overlay 的 `chars[charId].skins`，不再有 `skins.json` 目录与 `test/ui/skin-picker-state.test.js`；现行实现见 `public/js/ui/skinPicker.js` 与 `test/ui/skin-picker.test.js`）。原记录：每个干员详情只挂载一个 `SkinSection`，基础调配加载不依赖可选 `skins.json`；仅启用选择器后加载目录。开启后必须保留加载中、失败/重试、无目录皮肤及尚未部署模型的可见状态和关闭开关，不能因可用皮肤为空返回空区域。只提供已部署模型，暂不可用的已选皮肤保留并显示默认回退。`loadout.css` 仅保留一套皮肤卡样式，移动密度继续由最后加载的 `utility-mobile.css` 适配。验证 `test/ui/skin-picker-state.test.js`、皮肤布局/同步、调配与 Vite 回归。
 
 - 2026-10-15 用户要求借鉴 Stardust-minus/Stronghold-Protocol 更换大厅音乐与图片背景（固定参考 `d6e96f4`）。保留夜巡、霜原、烬野、静默四套主题及自选图片、暗化、模糊、网格、动态开关；图片最多 30MiB，本机缩放至最长边 2560px 后存 IndexedDB。大厅音频最多 20MiB，保存在浏览器并支持暂停、播放、恢复默认；由现有 AudioManager 流式接入 BGM 通道，沿用静音、音量、首次手势及隐藏页面暂停，既有大厅音乐阶段继续播放，战场各阶段保持原选曲。只保留本机文件，不上传、不广播、不加入 CDN/素材预载或 ZIP，不合入参考仓库的视频背景、对局选曲或无关协议/规则。入口使用带无障碍名称的方形图标，设置窗复用 utility Modal、安全区域和全局强制横屏；恢复与导入避免异步旧数据覆盖新选择，替换时释放 object URL。验证 `test/ui/lobby-media.test.js`、原音频/大厅/移动布局/i18n 与 Vite 回归。
 
 - 2026-10-15 用户要求大厅的同盟模拟、独立模拟、同盟匹配均为二级页面，不使用模态框：选择模拟协议时直接替换大厅正文，不保留可交互的底层大厅，不套 Modal、dialog、遮罩或焦点陷阱。保留现有难度/模式偏好、创建房间、真人匹配及退出匹配协议；返回大厅不自动取消匹配，大厅仍展示队列与退出操作。左上角返回及 Escape 返回大厅，Escape 不跨越上层设置、公告、资料或确认窗口；返回恢复对应入口焦点，匹配中入口禁用时聚焦退出匹配。沿用全局 rem、强制横屏、安全区域及可见视口高度，难度列表独立滚动，不改房间或战斗规则。
 
-- 2026-10-15 用户要求成就统计完全模仿 Stardust-minus/Stronghold-Protocol 的页面设计（本次固定参考 `d6e96f4`，相关设计提交 `70875f41`），不自行加筛选栏、自定义页头或重排页面。沿用橙色标题带、名片/奖杯/已达成数、模式表、六边形评语、七组共30项成就与进度、战果/盟约/策略纪录及菱形加载/关闭动效。窗口及缩放同参考：宽 `min(17.4rem, calc(100vw - 1.1rem))`，高 `min(9.06rem, calc(var(--sp-vh, 1vh) * 100 - .9rem))`，沿用现有全局 rem；此要求取代此前成就窗1080px/720px上限，不改原本机统计窗口及战斗统计。复用管理 Modal 的焦点/栈生命周期但不套其视觉外壳；手机保留安全区域、动态视口、正文滚动和强制横屏。本机数据约定不变：复用 `sp.pref.stats`、原导入/导出/清空及保存预算，不新增账号、好友、点赞、云同步、上传或身份/游戏等级/经验。局数、胜利、评语、策略与成就进度采用同一计入口径；奖杯只累计保留记录已有值，旧压缩记录缺失值不补算。盟约及阵容纪录仅覆盖保留明细，不冒充终身累计。
+- 2026-10-15 用户要求成就统计完全模仿 Stardust-minus/Stronghold-Protocol 的页面设计（本次固定参考 `d6e96f4`，相关设计提交 `70875f41`），不自行加筛选栏、自定义页头或重排页面。沿用橙色标题带、名片/奖杯/已达成数、模式表、六边形评语、七组共30项成就与进度、战果/盟约/策略纪录及菱形加载/关闭动效。**窗口尺寸与外壳已由 2026-10-30 决定取代**：此前的宽 `min(17.4rem, calc(100vw - 1.1rem))`、高 `min(9.06rem, calc(var(--sp-vh, 1vh) * 100 - .9rem))` 及「复用管理 Modal 的焦点/栈生命周期但不套其视觉外壳」不再适用，改用上游 `.achv` Modal 外壳；手机安全区域、动态视口与正文滚动由 `utility` Modal 承担。此要求仍取代此前成就窗1080px/720px上限，不改原本机统计窗口及战斗统计。本机数据约定不变：复用 `sp.pref.stats`、原导入/导出/清空及保存预算，不新增账号、好友、点赞、云同步、上传或身份/游戏等级/经验。局数、胜利、评语、策略与成就进度采用同一计入口径；奖杯只累计保留记录已有值，旧压缩记录缺失值不补算。盟约及阵容纪录仅覆盖保留明细，不冒充终身累计。
 
-- 2026-10-15 用户后续调整 S.W.E.E.P. 为参考仓库的全屏资料页，明确不能使用模态框：大厅按需加载 `screens/sweep.js` 后替换大厅正文，加载页、报告及子图鉴都不能用 Modal、dialog 或背景遮罩。报告使用全视口与现有 rem 缩放，左上角返回大厅；图鉴页内切换并保留报告选择/滚动。使用当前已安装、已本地化的盟约/策略/敌人/首领/特训类型/干员/素材，不新增账号、跨服协议或玩法状态。保留核心/附加盟约、激活人数/档位/成员/替补标记、原干员详情、真实策略LP/效果/模式/盟约、首领护卫、特训分组、名称/编号/等级筛选及非官方相对评级说明。打开原干员调配或玩法说明时仅暂停报告交互，返回恢复原页签/选择，Escape 先处理上层或图鉴，不能跨层退出；无焦点陷阱，返回大厅恢复入口焦点。手机继续强制横屏、安全区域/可见视口、左右分栏独立滚动及可读卡名，不改生成数据或规则。
+- 2026-10-15 用户后续调整 S.W.E.E.P. 为参考仓库的全屏资料页：大厅按需加载 `screens/sweep.js` 后打开资料页。**本条「不能使用模态框、无焦点陷阱」部分已由 2026-10-29 决定取代（见下一条），其余要求继续有效**。使用当前已安装、已本地化的盟约/策略/敌人/首领/特训类型/干员/素材，不新增账号、跨服协议或玩法状态。保留核心/附加盟约、激活人数/档位/成员/替补标记、原干员详情、真实策略LP/效果/模式/盟约、首领护卫、特训分组、名称/编号/等级筛选。手机继续强制横屏、安全区域/可见视口、左右分栏独立滚动及可读卡名，不改生成数据或规则。
+
+- 2026-10-29 用户裁决 S.W.E.E.P. 采用上游 `v0.3.3` 的 Modal 实现，取代 2026-10-15「不能使用模态框、无焦点陷阱」的约定：`public/js/screens/sweep.js` 的报告与敌方图鉴都用项目 `Modal`（`components.js` 的 `Modal`：焦点陷阱、Escape、焦点还原、遮罩），不再自带全页外壳与自定义焦点管理。同时保留两项本分支行为：(1) **仍按需加载**——大厅用 `import('./sweep.js')` 动态导入并整页早返回，`test/vite.test.js` 的 `sweep` 动态入口断言继续成立；加载中与失败回退仍由大厅承担。(2) **干员调配穿透**——报告盟约成员可点击 `openLoadout('sweep', chessId, 'loadout')` 进入原干员调配，玩法说明入口同样保留；因报告是 Modal（`--z-modal: 80`）而 `.lo` 原为 `z-index: 55`，现按 `guide.css` 既有先例把 `.lo` 提升到 `calc(var(--z-modal) + 4)`，并让 `components.js` 的模态焦点栈 `topmost()` 同时排除 `.guide` 与 `.lo`，使干员调配盖在报告之上且能正常交互；返回恢复原页签/选择。评级改用上游官方敌人图鉴 10 档（`data/factions.json` 的 `handbookLevels`，E/D/C/B/B+/A/A+/S/S+/SS），取代此前「非官方相对分档」的本地自造 8 档与其说明文字。
 
 - 2026-10-15 用户追加参考仓库的房间立绘/头像更换及同房间共享：仅自己的真人座位提供更换立绘与头像入口，搜索/稀有度/默认选择沿用参考选择器；成就页头像与大厅头像读取同一本机选择。`sp.pref.room.card` 只保存 `{ charId, avatar }`，复用已有偏好同步引擎处理有序发送、关闭选择器立即发送、重连重发、限流重试和过时异步准备。新增 `room.card` 由服务端校验当前干员ID，只修改已认证会话自己的 Session/Seat，`room.state.seats[].card` 广播给同房间玩家和观战者，观看他人只读其座位元数据，不用自己的选择覆盖。禁止外部URL、上传、自定义图片或冒充他人；AI/空位/观战者不编辑他人座位。选择属于主线程房间展示元数据，不写入模拟/Match Worker玩法状态、不重置准备或战斗；Session和房间持久化/连续恢复保留，旧记录缺字段保持默认分配立绘/文字头像。验证 `test/room-card.test.js`、`test/ui/player-card.test.js` 及现有房间、持久化、UI、构建回归。
 
@@ -111,7 +125,7 @@
 
 - 2026-10-17 用户反馈「现在的公告太窄了」（附弹窗截图：正文每行只排十几个字，右侧赞助图占掉近一半）。原因是本仓库的 rem 是 `html{font-size:clamp(40px,min(100vw/19.2,100vh/10.8),240px)}`（1080p 下 **1rem = 100px**），而 `components.css` 的 `.notice__side` 写成 `flex:0 0 5.6rem`（=560px，被 `max-width:46%` 截到约 340px）⇒ 正文只剩约 330px。改为按「能扫码的最小宽度」取值：`.notice__side{flex:0 0 3.6rem;max-width:40%}`（360px，用户随后两次要求二维码更大，由 2.4rem 提到 3.6rem，2026-10-17 再提到 **4.6rem / max-width:48%**（460px），窄屏堆叠上限同步 6.6rem→7.6rem→**9rem**），并把公告弹窗宽度从 `min(7.4rem,94vw)` 提到 `min(9.6rem,94vw)`，再提到 **`min(10.8rem,94vw)`**（`ui/announcement.js` 的 Modal `width`），正文列约 510px → **约 592px**（弹窗加宽补偿了右列，正文没有被挤窄）。这次只改尺寸，公告正文与 `autoPopup` 不动。写公告/弹窗的布局尺寸时先按 1rem=100px 估算，别把「百分比感觉」的数字直接当 rem。验证 `test/popup-rich.test.js`（新增右列宽度量级、弹窗宽度、窄屏堆叠断言）。
 
-- 2026-10-14 采用 kanomahoro1224/Stronghold-Protocol 的皮肤实现（参考分支 merge/upstream-20261013，皮肤提交 bbb80205），不合入无关规则或生成素材清单。`skinsEnabled` 默认 false、浏览器持久化：关闭时自己及他人全部默认外观且保留已选皮肤；开启后通过 `room.skins` 发布基础 chessId 选择，观看者按自己的开关显示所属玩家元数据，不用本机选择覆盖队友。准备期、精锐、联防/首领、观战及 DOM 回退均保留；显示开关仅换外观，不重置模拟或 HP/SP。`preloadSkins` 默认 false，独立于“同时预载”和皮肤显示；皮肤单独可选分组，未预载时仅实际显示按需加载，范围切换/战斗闸门沿用资源控制器，ZIP 仍校验并保存未选择的有效皮肤。目录仅启用的选择器读取，不进入对局必需数据。选择进入 Session、座位/队列/外部队友、Match Worker 代理、检查点及连续恢复；旧检查点为空，观战不改玩家，AI/补位/自选槽位不用原干员皮肤。安装只在部署端通过原动画角色管线，不增浏览器安装接口；忽略本机 skins-installed.json，不提交其他部署安装记录/素材/生成 assets.json。部署同步数据/素材 CDN、重建并更新 SW。说明和验证见 `docs/SKINS.md`。
+- 2026-10-14 采用 kanomahoro1224/Stronghold-Protocol 的皮肤实现（参考分支 merge/upstream-20261013，皮肤提交 bbb80205），不合入无关规则或生成素材清单（**已被 2026-10-30 裁决取代**：合并 v0.3.3 时改用上游 `charId` 键的 `room.skins` + 外观插件 overlay + 观看者 `otherSkins` 开关，删除 `skinsEnabled`/`preloadSkins` 与本地安装管线；下列原记录仅作历史）。`skinsEnabled` 默认 false、浏览器持久化：关闭时自己及他人全部默认外观且保留已选皮肤；开启后通过 `room.skins` 发布基础 chessId 选择，观看者按自己的开关显示所属玩家元数据，不用本机选择覆盖队友。准备期、精锐、联防/首领、观战及 DOM 回退均保留；显示开关仅换外观，不重置模拟或 HP/SP。`preloadSkins` 默认 false，独立于“同时预载”和皮肤显示；皮肤单独可选分组，未预载时仅实际显示按需加载，范围切换/战斗闸门沿用资源控制器，ZIP 仍校验并保存未选择的有效皮肤。目录仅启用的选择器读取，不进入对局必需数据。选择进入 Session、座位/队列/外部队友、Match Worker 代理、检查点及连续恢复；旧检查点为空，观战不改玩家，AI/补位/自选槽位不用原干员皮肤。安装只在部署端通过原动画角色管线，不增浏览器安装接口；忽略本机 skins-installed.json，不提交其他部署安装记录/素材/生成 assets.json。部署同步数据/素材 CDN、重建并更新 SW。说明和验证见 `docs/SKINS.md`。
 
 - 2026-10-16 设置及独立快捷键弹窗的移动端尺寸统一跟随现有全局缩放：几何与间距使用 `rem`，文字使用保存的 `--t`，不继承管理窗的固定文字下限；按钮、开关、滑块、语言/语音选择、帧率及诊断区域同步适配，标签与操作 SVG 使用 `em`，关闭图标保持按钮内等比。保留原生输入/选择框 16px 防 iOS 聚焦缩放、实际点击边界、换行/收缩、正文滚动、焦点栈、安全区域与全局强制横屏；不改桌面设置或战场缩放。验证 `test/ui/settings-mobile.test.js` 及既有管理界面、文字、设备和构建回归，静态尺寸检查不冒充真机验证。
 
@@ -127,7 +141,7 @@
 
 - 局内“交流”保留表情，并提供最多 20 个 Unicode 码点的单行文字聊天（中文或普通 emoji 各计一字，组合 emoji 按码点计数），客户端和服务端均校验，拒绝空白、控制字符及无效 Unicode。文字与表情共用 1 秒冷却，仅当前局玩家可发送，观战席不可发送；服务端广播可信发送者身份。头像旁显示文字气泡，“交流”内可回看当前页面接收到的本局最近 100 条文字消息（姓名、时间、正文）；不上传聊天历史、不持久化，换局或退出清空，页面刷新不恢复，滚动回看时不强制跳到底部。文字仅按纯文本渲染，不解析 HTML。启用名称审核器时，聊天审核使用同一双审核配置，任一明确拒绝会返回“该内容不可用”，服务异常按 fail-open 继续发送。每个玩家最多一个待审核消息；审批绑定原会话、连接及对局，退出、换局、重连或关闭后不转发旧消息。
 
-- 0.1.4 合并时确立的取舍继续适用于后续合并，除非用户明确调整：排除上游快捷键实现，保留本仓库可自定义快捷键、默认按键、提示文字及浏览器持久化设置。当前默认 W 查看怪物、S 冻结、R 刷新、C 准备、X 出售、Q 撤退、G 升级、空格暂停/继续；不要恢复上游固定 R/F/D/Space 方案。
+- 2026-10-29 用户明确调整（取代 0.1.4 的旧取舍）：本分支不再排除上游快捷键实现，改用上游 v0.3.3 的悬停 Q/X 行为与重绑定方案，保留本仓库可自定义快捷键的设置入口、提示文字及浏览器持久化。0.1.4 的“排除上游快捷键实现、保留本仓库默认按键”规则及当时默认的 W 查看怪物、S 冻结、R 刷新、C 准备、X 出售、Q 撤退、G 升级、空格暂停/继续仅作历史记录，不再是现行默认键位；也不恢复上游更早的固定 R/F/D/Space 方案。
 - 2026-10-12 用户调整：从本次 0.2.5 合并起接受上游棋盘 WebP 的提取、加载、文档和测试。颜色贴图采用质量 95 的有损 WebP，法线及数据贴图保持无损；PNG 原件保留供裁切和 setup 使用，旧 PNG 清单继续兼容。`extract.py --webp` 可转换已有提取，不依赖客户端；转换后按实际 WebP 字节重算 SHA-1 指纹，不能沿用原 PNG 摘要。保留 `boardArt.js` 对裁切表素材路径的 CDN 改写。
 - 标题页保留“关于本服务器”的联系邮箱、反馈入口、本分支仓库链接和纯公益说明。版权与免责声明以对应上游 `NOTICE.md` 为依据，区分自编代码许可证与游戏素材/数据权利，保留非官方、非商业、无担保、不索取游戏账号及权利人联系处理说明；上游声明变化时同步核对文案和链接。
 - 2026-10-16 “关于本服务器”增加 UI 制作署名“B站雨千代Chiyo”，链接固定为 `https://space.bilibili.com/27675079`，沿用新窗口打开及 `noopener noreferrer`；保留原联系邮箱、反馈和仓库入口。
@@ -141,7 +155,7 @@
 
 - 组队匹配开局后，对局存活按整局尚未退出的真人判断，不仅按原房间座位表。原房间成员全部退出或断线到期时，外部匹配队友继续游戏、重连及恢复；保留原对局编号、Worker lane 和持久化键，空原房间仅作为对局容器，结算或最后一名玩家退出后释放。退出立即更新主线程匹配成员标记，不等待 Worker 确认，旧安全检查点及连续重启不能复活已退出玩家；恢复已知空容器时不把外部队友改成该房间成员，不改变其原房间归属。外部队友离线时仍保留各自结算回放。私人房间、普通大厅空房间及关停清理行为不变。验证 `test/matchmaking-lifecycle.test.js`、内存生命周期、匹配、持久化和 Match Worker 测试。
 
-- 2026-10-16 用户要求部署时镜头缩放改为可选功能：设置“部署时镜头缩放”（deploymentZoom）默认关闭，旧偏好缺失或非法值也关闭，复用 sp.pref.settings 浏览器持久化。仅开启后在放置/移动干员、装备、召唤物及选择朝向时临时收起商店并放大棋盘，结束后恢复原收起状态；关闭不自动缩放或收起，不影响手动收起/展开、准备就绪、查看怪物及战斗镜头，保持部署判定、拖拽落点、朝向与战斗规则不变。
+- 2026-10-16 用户要求部署时镜头缩放改为可选功能；2026-10-29 按上游 v0.3.3 语义统一为设置「部署时收起商店」（`prepDeployFold`）：默认开启，旧偏好缺失或非法值也开启，仅显式 false 关闭，复用 sp.pref.settings 浏览器持久化。开启后在放置/移动干员、装备、召唤物及选择朝向时临时收起商店并放大棋盘，结束后恢复原收起状态；关闭不自动缩放或收起，不影响手动收起/展开、准备就绪、查看怪物及战斗镜头，保持部署判定、拖拽落点、朝向与战斗规则不变。本分支原「部署时镜头缩放」（`deploymentZoom`，默认关闭、仅显式 true 开启）已退役：不再读写该键，旧偏好也不回写、不迁移。
 
 - 设置保留浏览器持久化的帧率上限：不限（默认）、30、60、120 FPS。仅限制画面渲染，Pixi 干员/特效与 Three.js 棋盘共享限帧，简化 DOM 战场也遵循上限；战斗模拟、计时、倍速及联网结算保持独立。旧设置或非法值回退为不限；自动画质降级阈值适配主动限帧，不能将稳定的 30 FPS 误判为性能不足。
 
@@ -313,9 +327,13 @@ rooms) and a deterministic battle sim shared by the server and the browser. It a
 3. The reference for the part you touch: [docs/SIM.md](docs/SIM.md) (battle engine API, hooks, test harness),
    [docs/META.md](docs/META.md) (match flow, shop, protocol), [docs/DATA.md](docs/DATA.md) (generated data),
    [docs/I18N.md](docs/I18N.md) (interface strings), `server/sim/content/kits/README.md` (operator kits).
+4. Before editing battle simulation code, read [server/sim/AGENTS.md](server/sim/AGENTS.md) for a short settlement API usage guide.
+5. [docs/CI.md](docs/CI.md) — the CI jobs, the test-sharding contract (`ci-shards.json`), how to re-weigh it, the
+   timeout policy, and the ways a CI measurement lies.
 
 ## Hard rules
 
+- **Formatting.** Use two spaces for JavaScript indentation; do not introduce Tab indentation.
 - **Official first.** Rules come from the official data tables (`.cache/gamedata/excel/` after setup) and
   [PRTS](https://prts.wiki/). A detail no source settles is implemented the simplest way and marked `[ASSUMED]` in the
   code and the PR. Deliberate deviations from the official mode are the maintainer's decision only.
@@ -342,7 +360,7 @@ Run the tests of what you touched first, then everything before opening the PR:
 
 ```bash
 node --test test/<area>/<file>.test.js      # targeted
-npm run ci                                  # the CI checks locally (tools/ci.mjs): node --test, smoke, lint, imports, types
+npm run ci                                  # the CI checks locally (tools/ci.mjs): npm test, smoke, lint, imports, types
 npm run golden                              # golden results
 ```
 

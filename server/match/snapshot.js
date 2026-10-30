@@ -1,4 +1,3 @@
-import { freezeSkins } from '../../shared/skins.js';
 // server/match/snapshot.js — checkpoints of a running match (Redis persistence, docs/DEPLOY.md「断点续玩」).
 //
 // WHY A CHECKPOINT AND NOT A REPLAY: the match engine is deterministic in virtual time (tests run whole matches on a
@@ -185,6 +184,8 @@ const MATCH_FIELDS = Object.freeze([
   'aiPicksLast', 'setupRevision', '_setupVoteSeq',
   'round', 'uidSeq', 'loneHuman', 'hiddenLayerSum', 'hiddenReached', 'errors', 'errorCount', 'simErrors',
   'cs', 'vs', 'requireCs', 'hostId', 'simErrorLog', 'draft', 'sp', 'wave', 'bossWaves', 'bossPairs',
+  // the round whose first plan drew bossPairs: without it a restored boss round re-plans as a fresh draw (GitHub #845)
+  'bossPairsRound',
 ]);
 
 /** PlayerState fields of a checkpoint (bonds/deploy map are recomputed on restore). */
@@ -414,7 +415,12 @@ export function restoreMatch(m, doc, { createRngFromState, log = console, bestEf
     const stockEntries = ps.diyStock?.entries;
     ps.setNotOwned(ps.standIns || []);
     ps.setDiy(ps.diy || {});
-    ps.skins = freezeSkins(ps.isBot ? null : ps.skins, (id) => ps.gd.chess(id)); // old checkpoints: defaults
+    // 干员皮肤 (docs/SKINS.md): the selection is keyed by OPERATOR charId, so it goes through the player's own
+    // `setSkins` (checkSkinSelection over `operatorCharIds`) — NOT the chessId-keyed `freezeSkins`: `gd.chess` is keyed
+    // by chessId (`chess_char_1_01_a`), so a charId lookup returns null and would silently drop every restored skin.
+    // A selection this match's content cannot take (a legacy chessId-keyed checkpoint, junk, over the wire cap) falls
+    // back to the defaults; a bot wears the default model, as `setLoadout` does.
+    if (ps.isBot || !ps.setSkins(ps.skins)) ps.skins = Object.freeze({});
     ps.initDiyStock(new Set([...(m.disabledBonds || []), ...(m.staticInactiveBonds || [])]));
     if (stockEntries instanceof Map) for (const [id, saved] of stockEntries) {
       const entry = ps.diyStock.entries.get(id);

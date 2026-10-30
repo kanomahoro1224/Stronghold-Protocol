@@ -218,7 +218,7 @@ test('manifest: machineTranslated — a boolean, carried into the index entry li
   // no fallback (the Simplified Chinese msgids), the note in Traditional Chinese
   const tw = normalizeManifest(ZH_TW._meta, { id: 'zh-TW', type: 'lang', lang: 'zh-TW', app: '0.2.0' });
   assert.deepEqual([tw.problems, tw.warnings], [[], []]);
-  assert.deepEqual([tw.manifest.machineTranslated, tw.manifest.complete, tw.manifest.fallback, tw.manifest.numberUnits], [true, false, ['en'], ['萬', '億']]);
+  assert.deepEqual([tw.manifest.machineTranslated, tw.manifest.complete, tw.manifest.fallback, tw.manifest.numberUnits], [true, true, [], ['萬', '億']]);
   assert.equal(ZH_TW[MT_NOTE], '目前語言的介面文字為機器翻譯，可能不夠準確，歡迎在 GitHub 上指正。');
   assert.ok(EN[MT_NOTE], 'English has the note');
 });

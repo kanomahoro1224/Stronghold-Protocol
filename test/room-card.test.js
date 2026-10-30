@@ -28,10 +28,14 @@ test('room.card schema admits bounded cosmetic IDs only; unknown operators and i
   const s = registry.create('A');
   assert.deepEqual(lobby.card(s, card), { ok: true });
   assert.deepEqual(s.card, card);
-  for (const bad of [{ charId: 'char_unknown', avatar: bId }, { charId: aId, avatar: 'char_unknown' }, { charId: aId }]) {
+  for (const bad of [{ charId: 'char_unknown', avatar: bId }, { charId: aId, avatar: 'char_unknown' }]) {
     assert.ok(lobby.card(s, bad).error);
     assert.deepEqual(s.card, card, 'one invalid field cannot replace the other');
   }
+  // an absent avatar is no avatar (shared/protocol.js admits `room.card { charId }` alone), never a rejected portrait
+  assert.deepEqual(lobby.card(s, { charId: bId }), { ok: true });
+  assert.deepEqual(s.card, { charId: bId, avatar: '' });
+  assert.deepEqual(lobby.card(s, card), { ok: true });
   assert.equal(Object.isFrozen(s.card), true);
   assert.deepEqual(cleanPlayerCard({ charId: aId, avatar: 'https://example.com', playerId: 'other', trophies: 999 }), { charId: aId, avatar: '' });
   assert.deepEqual(lobby.card(s, { charId: '', avatar: '' }), { ok: true });

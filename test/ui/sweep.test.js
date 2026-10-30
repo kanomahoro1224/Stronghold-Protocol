@@ -5,15 +5,19 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import postcss from 'postcss';
 import {
-  SweepShell, SweepView, BondPanel, BandPanel, EnemyPanel, CodexDetail, EnemyCodexView,
-  enemyGrade, codexEnemies, bossEnemyKeys, codexSelection, sweepTab, handbookPage, sweepEscapeAction,
+  BondPanel, BandPanel, EnemyPanel,
+  enemyGrade, codexEnemies, bossEnemyKeys,
 } from '../../public/js/screens/sweep.js';
 import { data } from '../../public/js/data.js';
-import { Modal } from '../../public/js/ui/components.js';
 import { loadoutStore, closeLoadout } from '../../public/js/ui/loadoutSync.js';
-import { guideStore, closeGuide } from '../../public/js/ui/guide.js';
 import { AchievementView } from '../../public/js/ui/achievements.js';
 import { achievementStats } from '../../public/js/ui/achievementModel.js';
+
+// S.W.E.E.P.报告 (screens/sweep.js) after the 2026-10-29 ruling: the report and the enemy codex are the upstream
+// v0.3.3 full-screen Modals (ui/components.js Modal: focus trap, Esc, focus restored), while this branch keeps two
+// of its own behaviours — the lobby still loads the screen on demand (`import('./sweep.js')`, test/vite.test.js's
+// dynamic-entry assertion) and a bond member still opens the existing 干员调配 over the report. The letter grades
+// are the official handbook bands from data/factions.json `handbookLevels`, not a local scale.
 
 const read = (file) => readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
 before(async () => {
@@ -34,59 +38,79 @@ const text = (v) => v == null || typeof v === 'boolean' ? '' : typeof v !== 'obj
 const has = (v, cls) => String(v.props?.class || '').split(/\s+/).includes(cls);
 const find = (v, predicate) => [...walk(v)].find(predicate);
 
-test('report is a full page without a modal or focus trap and yields to the loadout or guide', () => {
-  for (const [loadoutOpen, guideOpen, suspended] of [[false, false, false], [true, false, true], [false, true, true]]) {
-    const root = SweepShell({ loadoutOpen, guideOpen, children: 'report' });
-    assert.equal(root.type, 'main');
-    assert.equal(root.props.children, 'report');
-    assert.equal(root.props.inert, suspended ? '' : undefined);
-    assert.equal(root.props['aria-hidden'], suspended ? 'true' : undefined);
-    assert.equal(find(root, (v) => v.type === Modal || v.props?.role === 'dialog' || v.props?.['aria-modal']), undefined);
+// Read the generated table straight from disk: `data.get` is only populated inside the before() hook below.
+const LEVELS = JSON.parse(read('data/factions.json')).handbookLevels;
+const STATS = ['maxHp', 'atk', 'def', 'res', 'moveSpeed', 'interval', 'elementRes', 'elementDmgRes'];
+
+test('handbookLevels: the official ten grades, weakest first, each stat a [min, max) band that meets the next', () => {
+  assert.deepEqual(LEVELS.map((l) => l.level), ['E', 'D', 'C', 'B', 'B+', 'A', 'A+', 'S', 'S+', 'SS']);
+  for (const l of LEVELS) for (const k of STATS) assert.ok(Array.isArray(l[k]) && l[k].length === 2, `${l.level} ${k}`);
+  for (const k of STATS) {
+    const bands = LEVELS.map((l) => l[k]);
+    if (k === 'interval') {
+      // shorter is stronger: SS starts at 0, E is open-ended
+      assert.equal(bands.at(-1)[0], 0);
+      assert.equal(bands[0][1], null);
+      for (let i = 1; i < bands.length; i++) assert.equal(bands[i][1], bands[i - 1][0], `${k} ${LEVELS[i].level}`);
+    } else {
+      assert.equal(bands[0][0], 0);
+      assert.equal(bands.at(-1)[1], null);
+      for (let i = 1; i < bands.length; i++) assert.equal(bands[i][0], bands[i - 1][1], `${k} ${LEVELS[i].level}`);
+    }
   }
-  const source = read('public/js/screens/sweep.js');
-  assert.doesNotMatch(source, /\bModal\b|setTimeout|net\.request|fetch\(/, 'no dialogs or protocol');
-  assert.match(source, /addEventListener\('keydown', onKey, true\)/);
-  assert.match(source, /removeEventListener\('keydown', onKey, true\)/);
-  assert.match(source, /hidden=\$\{!!codex\}/, 'codex replaces the visible report without discarding its scroll/selection');
-  assert.match(source, /setTabState\(next\); savePref\(TAB_PREF, next\); setCodex\(null\)/);
+  // spot checks against the table (enemy_handbook_table.json levelInfoList)
+  assert.deepEqual(LEVELS.find((l) => l.level === 'B').maxHp, [5000, 8000]);
+  assert.deepEqual(LEVELS.find((l) => l.level === 'A+').def, [1200, 2000]);
+  assert.deepEqual(LEVELS.find((l) => l.level === 'S+').interval, [0.5, 0.8]);
 });
 
-test('Escape returns from the codex first and cannot cross an operator/guide/dialog layer', () => {
-  const ev = { key: 'Escape' };
-  assert.equal(sweepEscapeAction(ev, {}), 'report');
-  assert.equal(sweepEscapeAction(ev, { codexOpen: true }), 'codex');
-  for (const key of ['loadoutOpen', 'guideOpen', 'dialogOpen']) {
-    assert.equal(sweepEscapeAction(ev, { [key]: true, codexOpen: true }), null);
-  }
-  for (const event of [{ key: 'Enter' }, { ...ev, defaultPrevented: true }, { ...ev, isComposing: true },
-    { ...ev, target: { type: 'search', value: 'Scout' } }]) assert.equal(sweepEscapeAction(event, {}), null);
+test('enemyGrade: the band a value falls in; an edge starts the next band; the interval runs the other way', () => {
+  assert.equal(enemyGrade('maxHp', 999, LEVELS), 'E');
+  assert.equal(enemyGrade('maxHp', 1000, LEVELS), 'D');
+  assert.equal(enemyGrade('maxHp', 7999, LEVELS), 'B');
+  assert.equal(enemyGrade('maxHp', 500000, LEVELS), 'SS');
+  assert.equal(enemyGrade('atk', 0, LEVELS), 'E');
+  assert.equal(enemyGrade('res', 50, LEVELS), 'A');
+  assert.equal(enemyGrade('moveSpeed', 1.9, LEVELS), 'S+');
+  assert.equal(enemyGrade('interval', 0.4, LEVELS), 'SS');
+  assert.equal(enemyGrade('interval', 1.7, LEVELS), 'B+');
+  assert.equal(enemyGrade('interval', 9, LEVELS), 'E');
+  assert.equal(enemyGrade('atk', null, LEVELS), '—', 'never attacks');
+  assert.equal(enemyGrade('moveSpeed', undefined, LEVELS), '—');
+  assert.equal(enemyGrade('atk', -5, LEVELS), '—', 'in no band');
+  assert.equal(enemyGrade('atk', 300, null), '—', 'no table loaded');
+  assert.equal(enemyGrade('atk', 300, 'nope'), '—', 'a table that is not a list');
+  // the default is `data.get('factions')?.handbookLevels`: omitting the argument (or passing undefined, which is the
+  // same thing) uses the installed table, so the loaded case is asserted instead of a missing one.
+  assert.equal(enemyGrade('atk', 300), 'C');
+  assert.equal(enemyGrade('nope', 300, LEVELS), '—');
 });
 
-test('all report tabs, loading state, guide shortcut and selection callbacks are wired', () => {
-  let selected;
-  let closed = 0;
-  const props = { ready: true, tab: 'bonds', onClose: () => closed++, onTab: (id) => { selected = id; }, notOwned: [] };
-  const tree = SweepView(props);
-  find(tree, (v) => v.props?.['aria-label'] === '返回大厅').props.onClick();
-  assert.equal(closed, 1);
-  const tabs = [...walk(tree)].filter((v) => v.props?.role === 'tab');
-  assert.deepEqual(tabs.map(text), ['盟约报告', '策略报告', '敌方资料']);
-  tabs[2].props.onClick();
-  assert.equal(selected, 'enemies');
-  for (const [tab, component] of [['bonds', 'BondPanel'], ['bands', 'BandPanel'], ['enemies', 'EnemyPanel']]) {
-    assert.ok(find(SweepView({ ...props, tab }), (v) => v.type?.name === component), tab);
+test("enemyGrade grades every codex enemy's numbers (no gaps in the table)", () => {
+  for (const e of codexEnemies(data.list('enemies') || [])) {
+    for (const k of ['maxHp', 'atk', 'def', 'res', 'elementRes', 'elementDmgRes']) {
+      const v = e.stats?.[k] ?? 0;
+      assert.notEqual(enemyGrade(k, v, LEVELS), '—', `${e.key} ${k}=${v}`);
+    }
   }
-  assert.match(text(SweepView({ ...props, ready: false })), /正在读取报告/);
-  assert.equal(find(SweepView({ ...props, ready: false }), (v) => v.type?.name === 'BondPanel'), undefined);
-  for (const v of [null, 'firepower', '__proto__', 3]) assert.equal(sweepTab(v), 'bonds');
-  assert.equal(sweepTab('enemies'), 'enemies');
-  const old = guideStore.get();
-  try {
-    find(tree, (v) => v.props?.['aria-label'] === '进阶图鉴').props.onClick();
-    assert.equal(guideStore.get().open, true);
-    assert.equal(guideStore.get().page, handbookPage());
-    closeGuide();
-  } finally { guideStore.set(old); }
+});
+
+test('codexEnemies: one per 图鉴 number, no summon-only enemy; bossEnemyKeys: the leader, then its escorts', () => {
+  const list = codexEnemies(data.list('enemies') || []);
+  assert.ok(list.length > 50);
+  assert.ok(list.every((e) => !e.tokenOnly));
+  const ids = list.map((e) => (e.handbookIndex ? `${e.handbookIndex}|${e.name}` : e.key));
+  assert.equal(new Set(ids).size, ids.length);
+  const boss = { enemyKey: 'a', escortsByTemplate: { t1: [{ key: 'b' }, { key: 'a' }], t2: [{ key: 'c' }, null] } };
+  assert.deepEqual(bossEnemyKeys(boss), ['a', 'b', 'c']);
+  assert.deepEqual(bossEnemyKeys(null), []);
+  assert.deepEqual(codexEnemies(null), []);
+  // real installed data: a leader's keys start with its own enemy and cover every escort
+  const real = data.list('bosses').find((b) => !b.hidden);
+  const keys = bossEnemyKeys(real);
+  assert.equal(keys[0], real.enemyKey);
+  assert.equal(new Set(keys).size, keys.length);
+  for (const group of Object.values(real.escortsByTemplate)) for (const e of group) assert.ok(keys.includes(e.key));
 });
 
 test('bond report shows actual members/thresholds, ownership and opens the selected operator in the existing loadout', () => {
@@ -124,9 +148,6 @@ test('strategy report reads the installed LP/effect/mode data and does not deriv
 test('boss/escort and training-group details open the correct codex scope, including real installed data', () => {
   const boss = data.list('bosses').find((b) => !b.hidden);
   const keys = bossEnemyKeys(boss);
-  assert.equal(keys[0], boss.enemyKey);
-  assert.equal(new Set(keys).size, keys.length);
-  for (const list of Object.values(boss.escortsByTemplate)) for (const e of list) assert.ok(keys.includes(e.key));
   let scope;
   const bossTree = EnemyPanel({ sel: { kind: 'boss', id: boss.bossId }, m: null, onCodex: (v) => { scope = v; } });
   find(bossTree, (v) => has(v, 'sw-look')).props.onClick();
@@ -140,75 +161,29 @@ test('boss/escort and training-group details open the correct codex scope, inclu
   assert.ok(scope.keys.every((k) => data.lookup('enemies', k)));
 });
 
-const enemies = [
-  { key: 'enemy_2_a', name: 'Scout', rank: 'NORMAL', handbookIndex: 'A1' },
-  { key: 'enemy_2_b', name: 'Scout', rank: 'NORMAL', handbookIndex: 'A1' }, // variant
-  { key: 'enemy_3_a', name: 'Guard', rank: 'ELITE', handbookIndex: 'B2' },
-  { key: 'enemy_4_a', name: 'Leader', rank: 'BOSS', handbookIndex: 'L1' },
-  { key: 'enemy_5_a', name: 'Summon', rank: 'NORMAL', tokenOnly: true },
-];
-test('codex search/selection counts: name, handbook id, ranks, no matches and scoped variants', () => {
-  assert.equal(codexEnemies(enemies).length, 3);
-  assert.equal(codexSelection(enemies).list.length, 3);
-  assert.equal(codexSelection(enemies, { query: ' SCOUT ' }).cur.key, 'enemy_2_a');
-  assert.equal(codexSelection(enemies, { query: 'b2' }).cur.rank, 'ELITE');
-  assert.equal(codexSelection(enemies, { rank: 'BOSS' }).cur.name, 'Leader');
-  assert.equal(codexSelection(enemies, { query: 'none' }).cur, null);
-  const scoped = codexSelection(enemies, { scope: ['enemy_2_b', 'enemy_2_b', 'missing'], selected: 'enemy_2_b' });
-  assert.equal(scoped.cur.key, 'enemy_2_b', 'do not discard a requested variant just because the full codex dedupes it');
-  assert.equal(scoped.list.length, 1);
-  assert.equal(scoped.counts.all, 1);
-  assert.equal(scoped.counts.BOSS, 0);
-  assert.deepEqual(bossEnemyKeys(null), []);
-  assert.deepEqual(codexEnemies(null), []);
-});
-
-test('enemy codex uses real base stats/abilities and labels its letter grades as nonofficial', () => {
-  const enemy = data.list('enemies').find((e) => e.abilities.length && e.stats.atk > 0);
-  const tree = CodexDetail({ e: enemy, m: null });
-  assert.ok(text(tree).includes(enemy.name));
-  assert.equal([...walk(tree)].some((v) => v.props?.dangerouslySetInnerHTML), false);
-  for (const k of ['maxHp', 'atk', 'def', 'res']) assert.ok(find(tree, (v) => has(v, 'sw-stat') && v.key === k), k);
-  assert.equal(enemyGrade('maxHp', 2000), 'D');
-  assert.equal(enemyGrade('maxHp', 200000), 'S');
-  assert.equal(enemyGrade('interval', 0.7), 'S');
-  assert.equal(enemyGrade('interval', 6), 'E');
-  for (const v of [null, NaN, Infinity, undefined]) assert.equal(enemyGrade('atk', v), '—');
-  assert.equal(enemyGrade('not-a-stat', 5), '—');
-  let scope = 'not changed', query, rank, selected;
-  const model = codexSelection(enemies, { scope: ['enemy_2_b'] });
-  const view = EnemyCodexView({ model, open: { title: 'group' }, scope: ['enemy_2_b'], rank: 'all', query: '',
-    onClose() {}, onScope: (v) => { scope = v; }, onQuery: (v) => { query = v; }, onRank: (v) => { rank = v; }, onSelect: (v) => { selected = v; } });
-  assert.equal(view.type, 'section');
-  assert.equal(view.props['aria-label'], '敌方图鉴');
-  assert.equal(find(view, (v) => v.type === Modal || v.props?.role === 'dialog'), undefined);
-  assert.match(text(view), /不是官方评级/);
-  find(view, (v) => has(v, 'sw-scope')).props.onClick();
-  assert.equal(scope, null);
-  find(view, (v) => v.type === 'input').props.onInput({ currentTarget: { value: 'A1' } });
-  assert.equal(query, 'A1');
-  find(view, (v) => v.props?.role === 'tab' && v.key === 'NORMAL').props.onClick();
-  assert.equal(rank, 'NORMAL');
-  find(view, (v) => v.type?.name === 'EnemyThumb').props.onClick();
-  assert.equal(selected, 'enemy_2_b');
-});
-
-test('achievement canvas follows the reference design rem and viewport, without altering original stats or battle roots', () => {
+test('achievement canvas is upstream\'s .achv Modal, without altering original stats or battle roots', () => {
   const view = AchievementView({ ready: true, gd: {}, s: achievementStats([]), local: {}, onClose() {} });
-  assert.ok(find(view, (v) => v.props?.class === 'ach__box'));
-  const sheet = postcss.parse(read('public/css/screens/lobby.css'));
-  const heights = [];
-  sheet.walkRules((r) => {
-    if (r.selector === '.ach__box') r.walkDecls('width', (d) => heights.push(d.value));
-  });
-  assert.ok(Math.abs(length(heights.at(-1), { '--ui-unit': 100 }) - 1740) < 1e-7);
-  const sizes = [];
-  sheet.walkRules((r) => {
-    if (r.selector === '.ach__box') r.walkDecls('height', (d) => sizes.push(d.value));
-  });
-  assert.ok(Math.abs(length(sizes.at(-1), { '--ui-unit': 100, '--sp-vh': 10.8 }) - 906) < 1e-7);
-  assert.doesNotMatch(read('public/css/screens/lobby.css'), /1080px|720px/);
+  assert.equal(view.type.name, 'Modal', 'the project Modal owns the focus trap, Escape and the veil');
+  assert.equal(view.props.class, 'achv');
+  assert.equal(view.props.veilClass, 'achv-veil');
+  assert.ok(find(view, (v) => v.props?.['data-testid'] === 'achievement-dialog'));
+  // the 2026-10-29 ruling: the branch keeps its own records inside, not a second window geometry beside upstream's
+  assert.doesNotMatch(read('public/css/screens/lobby.css'), /\.ach__box|\.ach__pending|\.ach \{/);
   const stats = postcss.parse(read('public/css/screens/stats.css'));
+  const box = [];
+  stats.walkRules((r) => { if (r.selector === '.modal__box.achv') box.push(r); });
+  assert.equal(box.length, 1);
+  assert.equal(box[0].parent.type, 'root', 'the canvas does not jump at a mobile breakpoint');
+  const widths = [], heights = [];
+  box[0].walkDecls('width', (d) => widths.push(d.value));
+  box[0].walkDecls('height', (d) => heights.push(d.value));
+  // the global root follows 文字大小, and the vw/vh clamp keeps the window inside a short or narrow viewport
+  assert.ok(Math.abs(length(widths.at(-1), { rem: 100 }) - 1300) < 1e-7, widths.at(-1));
+  assert.ok(Math.abs(length(heights.at(-1), { rem: 100 }) - 880) < 1e-7, heights.at(-1));
+  assert.ok(Math.abs(length(widths.at(-1), { rem: 100 }, { width: 800, height: 400 }) - 752) < 1e-7);
+  assert.ok(Math.abs(length(heights.at(-1), { rem: 100 }, { width: 800, height: 400 }) - 360) < 1e-7);
+  assert.doesNotMatch([...widths, ...heights].join(' '), /\b(?:1080|720)px\b/);
+  assert.doesNotMatch(box[0].toString(), /transform|zoom|--t:/);
   const compact = [];
   stats.walkRules((r) => { if (r.selector === '.st:not(.st--replay)') compact.push(r); });
   assert.equal(compact.length, 1);
@@ -219,25 +194,23 @@ test('achievement canvas follows the reference design rem and viewport, without 
   assert.equal(compact[0].selector.includes('combat-metrics'), false);
 });
 
-test('report has an explicit lazy lobby entry, no extra service/assets, readable scrollable mobile controls', () => {
+test('the report is read-only, a full-screen Modal, still loaded on demand, and the lobby opens it (source contract)', () => {
+  const src = read('public/js/screens/sweep.js');
+  assert.match(src, /<\$\{Modal\} open=\$\{true\} onClose=\$\{onClose\} class="sw"/);
+  assert.match(src, /<\$\{Modal\} open=\$\{true\} onClose=\$\{onClose\} class="sw-codex"/);
+  assert.doesNotMatch(src, /savePref\((?!TAB_PREF)|net\.|room\./, 'nothing but the remembered tab is written');
+  assert.doesNotMatch(src, /name="box"|name="dice"/, 'only icons of the project\'s set');
+  assert.doesNotMatch(src, /sweepEscapeAction|SweepShell|SweepView|sw-report-page|sweep-host/,
+    'the Modal owns the focus trap, Escape and the focus restore');
+  // 2026-10-29 ruling, kept branch behaviour 2: a bond member still opens the existing 干员调配 over the report
+  assert.match(src, /openLoadout\('sweep', c\.chessId, 'loadout'\)/,
+    'the loadout click-through the user kept on 2026-10-29');
+  assert.match(read('public/js/screens/loadout.js'), /st\.from === 'sweep' && !!st\.sel/);
+  // kept branch behaviour 1: the lobby still imports the screen on demand (test/vite.test.js dynamic entry)
   const lobby = read('public/js/screens/lobby.js');
   assert.match(lobby, /import\('\.\/sweep\.js'\)/);
-  assert.doesNotMatch(lobby, /import .+ from ['"]\.\/sweep\.js/);
-  assert.match(lobby, /panel !== 'sweep' \|\| sweepModule/);
+  assert.doesNotMatch(lobby, /import \{ SweepReport \} from '\.\/sweep\.js';/);
+  assert.match(lobby, /<\$\{sweepModule\.SweepReport\} onClose=\$\{\(\) => setSweepOpen\(false\)\}/);
   assert.match(lobby, /hub-plate hub-plate--sweep/);
-  const report = read('public/js/screens/sweep.js');
-  assert.doesNotMatch(report, /accounts\.js|friends\.js|randomMode\.js|net\.request|fetch\(/);
-  assert.match(report, /useData\('bonds', 'bands', 'bosses', 'factions', 'enemies', 'chess', 'assets'\)/);
-  const mobile = read('public/css/utility-mobile.css');
-  assert.match(mobile, /\.sweep-host \.sw-tile__cap \{ display: block; white-space: normal/);
-  assert.match(mobile, /font-size: max\(calc\(\.16 \* var\(--utility-text\)\), 16px\)/);
-  const css = read('public/css/screens/lobby.css');
-  assert.match(css, /\.screen\.sweep-host \{[^}]*height: calc\(var\(--sp-vh/);
-  assert.match(css, /\.sweep-host \.sw-left \{[^}]*overflow-y: auto/);
-  assert.doesNotMatch(css + mobile, /sweep-(?:codex-)?modal/);
-  assert.match(lobby, /if \(panel === 'sweep'\) return sweepModule/);
-  assert.match(lobby, /<\$\{SweepLoadingPage\}/, 'the loading view is non-modal too');
-  const loading = lobby.slice(lobby.indexOf('export function SweepLoadingPage'), lobby.indexOf('function StampRing'));
-  assert.doesNotMatch(loading, /\bModal\b|aria-modal|role="dialog"/);
-  assert.match(lobby, /previousPanel\.current === 'sweep'.*sweepEntry\.current\?\.focus\(\)/, 'return focus to the lobby entry');
+  assert.match(read('public/index.html'), /<link rel="stylesheet" href="\/css\/screens\/sweep\.css" \/>/);
 });

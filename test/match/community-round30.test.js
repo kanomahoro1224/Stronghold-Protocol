@@ -52,15 +52,16 @@ for (const invest of [false, true]) test(`repeated Muelsyse acquisition and elit
   m.dispose();
 });
 
-test('Damazti strategy remains stock-backed even when it grants the same item as a trait', () => {
+test('Damazti strategy grants its fixed item at rounds 5/10/15 past cap; releasing overflow does not free stock early', () => {
   const { m, p } = emptyPrep(), id = 'chess_item_6_09_e_a';
   for (let i = 0; i < 3; i++) assert.ok(p.acquireItem(id));
   p.bandId = 'band_damaztic'; p.recompute();
-  for (const round of [5, 10, 15]) {
-    m.round = round; m.dispatch(p, 'onRoundStart', { round });
-    assert.equal(m.itemPool.held(id), 3); checkInvariants(m);
+  for (const [i, round] of [5, 10, 15].entries()) {
+    m.round = round; m.dispatch(p, 'onPrepStart', { round });
+    assert.equal(m.itemPool.held(id), 4 + i); checkInvariants(m);
   }
   const copy = () => [...p.hand, ...p.temp].find(x => x?.kind === 'item' && x.id === id);
+  for (let i = 0; i < 3; i++) { assert.ok(p.destroy(copy().uid).ok); assert.equal(m.itemPool.left(id), 0); }
   assert.ok(p.destroy(copy().uid).ok);
   assert.equal(m.itemPool.held(id), 2); assert.equal(m.itemPool.left(id), 1);
   checkInvariants(m); m.dispose();

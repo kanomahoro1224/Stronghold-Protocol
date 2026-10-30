@@ -6,7 +6,7 @@
 //   detects dead sockets (a ping left unanswered — no inbound frame at all — for DEAD_AFTER_MS ⇒
 //   close ⇒ reconnect). Measured from the oldest unanswered ping, not from the last inbound frame,
 //   so a background tab whose timers the browser throttles to ~1/min is not mistaken for dead.
-// - On every (re)connect, once a player name is known, sends `hello {name, token, version, stateDelta}`;
+// - On every (re)connect, once a player name is known, sends `hello {name, token, version, delta}`;
 //   the session is "online" after `welcome`.
 // - m.state full/delta frames are decoded into the original m.public/m.private events before dispatch.
 // - `request(t, fields)` adds a `rid` and resolves on the matching `ok` (or any reply carrying the
@@ -34,7 +34,7 @@
 import { PROTOCOL_VERSION, ERR_TEXT } from '../../shared/constants.js';
 import { validateC2S } from '../../shared/protocol.js';
 import { N_ } from '../../shared/i18n.js';
-import { StateReceiver, STATE_DELTA_VERSION } from '../../shared/stateDelta.js';
+import { STATE_DELTA_VERSION, StateReceiver } from '../../shared/stateDelta.js';
 import { WS_URL } from './ws-config.js';
 
 export const REQUEST_TIMEOUT_MS = 8000;
@@ -45,6 +45,8 @@ export const RESTART_GRACE_MS = 60000;
 export const HELLO_TIMEOUT_MS = 8000;
 export const PING_INTERVAL_MS = 4000;
 export const DEAD_AFTER_MS = 15000;
+/** Minimum gap between two `state.resync` requests: a gap in one channel is answered by the full frame of the next one. */
+export const RESYNC_GAP_MS = 1000;
 export const BACKOFF = Object.freeze({ base: 500, factor: 2, max: 10000, jitter: 0.2 });
 
 /** Client-side error codes (in addition to shared ERR codes). */
@@ -153,7 +155,6 @@ export class Net {
     /** @type {'idle'|'connecting'|'connected'|'handshaking'|'online'|'reconnecting'|'closed'} */
     this.status = 'idle';
     this.ws = null;
-    this._states = new StateReceiver();
     this.name = null;          // desired player name (hello is sent when set)
     this.helloName = null;     // name we sent in the hello that got the last welcome
     this.serverName = null;    // name as normalised by the server
@@ -184,6 +185,12 @@ export class Net {
     this._lastRx = 0;
     this._unansweredSince = null; // time of the oldest ping sent since the last inbound frame
     this._clockSamples = [];   // [{ offset, rtt }]
+    // State-delta decoding (shared/stateDelta.js): only ever fed frames a server chose to send this client after its
+    // hello named STATE_DELTA_VERSION. A missed frame blocks that channel, and one resync request per RESYNC_GAP_MS
+    // asks for a full one — the server answers it like a repeated hello (and throttles it the same way).
+    this._receiver = new StateReceiver();
+    this._stateRoom = null;
+    this._resyncAt = 0;        // epoch ms of the last resync request we sent
   }
 
   // ---- events ----------------------------------------------------------------------------------
@@ -406,7 +413,6 @@ export class Net {
   _teardownSocket() {
     this._clearTimer('_connectTimer', 'clearTimeout');
     this._helloHadSession = false;
-    this._states.reset();
     this._clearTimer('_stateResyncTimer', 'clearTimeout');
     const ws = this.ws;
     if (ws) {
@@ -418,6 +424,11 @@ export class Net {
     this._clearTimer('_helloTimer', 'clearTimeout');
     this._helloRid = null;
     this._helloSentName = null;
+    // A new socket is a new negotiation (server/net.js onHelloMsg re-baselines per connection): the sequences the old
+    // one used mean nothing here, so a stale baseline must never make the first full frame of the new one look old.
+    this._receiver?.reset();
+    this._stateRoom = null;
+    this._resyncAt = 0;
   }
 
   _clearTimer(field, fn) {
@@ -441,7 +452,9 @@ export class Net {
     if (!this.name) return;
     this._helloHadSession = this.status === 'online';
     const rid = this._nextRid();
-    const msg = { t: 'hello', rid, name: this.name, version: PROTOCOL_VERSION, stateDelta: STATE_DELTA_VERSION };
+    // `delta` says this build decodes `m.state` frames (shared/stateDelta.js). A server that does not speak it ignores
+    // the field, and the client then keeps receiving the plain m.public / m.private frames it always got.
+    const msg = { t: 'hello', rid, name: this.name, version: PROTOCOL_VERSION, delta: STATE_DELTA_VERSION };
     let token = null;
     try { token = this.getToken(); } catch { token = null; }
     if (typeof token === 'string' && token.length > 0 && token.length <= 64) {
@@ -621,6 +634,19 @@ export class Net {
 
   // ---- incoming --------------------------------------------------------------------------------
 
+  /**
+   * Ask the server for one full state frame (the answer to a gap in the delta stream). Rate-limited: one request per
+   * RESYNC_GAP_MS covers every channel, because the server re-sends the whole room state at once. Silent while offline —
+   * the next welcome resyncs anyway.
+   */
+  requestResync() {
+    const now = this.now();
+    if (now - this._resyncAt < RESYNC_GAP_MS) return;
+    this._resyncAt = now;
+    try { this.request('state.resync').catch(() => { /* the next full frame fixes it, or the room resyncs */ }); }
+    catch { /* offline: the reconnect resyncs the room from scratch */ }
+  }
+
   _onMessage(data) {
     this._lastRx = this.now();
     this._unansweredSince = null;
@@ -632,15 +658,28 @@ export class Net {
       return;
     }
     if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.t !== 'string') return;
-    if (msg.t === 'm.state') {
-      const decoded = this._states.receive(msg);
-      if (decoded.resync) this._recoverState();
-      if (!this._states.missing.size) this._clearTimer('_stateResyncTimer', 'clearTimeout');
-      if (!decoded.message) return;
-      msg = decoded.message;
-    } else if (msg.t === 'room.closed' || msg.t === 'm.result') {
-      this._states.reset();
+    // State-delta transport (shared/stateDelta.js): a negotiated server may compress the two big views into `m.state`
+    // frames. They are decoded here and continue as the ordinary m.public / m.private messages every listener already
+    // handles, so nothing above this line notices the difference. A frame that cannot be applied (a gap, a lost or
+    // reordered delta, an older full frame) is dropped and one rate-limited `state.resync` asks for a full one;
+    // _recoverState keeps asking while a channel stays blocked, so a rejected heavy request is retried.
+    if (msg.t === 'room.closed' || msg.t === 'm.result' || (msg.t === 'room.state' && msg.code !== this._stateRoom)) {
+      this._stateRoom = msg.t === 'room.state' ? msg.code : null;
+      this._receiver.reset();
       this._clearTimer('_stateResyncTimer', 'clearTimeout');
+      this._resyncAt = 0;
+    }
+    if (msg.t === 'm.state') {
+      const { message, resync } = this._receiver.receive(msg);
+      if (resync) this._recoverState();
+      // Both channels delivered: the quiet retry has nothing left to ask for, and the next genuine gap is not held
+      // back by the burst's own throttle.
+      if (!this._receiver.missing.size) {
+        this._clearTimer('_stateResyncTimer', 'clearTimeout');
+        this._resyncAt = 0;
+      }
+      if (message == null) return;
+      msg = message;
     }
     const { t } = msg;
     const rid = msg.rid;
@@ -682,14 +721,14 @@ export class Net {
   // ---- heartbeat & clock -----------------------------------------------------------------------
 
   _recoverState() {
-    if (this._stateResyncTimer != null || !this._states.missing.size) return;
-    // The heavy bucket may reject the first attempt. Retry quietly, at most once/s, until the FULL frame arrives.
-    // A correlated request consumes RATE errors here instead of surfacing an unrelated toast to the player.
+    if (this._stateResyncTimer != null || !this._receiver.missing.size) return;
+    // The heavy bucket may reject the first attempt. Retry quietly, at most once/s, until the FULL frame arrives
+    // (requestResync keeps the requests themselves RESYNC_GAP_MS apart and swallows their errors).
     this._stateResyncTimer = this.timers.setTimeout(() => {
       this._stateResyncTimer = null;
       this._recoverState();
     }, 1000);
-    this.request('state.resync', {}, { timeout: 1000 }).catch(() => {});
+    this.requestResync();
   }
 
   _startHeartbeat() {

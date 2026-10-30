@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DATA, makeMatch } from './match/harness.js';
 import { snapshotMatch, restoreMatch, captureMatch, encodeMatchCapture } from '../server/match/snapshot.js';
-import { createRngFromState } from '../server/sim/rng.js';
+import { createRng, createRngFromState, deriveSeed } from '../server/sim/rng.js';
+import { pairPlayers, bossPairSalt } from '../server/match/finalAssault.js';
 import { MatchWorkerPool } from '../server/workers/matchPool.js';
 import { PHASE } from '../shared/constants.js';
 
@@ -11,6 +12,7 @@ const seats = [0, 1, 2, 3].map(seat => ({ seat, playerId: `p_${seat}`, name: `Me
 const options = { mode: 'coop', seats, seed: 29, fake: true };
 const deps = { createRngFromState, log: quiet };
 const expected = [['p_3', 'p_1'], ['p_0', 'p_2']];
+const idsOf = (groups) => groups.map((g) => g.map((p) => p.playerId));
 
 function bossPrep(h) {
   h.start().toPrep();
@@ -34,13 +36,23 @@ for (const legacy of [false, true]) test(`0.2.5 boss partners and sides survive 
       assert.deepEqual(b.m.bossGroupOf(b.ps(id)), a.m.bossGroupOf(a.ps(id)));
       assert.equal(b.m.deployFieldOf(b.ps(id)), a.m.deployFieldOf(a.ps(id)));
     }
+    // GitHub #845 (DESIGN §35.27): the Hidden Core plans a draw of its own, so a Final Assault checkpoint does not
+    // carry its pairing into R15. What the checkpoint has to keep is the round whose plan drew the pairs: a restored
+    // Hidden Core re-plans (a departure) with the same intact pairs.
     b.m.round = b.m.gd.hiddenRound;
     b.m._planBossWaves();
-    assert.deepEqual(b.m.bossPairs, expected, 'Hidden Core retains the restored pairing');
-    b.ps('p_1').alive = false;
-    b.ps('p_1').left = true;
-    b.m._planBossWaves();
-    assert.deepEqual(b.m.bossPairs, [['p_0', 'p_2'], ['p_3']], 'the intact pair keeps its partners/sides');
+    assert.deepEqual(b.m.bossPairs, idsOf(pairPlayers(b.m.alivePlayers(), createRng(deriveSeed(b.m.seed, bossPairSalt(b.m.gd, b.m.gd.hiddenRound))))), 'the Hidden Core draws its own pairing');
+    const hidden = b.m.bossPairs.map((ids) => ids.slice());
+    const pairOfP1 = hidden.find((ids) => ids.includes('p_1'));
+    const c = makeMatch(options);
+    try {
+      assert.equal(restoreMatch(c.m, snapshotMatch(b.m), deps), true);
+      assert.deepEqual(c.m.bossPairs, hidden, 'the restored Hidden Core keeps the pairing it drew');
+      c.ps('p_1').alive = false;
+      c.ps('p_1').left = true;
+      c.m._planBossWaves();
+      assert.deepEqual(c.m.bossPairs, [...hidden.filter((ids) => !ids.includes('p_1')), pairOfP1.filter((id) => id !== 'p_1')], 'the intact pair keeps its partners/sides');
+    } finally { c.m.dispose(); }
   } finally { a.m.dispose(); b.m.dispose(); }
 });
 

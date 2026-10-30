@@ -4524,6 +4524,255 @@
     "modeFactor": {
       "SINGLE": 1.25,
       "MULTI": 1.25
+    },
+    "milestones": [
+      {
+        "level": 1,
+        "tokens": 100
+      },
+      {
+        "level": 2,
+        "tokens": 200
+      },
+      {
+        "level": 3,
+        "tokens": 350
+      },
+      {
+        "level": 4,
+        "tokens": 500
+      },
+      {
+        "level": 5,
+        "tokens": 650
+      },
+      {
+        "level": 6,
+        "tokens": 800
+      },
+      {
+        "level": 7,
+        "tokens": 950
+      },
+      {
+        "level": 8,
+        "tokens": 1100
+      },
+      {
+        "level": 9,
+        "tokens": 1300
+      },
+      {
+        "level": 10,
+        "tokens": 1500
+      },
+      {
+        "level": 11,
+        "tokens": 1700
+      },
+      {
+        "level": 12,
+        "tokens": 1900
+      },
+      {
+        "level": 13,
+        "tokens": 2100
+      },
+      {
+        "level": 14,
+        "tokens": 2300
+      },
+      {
+        "level": 15,
+        "tokens": 2500
+      },
+      {
+        "level": 16,
+        "tokens": 2700
+      },
+      {
+        "level": 17,
+        "tokens": 2900
+      },
+      {
+        "level": 18,
+        "tokens": 3100
+      },
+      {
+        "level": 19,
+        "tokens": 3300
+      },
+      {
+        "level": 20,
+        "tokens": 3500
+      },
+      {
+        "level": 21,
+        "tokens": 3700
+      },
+      {
+        "level": 22,
+        "tokens": 3900
+      },
+      {
+        "level": 23,
+        "tokens": 4100
+      },
+      {
+        "level": 24,
+        "tokens": 4300
+      },
+      {
+        "level": 25,
+        "tokens": 4500
+      },
+      {
+        "level": 26,
+        "tokens": 4700
+      },
+      {
+        "level": 27,
+        "tokens": 4900
+      },
+      {
+        "level": 28,
+        "tokens": 5100
+      },
+      {
+        "level": 29,
+        "tokens": 5300
+      },
+      {
+        "level": 30,
+        "tokens": 5500
+      },
+      {
+        "level": 31,
+        "tokens": 5700
+      },
+      {
+        "level": 32,
+        "tokens": 5900
+      },
+      {
+        "level": 33,
+        "tokens": 6100
+      },
+      {
+        "level": 34,
+        "tokens": 6300
+      },
+      {
+        "level": 35,
+        "tokens": 6500
+      },
+      {
+        "level": 36,
+        "tokens": 6700
+      },
+      {
+        "level": 37,
+        "tokens": 6900
+      },
+      {
+        "level": 38,
+        "tokens": 7100
+      },
+      {
+        "level": 39,
+        "tokens": 7300
+      },
+      {
+        "level": 40,
+        "tokens": 7500
+      },
+      {
+        "level": 41,
+        "tokens": 7700
+      },
+      {
+        "level": 42,
+        "tokens": 7900
+      },
+      {
+        "level": 43,
+        "tokens": 8100
+      },
+      {
+        "level": 44,
+        "tokens": 8300
+      },
+      {
+        "level": 45,
+        "tokens": 8500
+      },
+      {
+        "level": 46,
+        "tokens": 8700
+      },
+      {
+        "level": 47,
+        "tokens": 8900
+      },
+      {
+        "level": 48,
+        "tokens": 9100
+      },
+      {
+        "level": 49,
+        "tokens": 9300
+      },
+      {
+        "level": 50,
+        "tokens": 9500
+      },
+      {
+        "level": 51,
+        "tokens": 9700
+      },
+      {
+        "level": 52,
+        "tokens": 9900
+      },
+      {
+        "level": 53,
+        "tokens": 10100
+      },
+      {
+        "level": 54,
+        "tokens": 10300
+      },
+      {
+        "level": 55,
+        "tokens": 10500
+      },
+      {
+        "level": 56,
+        "tokens": 10800
+      },
+      {
+        "level": 57,
+        "tokens": 11100
+      },
+      {
+        "level": 58,
+        "tokens": 11400
+      },
+      {
+        "level": 59,
+        "tokens": 11700
+      },
+      {
+        "level": 60,
+        "tokens": 12000
+      }
+    ],
+    "daily": {
+      "name": "每日防卫目标",
+      "need": 200,
+      "bonus": 300,
+      "resetHour": 4,
+      "rule": "通过模拟累积获得【卫戍认证】x200，即可在结算时领取【卫戍认证】x300的额外奖励。\n*奖励每日一次，每天04:00重置"
     }
   },
   "constants": {

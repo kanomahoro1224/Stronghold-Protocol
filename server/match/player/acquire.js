@@ -5,6 +5,7 @@
 // Installed on PlayerState.prototype by server/match/PlayerState.js (a method container: never instantiated; `this` is
 // the player state).
 
+import { hasTraitFor } from '../operatorTraits.js';
 import { pieceDir, parseDir, mergeTile } from '../board.js';
 import { MAX_OFFER_SLOTS } from './common.js';
 import { onMerge } from '../botEmotes.js';
@@ -54,6 +55,9 @@ export class PlayerAcquire {
       this.stow(piece, { allowTemp: true, toTemp });
     }
     this.recompute();
+    // [ASSUMED] Custom gain fires for the acquired copy, not the elite produced by a merge.
+    // Silent setup acquisitions are still acquisitions; official gain behavior stays unchanged.
+    if (hasTraitFor(this.gd, rec.charId)) this.m.dispatch(this, 'onTraitGain', { piece, kind: 'chess', source });
     if (!silent) this.m.dispatch(this, 'onGain', { piece: owned, kind: 'chess', source });
     this.recompute();
     return owned;
@@ -162,7 +166,8 @@ export class PlayerAcquire {
     const items = piece.items || [];
     piece.items = [];
     this.returnCopies(piece);
-    // its equipment comes off first (the returned pair auto-merges, which may free a slot for the gain)
+    // Returned equipment is stowed. morphSlotPolicy is not applied: this path does not check equip slots
+    // (the workshop names a recycle read point this codebase does not have).
     for (const it of items) this.stow(it, { allowTemp: true });
     this.checkItemMerges();
     // The replacement follows the ordinary acquisition path.
@@ -264,20 +269,34 @@ export class PlayerAcquire {
    * call, even when an identical normal copy is already owned. The next prep's start runs checkItemMerges. Nothing
    * already equipped is taken off for the fight about to start. Hand and temp both full keeps the 「整备区已满，获得的装备已销毁」
    * outcome. [ASSUMED] every item granted at 休整期结束, not only 维多利亚's 战栗维式重锤 (owner's decision 2026-10-04).
-   * `fromPool: false` is issued by server-side operator passives and console grants; bypasses shared stock and holds zero.
+   * `displayed` (a shop slot or a reward offer already on screen, #624): skip the stock refusal and, once the piece
+   * is actually kept, record the copies that did not fit (`need` minus `left` before the gain). A failed stow or
+   * merge records nothing. Fixed gift families stay unlimited without a debt entry. Every other grant still refuses.
+   * `requirePool: false` is issued by server-side operator passives (effectsMeta grantItem) and by band/script
+   * effects. Only the fixed operator-gift families (`gd.isUnlimitedGiftItem`, the SERVER_GAIN_EQUIP garrisons) may
+   * then overdraw the shared stock; every other `requirePool: false` grant keeps its stock limit (for example
+   * commercial packaging). `passive: true` (a garrison-source ctx: an operator 特质, a copied/triggered trait) and
+   * `console: true` (the developer console's equipment grant) are exempt AND hold zero copies
+   * (`itemPoolCopies: 0`) — the branch's server-owned provenance. A fixed gift that is not passive still occupies.
    */
-  acquireItem(itemId, { source = 'grant', toTemp = false, silent = false, deferMerge = false, fromPool = true, displayed = false } = {}) {
+  acquireItem(itemId, { source = 'grant', toTemp = false, silent = false, deferMerge = false, requirePool = true, passive = false, console = false, displayed = false } = {}) {
     const rec = this.gd.item(itemId);
     if (!rec) return null;
+    // Only the fixed operator-gift families can overdraw. Several unrelated strategy grants also pass
+    // requirePool:false; they must retain their stock limit (for example commercial packaging).
+    const unlimitedGift = !requirePool && this.gd.isUnlimitedGiftItem(itemId);
+    const zeroCopies = console || passive;
+    const exemptFromStock = zeroCopies || unlimitedGift;
     const pool = this.m.itemPool;
     const leftBefore = pool.left(itemId);
-    const need = fromPool ? pool.need(itemId) : 0;
-    if (fromPool && !displayed && !pool.canGain(itemId)) {
+    const need = exemptFromStock ? 0 : pool.need(itemId);
+    if (!exemptFromStock && !displayed && !pool.canGain(itemId)) {
       this.m.toast(this, 'warn', '装备库存不足，未获得该装备');
       return null;
     }
-    // Provenance is server-owned and travels with the piece, not inferred from its name or current holder.
-    let piece = this.newPiece('item', itemId, fromPool ? {} : { itemPoolCopies: 0 });
+    // Provenance is server-owned and travels with the piece, not inferred from its name or current holder. Only the
+    // passive and console exemptions hold zero; an overdrawing fixed gift still occupies its real copy (upstream).
+    let piece = this.newPiece('item', itemId, zeroCopies ? { itemPoolCopies: 0 } : {});
     // A prep-end grant may sit beside an identical copy until the next prep. The invariant counts only copies
     // without this mark, so the fight that is about to start is not reported as a missed merge.
     if (deferMerge) piece.deferMerge = true;
@@ -287,7 +306,7 @@ export class PlayerAcquire {
     } else {
       this.stow(piece, { allowTemp: true, toTemp });
     }
-    if (displayed && fromPool) {
+    if (displayed && !exemptFromStock) {
       const shortfall = leftBefore === Infinity ? 0 : Math.max(0, need - leftBefore);
       if (shortfall > 0) pool.owe(itemId, shortfall);
     }

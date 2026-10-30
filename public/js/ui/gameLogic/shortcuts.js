@@ -5,6 +5,148 @@ import { isObj } from './shared.js';
 import { t } from '../../../../shared/i18n.js';
 
 
+// ---- the key map (upstream v0.3.3) ------------------------------------------------------------------------------
+// The fork's own editable bindings (DEFAULT_SHORTCUTS / sanitizeShortcuts / shortcutLabel) stay below as a
+// compatibility layer: both maps are looked up by shortcutFor, so the branch UI keeps working unchanged.
+
+/** The rebindable shortcuts in the settings' order (the ready key also pauses / resumes a solo battle). Esc is fixed. */
+export const HOTKEY_ACTIONS = Object.freeze(['buy', 'refresh', 'freeze', 'levelUp', 'retreat', 'sell', 'ready']);
+
+/** Default key of each action (a KeyboardEvent.code), including W to buy the hovered shop card. */
+export const DEFAULT_HOTKEYS = Object.freeze({ buy: 'KeyW', refresh: 'KeyR', freeze: 'KeyF', levelUp: 'KeyD', retreat: 'KeyQ', sell: 'KeyX', ready: 'Space' });
+
+// The keys a shortcut may use → the `key` value each types on a US layout (lower case): letters, digits, Space, the
+// punctuation keys, and six named keys whose `key` equals their `code`. Everything else stays with the interface: Esc
+// (closes; cancels a rebind), Tab / Enter / the arrows (focus, buttons, the facing wheel, lists), F1–F12 (the browser's),
+// the modifiers.
+const KEY_OF = new Map([
+  ...[...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((c) => [`Key${c}`, c.toLowerCase()]),
+  ...[...'0123456789'].map((c) => [`Digit${c}`, c]),
+  ['Space', ' '], ['Backquote', '`'], ['Minus', '-'], ['Equal', '='], ['BracketLeft', '['], ['BracketRight', ']'],
+  ['Backslash', '\\'], ['Semicolon', ';'], ['Quote', "'"], ['Comma', ','], ['Period', '.'], ['Slash', '/'],
+  ...['Delete', 'Insert', 'Home', 'End', 'PageUp', 'PageDown'].map((k) => [k, k]),
+]);
+const CODE_OF = new Map([...KEY_OF].map(([code, key]) => [key, code]));
+
+/** A key press's `key`, lower case when it is one character ('' when absent). */
+const keyValue = (e) => {
+  const k = e?.key;
+  return typeof k !== 'string' ? '' : k.length === 1 ? k.toLowerCase() : k;
+};
+
+/**
+ * Whether a KeyboardEvent.code may be a shortcut's key.
+ * @param {any} code
+ * @returns {boolean}
+ */
+export const isBindableCode = (code) => typeof code === 'string' && KEY_OF.has(code);
+
+/**
+ * The label a key is shown with ('KeyQ' → 'Q', 'Digit1' → '1', 'Comma' → ',', 'Space', 'Delete'); '' for any other code.
+ * @param {any} code
+ */
+export function hotkeyLabel(code) {
+  if (!isBindableCode(code)) return '';
+  if (code === 'Space') return 'Space';
+  const k = KEY_OF.get(code);
+  return k.length === 1 ? k.toUpperCase() : k;
+}
+
+/**
+ * Sanitize a persisted key map: each action keeps a saved key that may be a shortcut, else gets its default; a map in
+ * which two saved actions would share a key is bad data — the defaults instead. Legacy maps receive an unused buy key.
+ * @param {any} raw
+ * @returns {Record<'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string>}
+ */
+export function sanitizeHotkeys(raw) {
+  const r = isObj(raw) && !Array.isArray(raw) ? raw : {};
+  const out = {};
+  for (const a of HOTKEY_ACTIONS) out[a] = Object.hasOwn(r, a) && isBindableCode(r[a]) ? r[a] : DEFAULT_HOTKEYS[a];
+  // Older profiles have no buy binding. If W is already assigned, preserve their keys and give buy
+  // the first free default key; explicit conflicting bindings still fall back to the defaults.
+  if (!Object.hasOwn(r, 'buy')) {
+    const used = new Set(HOTKEY_ACTIONS.filter((a) => a !== 'buy').map((a) => out[a]));
+    out.buy = Object.values(DEFAULT_HOTKEYS).find((code) => !used.has(code));
+  }
+  return new Set(Object.values(out)).size === HOTKEY_ACTIONS.length ? out : { ...DEFAULT_HOTKEYS };
+}
+
+/**
+ * Bind `action` to `code`. A key another action holds is swapped, never shared: that action takes the old key of
+ * `action`, so every action keeps exactly one key and no key does two things.
+ * @param {any} keys the current map
+ * @param {string} action
+ * @param {string} code
+ * @returns {{ keys: Record<string, string>, changed: boolean, swapped: string|null }} swapped: the action that took the old key
+ */
+export function rebindHotkey(keys, action, code) {
+  const cur = sanitizeHotkeys(keys);
+  if (!HOTKEY_ACTIONS.includes(action) || !isBindableCode(code) || cur[action] === code) return { keys: cur, changed: false, swapped: null };
+  const swapped = HOTKEY_ACTIONS.find((a) => cur[a] === code) ?? null;
+  const next = { ...cur, [action]: code };
+  if (swapped) next[swapped] = cur[action];
+  return { keys: next, changed: true, swapped };
+}
+
+/** Whether a map is the default one. @param {any} keys */
+export const isDefaultHotkeys = (keys) => {
+  const k = sanitizeHotkeys(keys);
+  return HOTKEY_ACTIONS.every((a) => k[a] === DEFAULT_HOTKEYS[a]);
+};
+
+/**
+ * The bindable key a key press names: the character typed — the label on the player's keycap (AZERTY, Dvorak) — else
+ * the physical key (a non-Latin layout, an IME, Shift + a digit); null when neither may be a shortcut.
+ * @param {{ key?: string, code?: string }} e
+ * @returns {string|null}
+ */
+export function hotkeyOf(e) {
+  const typed = CODE_OF.get(keyValue(e));
+  if (typed) return typed;
+  return isBindableCode(e?.code) ? e.code : null;
+}
+
+/**
+ * The one lookup of every shortcut handler: the action a key press triggers under the key map — the action bound to the
+ * character typed, else the one bound to the physical key (as the fixed keys of 0.1.4 matched `code === 'KeyR' ||
+ * key === 'r'`: a Russian layout or an IME still works by position). No modifier or focus checks (shortcutFor).
+ * @param {{ key?: string, code?: string }} e
+ * @param {any} [keys] the player's map (settings `keys`); the defaults when omitted
+ * @returns {'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready'|null}
+ */
+export function actionForKey(e, keys = DEFAULT_HOTKEYS) {
+  const map = keys === DEFAULT_HOTKEYS ? keys : sanitizeHotkeys(keys);
+  const find = (code) => (code ? HOTKEY_ACTIONS.find((a) => map[a] === code) ?? null : null);
+  return find(CODE_OF.get(keyValue(e))) ?? find(typeof e?.code === 'string' ? e.code : null);
+}
+
+// keys that only modify another (pressed alone while the settings wait for a key: ignored)
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'AltGraph', 'Meta', 'OS', 'Super', 'Hyper', 'Fn', 'FnLock', 'CapsLock',
+  'NumLock', 'ScrollLock', 'Symbol', 'SymbolLock']);
+
+/**
+ * What a key press does while the settings wait for a new key: Esc cancels (the dialog stays open), Tab leaves (the focus
+ * moves on), a lone modifier or an auto-repeat is ignored, a key held with Ctrl / ⌘ / Alt or one the interface keeps is
+ * refused (the wait goes on), any other key is the new key.
+ * @param {{ key?: string, code?: string, ctrlKey?: boolean, metaKey?: boolean, altKey?: boolean, repeat?: boolean }} e
+ * @returns {{ kind: 'cancel'|'leave'|'ignore' } | { kind: 'refuse', reason: 'modifier'|'reserved', name: string } | { kind: 'key', code: string }}
+ */
+export function captureHotkey(e) {
+  const key = typeof e?.key === 'string' ? e.key : '';
+  if (key === 'Escape') return { kind: 'cancel' };
+  if (key === 'Tab') return { kind: 'leave' };
+  if (!e || e.repeat || MODIFIER_KEYS.has(key)) return { kind: 'ignore' };
+  const name = key === ' ' ? 'Space' : key.length === 1 ? key.toUpperCase() : key || e.code || '?';
+  if (e.ctrlKey || e.metaKey || e.altKey) return { kind: 'refuse', reason: 'modifier', name };
+  const code = hotkeyOf(e);
+  return code ? { kind: 'key', code } : { kind: 'refuse', reason: 'reserved', name };
+}
+
+// The branch map (viewEnemies / pause …) is told apart from the upstream map (buy / …) by its own actions: the
+// branch's settings store always carries them, so a map without them is looked up as the upstream key map.
+const isHotkeyMap = (m) => !Object.hasOwn(m, 'viewEnemies') && !Object.hasOwn(m, 'pause');
+
+
 // ---- keyboard ---------------------------------------------------------------------------------------------------
 
 /**
@@ -24,9 +166,12 @@ export function shortcutFor(e, shortcuts = null) {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return null;
   if (e.key === 'Escape') return 'escape';
   if (e.repeat) return null;
+  const configured = shortcuts && typeof shortcuts === 'object' ? shortcuts : null;
+  // The upstream v0.3.3 map (buy / refresh / freeze / levelUp / retreat / sell / ready) and the branch map
+  // (viewEnemies / pause …) are both accepted: the settings UI keeps the upstream store, GameScreen the branch one.
+  if (configured && isHotkeyMap(configured)) return actionForKey(e, configured);
   const code = e.code || '';
   const key = typeof e.key === 'string' ? e.key.toLowerCase() : '';
-  const configured = shortcuts && typeof shortcuts === 'object' ? shortcuts : null;
   if (configured) {
     for (const [act, binding] of Object.entries(configured)) if (binding && (code === binding || (!code && key === binding.toLowerCase()))) return act;
   } else {
@@ -46,7 +191,6 @@ export function shortcutFor(e, shortcuts = null) {
  * @param {any} [keys] the player's map
  */
 export const facingSwallows = (e, keys = DEFAULT_SHORTCUTS) => e?.key === ' ' || shortcutFor(e, keys) != null;
-
 // what a focused element is when Enter would activate it (a button, a link, a form field, an ARIA control)
 const CONTROL = 'button, a[href], input, select, textarea, summary, [contenteditable=""], [contenteditable="true"], '
   + '[role="button"], [role="link"], [role="checkbox"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"]';

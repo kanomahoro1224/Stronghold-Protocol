@@ -463,6 +463,9 @@
   box-shadow: 0 calc(.3 * var(--ui-unit, 1rem)) calc(.9 * var(--ui-unit, 1rem)) rgba(0, 0, 0, .65), 0 0 calc(.4 * var(--ui-unit, 1rem)) rgba(23, 249, 183, .06);
   animation: modal-in var(--t-slow) var(--ease-out);
 }
+/* Japanese never starts a line with a small kana or ー in a dialog, as in the room and on the hub (§35.18 review of the
+   text-fit fixes: 选择模拟协议's 「シミュレーシ|ョン」 on a phone at 特大 once its paragraph wraps `pretty`, lobby.css) */
+.modal__box:lang(ja) { line-break: strict; }
 .modal__box--red { --bk-c: var(--red-premium); --mstripe: var(--red); }
 .modal__box--amber { --bk-c: var(--amber); --mstripe: var(--amber); }
 .modal__box--orange { --bk-c: var(--orange-hi); --mstripe: var(--orange); }
@@ -488,10 +491,8 @@
 .resource-manager { display: flex; flex-direction: column; gap: calc(.12 * var(--ui-unit, 1rem)); font-size: calc(.16 * var(--utility-text, var(--t))); }
 .resource-manager p { margin: 0; line-height: 1.7; }
 .resource-manager__intro { color: var(--text-dim); }
-.resource-manager__options { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: calc(.12 * var(--ui-unit, 1rem)); align-items: start; }
+.resource-manager__options { display: grid; grid-template-columns: minmax(0, 1fr); gap: calc(.12 * var(--ui-unit, 1rem)); align-items: start; }
 .resource-manager__options .resource-voice-choice { margin-top: 0; }
-.resource-skin-options { min-width: 0; padding: calc(.1 * var(--ui-unit, 1rem)); border: 1px solid var(--line-2); }
-.resource-manager__options .resource-skin-choice { margin-top: 0; }
 .resource-manager__tiers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(.12 * var(--ui-unit, 1rem)); align-items: start; }
 .resource-tier, .resource-archive { padding: calc(.14 * var(--ui-unit, 1rem)); border: 1px solid var(--line-2); background: rgba(0, 0, 0, .18); min-width: 0; }
 .resource-tier h3, .resource-archive h3 { margin: 0 0 calc(.06 * var(--ui-unit, 1rem)); color: var(--text-hi); font-size: calc(.19 * var(--utility-text, var(--t))); }
@@ -499,8 +500,6 @@
 .resource-tier__head p, .resource-archive p { font-size: calc(.14 * var(--utility-text, var(--t))); color: var(--text-md); }
 .resource-choice { display: flex; align-items: center; gap: calc(.06 * var(--ui-unit, 1rem)); white-space: nowrap; color: var(--mint-400); cursor: pointer; }
 .resource-choice input { accent-color: var(--mint-400); }
-.resource-skin-choice { min-height: calc(0.44 * var(--ui-unit, 1rem)); margin-top: calc(.08 * var(--ui-unit, 1rem)); color: var(--text-hi); white-space: normal; }
-.resource-skin-choice + p { color: var(--text-md); font-size: calc(.13 * var(--utility-text, var(--t))); }
 .resource-voice-choice { min-width: 0; margin: calc(.14 * var(--ui-unit, 1rem)) 0 0; padding: calc(.1 * var(--ui-unit, 1rem)); border: 1px solid var(--line-2); }
 .resource-voice-choice legend { padding: 0 calc(.05 * var(--ui-unit, 1rem)); color: var(--text-hi); }
 .resource-voice-choice__options { display: flex; flex-wrap: wrap; gap: calc(.06 * var(--ui-unit, 1rem)) calc(.14 * var(--ui-unit, 1rem)); }
@@ -1075,11 +1074,11 @@
   position: fixed; top: max(calc(calc(1.9 * var(--ui-unit, 1rem)) + var(--sa-t, 0px)), 20vh);
   left: 50%; right: auto; width: 50%; transform: translateX(-50%);
   z-index: var(--z-banner); pointer-events: none;
-  display: flex; align-items: center; gap: max(calc(.18 * var(--ui-unit, 1rem)), 10px);
-  padding: max(calc(.1 * var(--ui-unit, 1rem)), 8px) max(calc(.2 * var(--ui-unit, 1rem)), 12px);
+  display: flex; align-items: center; gap: maxcalc(.18 * var(--ui-unit, 1rem)), calc(10px * var(--sp-ui, 1)));
+  padding: maxcalc(.1 * var(--ui-unit, 1rem)), calc(8px * var(--sp-ui, 1))) maxcalc(.2 * var(--ui-unit, 1rem)), calc(12px * var(--sp-ui, 1)));
   background: rgba(10, 17, 14, .9);
   box-shadow: 0 calc(.06 * var(--ui-unit, 1rem)) calc(.2 * var(--ui-unit, 1rem)) rgba(0, 0, 0, .35);
-  color: var(--text-hi); font-size: max(calc(.2 * var(--utility-text, var(--t))), 14px); line-height: 1.6;
+  color: var(--text-hi); font-size: maxcalc(.2 * var(--utility-text, var(--t))), calc(14px * var(--sp-ui, 1))); line-height: 1.6;
 }
 .site-notice--warning { --notice-color: var(--amber); }
 .site-notice--urgent { --notice-color: var(--red-premium); }
@@ -1145,8 +1144,8 @@
    a 10 px gap, so their 44 px hit areas (css/devices.css) never overlap and a tap lands on the intended one */
 .topbar__tools { display: flex; align-items: center; gap: calc(.14 * var(--ui-unit, 1rem)); }
 .topbar__tools .btn--square.btn--sm { --sq: calc(.46 * var(--ui-unit, 1rem)); height: var(--sq); min-width: var(--sq); }
-.sp-coarse .topbar__tools { gap: max(calc(.16 * var(--ui-unit, 1rem)), 10px); }
-.sp-coarse .topbar__tools .btn--square.btn--sm { --sq: max(calc(.56 * var(--ui-unit, 1rem)), 40px); }
+.sp-coarse .topbar__tools { gap: maxcalc(.16 * var(--ui-unit, 1rem)), calc(10px * var(--sp-ui, 1))); }
+.sp-coarse .topbar__tools .btn--square.btn--sm { --sq: maxcalc(.56 * var(--ui-unit, 1rem)), 32px, calc(40px * var(--sp-ui, 1))); }
 .topbar__right { justify-self: end; display: flex; align-items: center; gap: calc(.16 * var(--ui-unit, 1rem)); min-width: 0; }
 .connection-status { display: flex; align-items: center; gap: calc(.1 * var(--ui-unit, 1rem)); flex: none; }
 .connection-status .ping { flex: none; white-space: nowrap; }
@@ -1325,14 +1324,17 @@
 .crash__box h2 { font-size: calc(.3 * var(--utility-text, var(--t))); }
 
 /* ---- plugins (DESIGN §32 P1a): the room's tag 原版 / 插件 ×N (ui/pluginTag.js), its 插件 panel and the title's list (ui/pluginPanel.js) ---- */
+/* (min-height: the tag grows when 大 / 特大 outgrows its .3rem — §35.18 review) */
 .plugtag {
-  display: inline-flex; align-items: center; gap: calc(.06 * var(--ui-unit, 1rem)); height: calc(.3 * var(--ui-unit, 1rem)); padding: 0 calc(.12 * var(--ui-unit, 1rem));
+  display: inline-flex; align-items: center; gap: calc(.06 * var(--ui-unit, 1rem)); min-height: calc(.3 * var(--ui-unit, 1rem)); padding: 1px calc(.12 * var(--ui-unit, 1rem));
   border: 1px solid var(--line-2); background: rgba(0, 0, 0, .3); color: var(--text-lo);
   font-size: calc(.13 * var(--utility-text, var(--t))); letter-spacing: .06em;
 }
 .plugtag .icon { width: calc(.16 * var(--ui-unit, 1rem)); height: calc(.16 * var(--ui-unit, 1rem)); }
 .plugtag.is-modded { color: #ffb066; border-color: rgba(255, 159, 67, .6); background: rgba(255, 159, 67, .1); }
 .plugtag--static { cursor: default; }
+.plugtag--rules { height: auto; flex-wrap: wrap; padding-top: calc(.04 * var(--ui-unit, 1rem)); padding-bottom: calc(.04 * var(--ui-unit, 1rem)); max-width: calc(6 * var(--ui-unit, 1rem)); text-align: left; }
+.plugtag__rules { flex-basis: 100%; font-size: calc(.11 * var(--utility-text, var(--t))); letter-spacing: 0; white-space: normal; }
 .plugpanel { display: flex; flex-direction: column; gap: calc(.12 * var(--ui-unit, 1rem)); }
 .plugpanel__lead { display: flex; align-items: center; flex-wrap: wrap; gap: calc(.1 * var(--ui-unit, 1rem)); color: var(--text-md); font-size: calc(.15 * var(--utility-text, var(--t))); line-height: 1.7; }
 .plugpanel__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: calc(.08 * var(--ui-unit, 1rem)); max-height: calc(4.6 * var(--ui-unit, 1rem)); overflow: auto; }
@@ -1350,8 +1352,21 @@
 .plugpanel__reapply { display: flex; flex-wrap: wrap; align-items: center; gap: calc(.08 * var(--ui-unit, 1rem)) calc(.12 * var(--ui-unit, 1rem)); }
 .ui-slot { display: flex; flex-direction: column; gap: calc(.04 * var(--ui-unit, 1rem)); min-width: 0; }
 .ui-slot:empty { display: none; }
-.ui-slot__frame { width: 100%; border: 0; background: transparent; color-scheme: normal; }
-.gm__ui-slot { position: absolute; z-index: 6; right: calc(.16 * var(--ui-unit, 1rem)); bottom: calc(.7 * var(--ui-unit, 1rem)); width: calc(2.6 * var(--ui-unit, 1rem)); pointer-events: auto; }
+/* [ASSUMED] color-scheme: dark clears the iframe's opaque white canvas. A background the plugin paints still shows. */
+.ui-slot__frame { width: 100%; border: 0; background: transparent; color-scheme: dark; }
+.ui-slot__tabs { display: flex; flex-wrap: wrap; gap: calc(.02 * var(--ui-unit, 1rem)); }
+.ui-slot__tab {
+  flex: 1 1 auto; min-width: 0; max-width: 100%; padding: calc(.02 * var(--ui-unit, 1rem)) calc(.04 * var(--ui-unit, 1rem)); border: 1px solid var(--line-2);
+  background: rgba(0, 0, 0, .45); color: var(--text-md); font-size: calc(.11 * var(--utility-text, var(--t))); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ui-slot__tab[aria-selected="true"] { color: var(--text-hi); border-color: var(--mint-700); }
+/* [ASSUMED] The hand's top is the dock clearance 4.76rem. The slot sits just above it, inset from the
+   effects column, and its height stops under the ready button. Both 1280×720 and 1920×1080 are 19.2×10.8rem. */
+.gm__ui-slot {
+  position: absolute; z-index: 6; right: calc(.92 * var(--ui-unit, 1rem)); bottom: calc(4.76 * var(--ui-unit, 1rem) + .12 * var(--ui-unit, 1rem)); width: calc(2.6 * var(--ui-unit, 1rem));
+  max-height: calc(100% - 4.88 * var(--ui-unit, 1rem) - 1.7 * var(--ui-unit, 1rem)); overflow: auto; pointer-events: auto;
+}
 .plugpanel__reapply .set-hint { margin: 0; }
 /* gameplay plugins (DESIGN §32.6 P1c): the unofficial marks (tag, panel rows, UnofficialMark of the briefing / HUD / result),
    the room's plugin modes and this page's check of the room's content set */
@@ -1371,8 +1386,114 @@
   white-space: nowrap;
 }
 .modmark--compact { height: calc(.2 * var(--ui-unit, 1rem)); padding: 0 calc(.06 * var(--ui-unit, 1rem)); font-size: calc(.11 * var(--utility-text, var(--t))); }
+.testmark {
+  display: inline-flex; align-items: center; height: calc(.26 * var(--ui-unit, 1rem)); padding: 0 calc(.1 * var(--ui-unit, 1rem)); border: 1px solid rgba(232, 184, 74, .8);
+  background: rgba(232, 184, 74, .16); color: #e8b84a; font-size: calc(.13 * var(--utility-text, var(--t))); font-weight: 800; letter-spacing: .08em;
+  white-space: nowrap;
+}
 
 .plugin-settings { display: grid; gap: calc(.06 * var(--ui-unit, 1rem)); margin-top: calc(.08 * var(--ui-unit, 1rem)); }
 .plugin-settings__row { display: flex; gap: calc(.1 * var(--ui-unit, 1rem)); align-items: center; justify-content: space-between; }
 .plugin-settings input, .plugin-settings select { color: var(--text-hi); background: var(--bg-2); border: 1px solid var(--line-2); padding: calc(.03 * var(--ui-unit, 1rem)) calc(.06 * var(--ui-unit, 1rem)); max-width: calc(2 * var(--ui-unit, 1rem)); }
 .plugin-settings input[aria-invalid="true"] { border-color: var(--orange); }
+
+/* ---- official versions (DESIGN §35.23): the tag (ui/pluginTag.js VersionTag), the lobby chip and the picker
+   (ui/versionPicker.js), the vote strip (ui/versionVote.js). Names may be long in English: the chip and the tag end in
+   an ellipsis, the strip and the picker wrap. ---- */
+.vertag {
+  display: inline-flex; align-items: center; max-width: 3.2rem; height: .26rem; padding: 0 .1rem; overflow: hidden;
+  border: 1px solid rgba(120, 196, 255, .65); background: rgba(120, 196, 255, .12); color: #9fd3ff;
+  font-size: calc(.13 * var(--t)); font-weight: 700; letter-spacing: .04em; white-space: nowrap; text-overflow: ellipsis;
+  vertical-align: middle;
+}
+/* (the label is its own box: a bare text in an inline-flex box is cut without the ellipsis) */
+.vertag__label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.vertag--compact { height: .2rem; padding: 0 .06rem; font-size: calc(.11 * var(--t)); }
+.verchip-wrap { display: inline-flex; align-items: center; gap: .06rem; min-width: 0; }
+/* [ASSUMED] Keep the season and part whole as 文字大小 grows (§35.23.11): a rem cap cut the part in English and
+   Japanese. The top bar reserves the chip's natural width beside its tools. */
+.verchip {
+  display: inline-flex; align-items: center; gap: .06rem; min-width: 0; height: max(.42rem, 28px); padding: 0 .14rem;
+  border: 1px solid var(--line-2); background: rgba(0, 0, 0, .45); color: var(--text-md);
+  font: inherit; font-size: calc(.14 * var(--t)); font-weight: 700; white-space: nowrap;
+}
+.verchip .icon { flex: none; width: 1.1em; height: 1.1em; color: #9fd3ff; }
+.verchip__k { flex: none; color: var(--text-lo); font-weight: 400; }
+.verchip__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.verchip__state { flex: none; color: var(--text-lo); font-size: calc(.12 * var(--t)); font-weight: 400; }
+.verchip.is-other { border-color: rgba(120, 196, 255, .6); color: #cfe9ff; }
+.verchip.is-failed { border-color: rgba(255, 106, 61, .7); }
+.verchip.is-failed .verchip__state { color: #ff8a5c; }
+.verchip:hover:not(.verchip--ro), .verchip:focus-visible { filter: brightness(1.2); }
+.verchip--ro { cursor: default; }
+.verchip__retry { flex: none; height: max(.42rem, 28px); padding: 0 .12rem; border: 1px solid rgba(255, 106, 61, .7); background: rgba(255, 106, 61, .14); color: #ffb39a; font: inherit; font-size: calc(.13 * var(--t)); }
+.sp-coarse .verchip, .sp-coarse .verchip__retry { min-height: max(32px, calc(40px * var(--sp-ui, 1))); }
+.verpick__lead { margin: 0 0 .12rem; color: var(--text-md); font-size: calc(.15 * var(--t)); line-height: 1.6; }
+.verpick__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .08rem; max-height: 4.8rem; overflow: auto; }
+.verpick__row { border: 1px solid var(--line); background: rgba(0, 0, 0, .25); }
+.verpick__row.is-on { border-color: rgba(120, 196, 255, .7); background: rgba(120, 196, 255, .08); }
+.verpick__pick {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .04rem .12rem; width: 100%; padding: .12rem .16rem;
+  border: 0; background: none; color: var(--text-hi); font: inherit; text-align: left;
+}
+.verpick__pick:disabled { cursor: default; }
+.verpick__pick:hover:not(:disabled), .verpick__pick:focus-visible { background: rgba(255, 255, 255, .04); }
+.verpick__name { font-size: calc(.2 * var(--t)); font-weight: 800; overflow-wrap: anywhere; }
+.verpick__badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .06rem; }
+.verpick__badge { padding: 0 .06rem; border: 1px solid var(--line-2); color: var(--text-lo); font-size: calc(.12 * var(--t)); white-space: nowrap; }
+.verpick__badge.is-current { color: #9fd3ff; border-color: rgba(120, 196, 255, .6); }
+.verpick__badge.is-preview { color: #ffb066; border-color: rgba(255, 159, 67, .5); }
+.verpick__period, .verpick__note { grid-column: 1 / -1; font-size: calc(.13 * var(--t)); line-height: 1.5; overflow-wrap: anywhere; }
+.verpick__note.is-warn { color: #ffb066; }
+.verpick__hint { display: flex; align-items: center; gap: .08rem; margin: .1rem 0 0; color: var(--text-lo); font-size: calc(.14 * var(--t)); }
+.verpick__hint .icon { flex: none; width: 1.1em; height: 1.1em; color: var(--mint-500); }
+.vervote {
+  position: relative; z-index: 3; flex: none;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .14rem .2rem;
+  margin: 0 .6rem .12rem; padding: .12rem .2rem;
+  background: rgba(12, 15, 14, .92); border: 1px solid rgba(120, 196, 255, .6);
+}
+.vervote__text { display: flex; flex-direction: column; gap: .04rem; min-width: 0; flex: 1 1 4rem; font-size: calc(.15 * var(--t)); }
+.vervote__text strong { color: #9fd3ff; font-size: calc(.19 * var(--t)); overflow-wrap: anywhere; }
+.vervote__time { display: inline-flex; align-items: center; gap: .04rem; color: var(--text-md); }
+.vervote__time .icon { width: 1em; height: 1em; }
+.vervote__hint { overflow-wrap: anywhere; }
+.vervote__players { display: flex; flex-wrap: wrap; gap: .06rem .18rem; color: var(--text-dim); }
+.vervote__players .is-agreed { color: var(--mint-400); }
+.vervote__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .1rem; flex-shrink: 0; }
+/* on the settlement screen: over the page's bottom edge (the vote must stay in view); never taller than the screen — a
+   long language at 特大 on a short phone scrolls inside it instead of losing its title off the top (like the room's) */
+.vervote--float {
+  position: fixed; left: 50%; bottom: max(.2rem, env(safe-area-inset-bottom)); z-index: 40; width: min(9rem, calc(100vw - 32px)); margin: 0;
+  max-height: calc(100svh - .2rem - max(.2rem, env(safe-area-inset-bottom))); overflow-y: auto; transform: translateX(-50%);
+}
+/* (it takes the focus as an alertdialog — ui/versionVote.js —: the strip's own border marks it) */
+.vervote--float:focus { outline: none; }
+/* above 干员调配 / 统计数据 (.lo / .st, 55), below the connection banner (75), modals and toasts */
+.vervote--covered { z-index: 56; box-shadow: 0 .06rem .3rem rgba(0, 0, 0, .55); }
+@media (max-width: 900px), (max-height: 520px) {
+  .vervote { margin-inline: .2rem; padding: .08rem .12rem; }
+  .vervote__actions .btn { min-height: 40px; padding-inline: .12rem; }
+}
+/* short landscape phones (1rem is ~40 px: the text gets its own sizes, like the room's — css/screens/room.css) */
+@media (max-height: 520px) {
+  .vervote__text { font-size: calc(.22 * var(--t)); }
+  .vervote__text strong { font-size: calc(.26 * var(--t)); }
+  /* a floating strip too tall for the screen scrolls its text, the buttons stay in view below it */
+  .vervote--float { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+  .vervote--float .vervote__text { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+  .vervote--float .vervote__actions { flex: none; }
+  /* the whole name, on two lines if it must (English 'Season 1 · Part 2' at 特大): the part is what tells two halves apart */
+  .vertag { max-width: 3.4rem; height: auto; padding: 1px 5px; font-size: calc(.2 * var(--t)); line-height: 1.2; white-space: normal; }
+  .vertag__label { white-space: normal; }
+  /* the label is what tells the versions apart: the 版本 key word gives its room (the hourglass and the title say it) */
+  .verchip { font-size: calc(.22 * var(--t)); }
+  .verchip__k { display: none; }
+  .verchip__state, .verchip__retry { font-size: calc(.2 * var(--t)); }
+  .verpick__lead, .verpick__hint { font-size: calc(.22 * var(--t)); }
+  .verpick__list { max-height: 60svh; }
+  .verpick__pick { padding: 6px 10px; }
+  .verpick__name { font-size: calc(.28 * var(--t)); }
+  .verpick__badge { font-size: calc(.2 * var(--t)); }
+  .verpick__period, .verpick__note { font-size: calc(.21 * var(--t)); }
+}

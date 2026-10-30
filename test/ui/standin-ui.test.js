@@ -11,8 +11,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Component, h, options } from '../../public/vendor/preact.module.js';
-import { OperatorPortrait } from '../../public/js/ui/operatorPortrait.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 globalThis.fetch = async (url) => {
@@ -25,6 +23,8 @@ globalThis.fetch = async (url) => {
   }
 };
 
+const { OperatorImage } = await import('../../public/js/ui/gameComponents.js');
+const { chessAvatarUrl, chessPortraitUrl } = await import('../../public/js/ui/assetUrls.js');
 const M = await import('../../public/js/ui/ownershipModel.js');
 const { installOwnershipSync, SYNC_DEBOUNCE_MS } = await import('../../public/js/ui/loadoutSync.js');
 const { createStore } = await import('../../public/js/store.js');
@@ -68,11 +68,8 @@ function expand(v, depth = 6) {
   return children === undefined ? v : { ...v, props: { ...v.props, children: expand(children, depth) } };
 }
 const srcsOf = (v) => [...walk(v)].map((n) => {
-  if (n.type !== OperatorPortrait) return n.props?.src;
-  const old = options.__s, vnode = h(n.type, n.props), instance = new Component(n.props, {});
-  instance.__h = []; vnode.__c = instance; instance.__v = vnode; options.__s = true;
-  try { options.__r(vnode); return OperatorPortrait(n.props).props.src; }
-  finally { options.diffed(vnode); options.unmount(vnode); options.__s = old; }
+  if (n.type === OperatorImage) return (n.props.portrait ? chessPortraitUrl : chessAvatarUrl)(n.props.m, n.props.chess);
+  return n.props?.src;
 }).filter((x) => typeof x === 'string');
 
 describe('干员持有 model (ui/ownershipModel.js)', () => {
@@ -80,7 +77,11 @@ describe('干员持有 model (ui/ownershipModel.js)', () => {
     assert.deepEqual(M.parseStoredOwnership(null), []);
     assert.deepEqual(M.parseStoredOwnership({ v: 1, notOwned: [SILVER, 'bad id', SILVER, '__proto__', 7, SARIA] }), [SILVER, SARIA].sort());
     assert.deepEqual(M.parseStoredOwnership([MLYSS]), [MLYSS], 'a bare array of an older build');
-    assert.deepEqual(M.toStoredOwnership([SARIA, SILVER]), { v: M.OWNERSHIP_VERSION, notOwned: [SILVER, SARIA].sort() });
+    // v2 (DESIGN §35.23): by operator; the v1 form only while a store waits for its migration
+    assert.deepEqual(M.toStoredOwnership(['char_202_demkni', 'char_172_svrash']), { v: 2, notOwnedChars: ['char_172_svrash', 'char_202_demkni'] });
+    assert.deepEqual(M.parseStoredOwnershipChars(M.toStoredOwnership(['char_202_demkni'])), ['char_202_demkni']);
+    assert.deepEqual(M.parseStoredOwnership(M.toStoredOwnership(['char_202_demkni'])), [], 'a v2 store has no chess ids');
+    assert.deepEqual(M.toStoredOwnershipV1([SARIA, SILVER]), { v: 1, notOwned: [SILVER, SARIA].sort() });
     assert.deepEqual(M.sanitizeNotOwned([SILVER, CATHY, 'chess_char_9_99_a', getChess(SILVER).goldenId], getChess), [SILVER], 'droppable chess only');
   });
   test('toggles: setOwned / isOwned return new sorted lists', () => {
@@ -106,10 +107,11 @@ describe('干员持有 model (ui/ownershipModel.js)', () => {
     assert.equal(M.notOwnedCount([SILVER, CATHY, 'chess_char_6_10_a'], roster), 1, 'PRESET / retired ids do not count');
   });
   test('export / import: versioned envelope, bare arrays and text; junk, newer versions and other kinds refused', () => {
-    const text = M.serializeOwnership([SARIA, SILVER], { now: 0 });
+    const text = M.serializeOwnership(['char_202_demkni', 'char_172_svrash'], { now: 0 });
     const env = JSON.parse(text);
-    assert.deepEqual([env.kind, env.v, env.count, env.notOwned], [M.OWNERSHIP_EXPORT_KIND, 1, 2, [SILVER, SARIA].sort()]);
-    assert.deepEqual(M.parseOwnershipImport(text), { ok: true, notOwned: [SILVER, SARIA].sort() });
+    assert.deepEqual([env.kind, env.v, env.count, env.notOwnedChars], [M.OWNERSHIP_EXPORT_KIND, 2, 2, ['char_172_svrash', 'char_202_demkni']]);
+    assert.deepEqual(M.parseOwnershipImport(text), { ok: true, notOwnedChars: ['char_172_svrash', 'char_202_demkni'] });
+    assert.deepEqual(M.parseOwnershipImport({ kind: M.OWNERSHIP_EXPORT_KIND, v: 1, notOwned: [SARIA, SILVER] }), { ok: true, notOwned: [SILVER, SARIA].sort() }, 'a v1 export (第二期下半 chess ids)');
     assert.deepEqual(M.parseOwnershipImport([MLYSS]), { ok: true, notOwned: [MLYSS] });
     assert.deepEqual(M.parseOwnershipImport({ v: 1, notOwned: [] }), { ok: true, notOwned: [] }, 'an empty list = everything owned');
     assert.equal(M.parseOwnershipImport('').ok, false);
@@ -307,7 +309,7 @@ describe('match UI of a not-owned chess', () => {
     // PR #73's 选中干员 voice (DetailPanel `voice`, in battle): the stand-in speaks, like its battle lines (audio.js keys
     // them by UnitInfo spine, the stand-in's model) — never the operator it replaces
     assert.match(readFileSync(path.join(ROOT, 'public/js/ui/detailPanel.js'), 'utf8'),
-      /const selectChar = voice && detail\?\.type === 'chess' \? detail\.standIn\?\.charId \|\| detail\.chess\?\.charId \|\| null : null;/);
+      /const selectChar = voice && detail\?\.type === 'chess' \? detail\.standIn\?\.assets\?\.voice \|\| detail\.standIn\?\.charId \|\| detail\.chess\?\.assets\?\.voice \|\| detail\.chess\?\.charId \|\| null : null;/);
   });
 
   test('own prep pieces with stand-ins get a small 「替补」 tag (hand, temp, board); others none', () => {
@@ -376,13 +378,14 @@ describe('match UI of a not-owned chess', () => {
     assert.match(src, /const si = chess && standInList\.includes\(chess\.baseId \|\| chess\.chessId\) \? data\.standIn\(piece\.id\) : null;/);
     assert.doesNotMatch(src, /area === 'board' && chess && standInList/, 'not only on the board');
     assert.match(src, /standInList = Array\.isArray\(src\.standIns\)/);
-    assert.match(src, /const sig = `\$\{info\.kind\}\|\$\{info\.defId\}\|\$\{info\.golden \? 1 : 0\}\|\$\{info\.spine \|\| ''\}\|\$\{info\.skin \|\| ''\}`/);
+    assert.match(src, /const sig = `\$\{info\.kind\}\|\$\{info\.defId\}\|\$\{info\.golden \? 1 : 0\}\|\$\{info\.spine \|\| ''\}`/);
     assert.match(readFileSync(path.join(ROOT, 'public/js/render/app/info.js'), 'utf8'), /standInFor: typeof u\.standInFor === 'string'/);
     // the DOM fallback field draws every own piece of it with the stand-in's avatar and name
     const ff = readFileSync(path.join(ROOT, 'public/js/ui/fallbackField.js'), 'utf8');
-    assert.match(ff, /const replacement = ownSi\(chess\) \|\| ownDiy\(chess\)/);
-    assert.match(ff, /chessAvatarUrl\(mm, replacement \|\| chess\)/);
-    assert.match(ff, /const skin = replacement \? null : visibleSkin\(p.skin, st.settings\)/);
+    // either merged shape: the stand-in replaces the operator, and its own skin is not worn over it
+    assert.match(ff, /const (?:replacement|body) = ownSi\(chess\) \|\| ownDiy\(chess\)/);
+    assert.match(ff, /chessAvatarUrl\(mm, (?:replacement|body)\b/);
+    assert.match(ff, /const skin = (?:replacement \? null : visibleSkin\(p\.skin, st\.settings\)|ownerSkin\(body\?\.charId)/);
     assert.match(ff, /\(ownSi\(chess\) \|\| ownDiy\(chess\) \|\| chess\)\?\.name/);
   });
 });

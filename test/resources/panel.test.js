@@ -62,7 +62,7 @@ describe('where the preload is reachable', () => {
     assert.match(title, /const settings = useSettings\(\);/);
     assert.match(title, /<div class="title-preload"><\$\{ResourceLauncher\} enabled=\$\{settings\.preload\} onChange=\$\{\(v\) => updateSettings\(\{ preload: v \}\)\} \/><\/div>/);
     const css = read('public/css/screens/title.css');
-    assert.match(css, /\.title-preload \{[^}]*position: absolute;[^}]*right: \.44rem;[^}]*bottom: \.86rem;/, 'bottom-right, above the footer');
+    assert.match(css, /\.title-preload \{[^}]*position: absolute;[^}]*right: calc\(0\.44 \* var\(--ui-unit, 1rem\)\);[^}]*bottom: calc\(0\.86 \* var\(--ui-unit, 1rem\)\);/, 'bottom-right, above the footer');
     assert.match(css, /\.res-pill \{/, 'the pill has its own styling');
   });
 

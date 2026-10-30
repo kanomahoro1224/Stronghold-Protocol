@@ -150,7 +150,7 @@ test('client dispatch reconstructs original events before resolving operation ok
   net._onMessage(JSON.stringify({ t: 'm.state', kind: 'm.private', seq: 100, base: 99, patch: [] }));
   assert.deepEqual(requests, [{ t: 'state.resync' }]);
   net._teardownSocket();
-  assert.equal(net._states.states.size, 0);
+  assert.equal(net._receiver.states.size, 0);
   assert.equal(validateC2S({ t: 'hello', name: 'test', stateDelta: 1 }), null);
   assert.equal(validateC2S({ t: 'state.resync' }), null);
   assert.notEqual(validateC2S({ t: 'hello', name: 'test', stateDelta: '1' }), null);
@@ -158,8 +158,8 @@ test('client dispatch reconstructs original events before resolving operation ok
 
 test('client retries rate-limited state recovery quietly, stops on full delivery and on disconnect', async () => {
   const callbacks = new Map();
-  let timerId = 0, attempts = 0;
-  const net = new Net({ url: 'ws://test/ws', timers: {
+  let timerId = 0, attempts = 0, clock = 1000;
+  const net = new Net({ url: 'ws://test/ws', now: () => clock, timers: {
     setTimeout(fn) { callbacks.set(++timerId, fn); return timerId; },
     clearTimeout(id) { callbacks.delete(id); }, clearInterval() {},
   } });
@@ -167,7 +167,9 @@ test('client retries rate-limited state recovery quietly, stops on full delivery
   net._onMessage(JSON.stringify({ t: 'm.state', kind: 'm.private', seq: 2, base: 1, patch: [] }));
   await Promise.resolve();
   assert.equal(attempts, 1);
-  const [id, retry] = [...callbacks][0]; callbacks.delete(id); retry();
+  const [id, retry] = [...callbacks][0]; callbacks.delete(id);
+  clock += 1000; // the retry tick: one quiet request per RESYNC_GAP_MS, never faster
+  retry();
   assert.equal(attempts, 2);
   net._onMessage(JSON.stringify({ t: 'm.state', kind: 'm.private', seq: 3, full: makeView() }));
   assert.equal(callbacks.size, 0);

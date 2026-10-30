@@ -62,10 +62,27 @@ export class MatchInfra {
   setDeadline(seconds, fn, { silent = false } = {}) {
     this.cancel(this._phaseTimer);
     this._phaseTimer = null;
-    if (!(seconds > 0) || typeof fn !== 'function') { this.deadline = 0; return; }
+    if (this.test === true) { this._testHeld = null; this._testArmed = null; }
+    // Test matches can hold the callback (g.test timers off). A normal match never enters this branch:
+    // scaling the delay to 0 would fire it at once, and cancelling it without keeping fn would stick
+    // a phase whose only advance is this timer (BATTLE_CHECK → startRound). [ASSUMED] re-arm uses the
+    // original duration, not the leftover.
+    if (this.test === true && this.testTimers === false && seconds > 0 && typeof fn === 'function') {
+      this.deadline = 0;
+      const held = { seconds, fn, silent: !!silent };
+      this._testHeld = held;
+      this._testArmed = held;
+      return;
+    }
+    if (!(seconds > 0) || typeof fn !== 'function') {
+      this.deadline = 0;
+      if (this.test === true) { this._testHeld = null; this._testArmed = null; }
+      return;
+    }
     const ms = this.scaled(seconds * 1000);
     this.deadline = silent ? 0 : this.sched.now() + ms;
-    this._phaseTimer = this.later(ms, () => { this._phaseTimer = null; fn(); });
+    this._phaseTimer = this.later(ms, () => { this._phaseTimer = null; if (this.test === true) { this._testArmed = null; this._testHeld = null; } fn(); });
+    if (this.test === true) this._testArmed = { seconds, fn, silent: !!silent };
   }
 
   /**
@@ -76,7 +93,11 @@ export class MatchInfra {
    * with a single human (loneHuman: a 同盟 room started alone or with AI teammates only — user playtest #4 item 3):
    * the timers only ever made humans wait on each other; AI seats act at once.
    */
-  get soloUntimed() { return this.isSolo || this.loneHuman; }
+  get soloUntimed() {
+    // Maintainer decision: historical solo uses its timer unless 「不限时」 is opted into;
+    // the single-human convenience rule still applies to co-op.
+    return this.isSolo ? this.gd.config.version?.rules?.soloTimed !== true || this.opts.soloUnlimited === true : this.loneHuman;
+  }
 
   nextUid() { return ++this.uidSeq; }
 
@@ -92,9 +113,8 @@ export class MatchInfra {
   }
 
   /**
-   * Whether a bond can matter in this match: not in the mode's static inactive list (标准: 拉特兰 / 阿戈尔 / 卡西米尔 /
-   * 奥术 … never activate, research 02 §2.1) and still with chess in the pool. 机变 tactic cards whose every target bond
-   * is dead are not offered (choices.js).
+   * Whether a bond can matter in this match: it has chess in the match's pool. 机变 tactic cards whose every target bond
+   * has no available chess are not offered (choices.js).
    */
   bondLive(bondId) {
     return this.bondInPool(bondId);
@@ -136,6 +156,7 @@ export class MatchInfra {
   }
 
   dispatch(ps, hook, ev = {}, opts = {}) {
+    this.externalAI?.observe(ps, hook, ev);
     try { return this.dispatcher.dispatch(ps, hook, ev, opts); } catch (e) { this.reportError(`dispatch ${hook}`, e); return ev; }
   }
 

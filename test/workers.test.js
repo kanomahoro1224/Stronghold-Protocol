@@ -30,13 +30,17 @@ function combat() {
   return h;
 }
 
-test('worker settings honor CPU budget, disabled mode and bounded overrides', () => {
-  assert.equal(workerSettings({}, 1).size, 1);
-  assert.equal(workerSettings({}, 32).size, 8);
-  assert.equal(workerSettings({ SP_WORKERS: '0' }, 8).size, 0);
-  assert.equal(workerSettings({ SP_WORKERS: '-1' }, 8).size, 6);
+test('worker settings are opt-in and keep bounded overrides', () => {
+  // SP_WORKERS is opt-in (docs/ARCHITECTURE.md): unset, junk and 0 all mean "no pool"; only 1..32 starts threads.
+  assert.equal(workerSettings({}).size, 0);
+  assert.equal(workerSettings({ SP_WORKERS: 'junk' }).size, 0);
+  assert.equal(workerSettings({ SP_WORKERS: '0' }).size, 0);
+  assert.equal(workerSettings({ SP_WORKERS: '-1' }).size, 0);
+  assert.equal(workerSettings({ SP_WORKERS: '33' }).size, 0);
+  assert.equal(workerSettings({ SP_WORKERS: '8' }).size, 8);
   assert.deepEqual(workerSettings({ SP_WORKERS: '3', SP_WORKER_QUEUE: '9', SP_WORKER_TIMEOUT_MS: '456' }),
     { size: 3, maxQueue: 9, timeoutMs: 456 });
+  assert.deepEqual(workerSettings({}), { size: 0, maxQueue: 256, timeoutMs: 120000 }, 'the bounds keep their defaults');
 });
 
 test('room worker lanes pin keys and expose per-lane load without sharing assignments', async (t) => {

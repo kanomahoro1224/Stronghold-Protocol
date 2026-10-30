@@ -45,15 +45,12 @@ export const RESOURCE_GROUPS = Object.freeze({
   fx: { name: N_('官方特效'), tier: TIER_REST },
   sfx: { name: N_('音效'), tier: TIER_REST },
   music: { name: N_('背景音乐'), tier: TIER_REST },
-  skins: { name: N_('干员皮肤'), tier: TIER_REST },
   other: { name: N_('玩法说明与其他资源'), tier: TIER_REST },
 });
 
 export function resourceGroup(file) {
   const path = new URL(file.url, 'https://resources.invalid').pathname;
   if (file.tier === TIER_REST) {
-    // Skin model stems contain an outfit directory; handle a CDN prefix too.
-    if (/\/char\/(?:avatar|portrait)\/skin\//.test(path) || /\/spine\/op\/[^/]+\/[^/]+\/(?:front|back)\//.test(path)) return 'skins';
     if (/\/voice\/cn\//.test(path)) return 'voice_cn';
     if (/\/voice\/jp\//.test(path)) return 'voice_jp';
     if (/\/voice\/en\//.test(path)) return 'voice_en';
@@ -81,11 +78,10 @@ export function normalizePreloadVoiceLang(value, fallback = 'cn') {
   return PRELOAD_VOICE_LANGS.includes(fallback) ? [fallback] : ['cn'];
 }
 
-export function selectedResourceGroup(id, includeOptional, voiceLang = 'cn', preloadSkins = false) {
+export function selectedResourceGroup(id, includeOptional, voiceLang = 'cn') {
   const group = RESOURCE_GROUPS[id];
   if (!group) return false;
   if (group.tier === TIER_ESSENTIAL) return true;
-  if (id === 'skins') return preloadSkins === true;
   if (!includeOptional) return false;
   const langs = normalizePreloadVoiceLang(voiceLang);
   if (id.startsWith('voice_')) return langs.includes(id.slice('voice_'.length));
@@ -94,9 +90,9 @@ export function selectedResourceGroup(id, includeOptional, voiceLang = 'cn', pre
 }
 
 /** UI/download completion uses the short, incrementally maintained category list, not manifest rescans. */
-export function resourceSelection(status, includeOptional, voiceLang, preloadSkins = false) {
+export function resourceSelection(status, includeOptional, voiceLang) {
   const groups = (status.groups || []).map((group) => ({ ...group,
-    selected: selectedResourceGroup(group.id, includeOptional, voiceLang, preloadSkins) }));
+    selected: selectedResourceGroup(group.id, includeOptional, voiceLang) }));
   const chosen = groups.filter((g) => g.selected);
   const selectedWanted = chosen.reduce((n, g) => n + g.wanted, 0);
   const selectedDone = chosen.reduce((n, g) => n + g.present, 0);

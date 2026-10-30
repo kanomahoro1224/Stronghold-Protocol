@@ -54,7 +54,7 @@ test('the final layer changes only local design units, and never defines global 
   }
   assert.doesNotMatch(source, /(?:^|\n)\s*(?:html|body|:root)\s*\{/);
   assert.doesNotMatch(source, /--t\s*:|(?:zoom|scale)\s*:/);
-  const roots = ':is(.title-screen, .lobby-screen, .room-screen, .protocol-screen, .sweep-host, .lo, .st, .ach, .modal--utility, .guide, .studio)';
+  const roots = ':is(.title-screen, .lobby-screen, .room-screen, .protocol-screen, .sweep-host, .lo, .st, .modal--utility, .guide, .studio)';
   assert.equal(declaration(roots, '--ui-unit'), 'var(--sp-ui-unit, 1rem)');
   assert.equal(declaration(roots, '--utility-text'), 'calc(var(--t) * var(--sp-ui-scale, 1))');
   sheet.walkDecls('--ui-unit', d => assert.doesNotMatch(d.parent.selector, /\.gm\b|\.shopbar|\.combat-metrics/));
@@ -66,14 +66,17 @@ test('management retains explanations, desktop artwork and complete achievement 
   assert.equal(declaration('.ach-mark__text small', 'white-space'), 'normal');
   assert.equal(declaration('.sweep-host .sw-tile__cap', 'display'), 'block');
   const lobby = read('public/css/screens/lobby.css');
-  for (const selector of ['pcard__meta', 'proto-brief p', 'hub-side .tips'])
+  // `pcard__meta` dropped with the abandoned fork UI: upstream lobby.css itself hides
+  // `.pcard__meta` (`.pcard__desc, .pcard__effects, .pcard__meta { display: none; }`), so the
+  // fork's "keep the meta line visible" assertion contradicts the upstream stylesheet.
+  for (const selector of ['proto-brief p', 'hub-side .tips'])
     assert.doesNotMatch(lobby, new RegExp('\\.' + selector + ' \\{ display: none'));
   const title = read('public/css/screens/title.css');
   assert.doesNotMatch(title, /\.title-en \{ display: none/);
 });
 
 test('compact hit boxes stay within their own bounds, while native controls retain the iOS guard', () => {
-  const selector = '.sp-coarse :is(.utility-modal, .lo, .st, .lobby-screen, .room-screen, .title-screen, .guide, .ach, .studio) :is(.btn, .tabs__tab, .set-toggle, .set-seg button, .fsbtn)::before';
+  const selector = '.sp-coarse :is(.utility-modal, .lo, .st, .lobby-screen, .room-screen, .title-screen, .guide, .studio) :is(.btn, .tabs__tab, .set-toggle, .set-seg button, .fsbtn)::before';
   assert.equal(declaration(selector, 'inset'), '0');
   assert.equal(declaration(selector, 'width'), '100%');
   assert.equal(declaration(selector, 'transform'), 'none');

@@ -21,6 +21,7 @@
 // Layers (`ps.layers[bondId]`) persist the whole match; they are reported for every bond but only matter while active.
 
 import { layerGainRoom } from '../../shared/constants.js';
+import { grantedBondsByMorph, ruleOption } from '../../shared/plugins/rules.js';
 
 export const HARMONY_BOND = 'maniShip';
 export const DEPUTY_BOND = 'deputShip';
@@ -29,20 +30,16 @@ export const DEPUTY_BOND = 'deputShip';
  * Bonds of a chess piece: own bonds ∪ bonds granted by 变形同构体 pairings.
  * @param {import('./gamedata.js').GameData} gd
  * @param {{ id: string, items?: Array<{ id: string }> }} piece
+ * @param {Record<string, string>|null} [rules] the room's rule switches; omitted keeps the official pairing
  * @returns {string[]}
  */
-export function pieceBonds(gd, piece) {
+export function pieceBonds(gd, piece, rules = null) {
   const c = gd.chess(piece.id);
   const out = c && Array.isArray(c.bonds) ? c.bonds.slice() : [];
   const items = Array.isArray(piece.items) ? piece.items : [];
-  if (items.length >= 2) {
-    const recs = items.map((it) => gd.item(it.id)).filter(Boolean);
-    if (recs.some((r) => r.canGiveBond)) {
-      for (const r of recs) {
-        if (r.canGiveBond) continue;
-        if (typeof r.giveBondId === 'string' && gd.bond(r.giveBondId) && !out.includes(r.giveBondId)) out.push(r.giveBondId);
-      }
-    }
+  const mode = ruleOption(rules, 'morphPairing');
+  for (const b of grantedBondsByMorph(items, (id) => gd.item(id), { mode, bondOk: (id) => !!gd.bond(id) })) {
+    if (!out.includes(b)) out.push(b);
   }
   return out;
 }
@@ -62,11 +59,11 @@ function membership(gd, ps) {
   for (const p of boardChess) {
     const base = gd.baseIdOf(p.id);
     const golden = gd.isGolden(p.id);
-    for (const b of pieceBonds(gd, p)) { add(onBoard, b, base); add(onBoardVariant, b, `${base}|${golden ? 1 : 0}`); }
+    for (const b of pieceBonds(gd, p, ps.m?.rules)) { add(onBoard, b, base); add(onBoardVariant, b, `${base}|${golden ? 1 : 0}`); }
   }
   for (const p of handChess) {
     const base = gd.baseIdOf(p.id);
-    for (const b of pieceBonds(gd, p)) add(inHand, b, base);
+    for (const b of pieceBonds(gd, p, ps.m?.rules)) add(inHand, b, base);
   }
   return { onBoard, onBoardVariant, inHand, goldenOnBoard: boardChess.filter((p) => gd.isGolden(p.id)).length };
 }
@@ -137,7 +134,6 @@ export function computeBonds(gd, ps) {
 
 /** Compatibility helper: no mode disables bond activation or needs off entries. */
 export function offBondCounts() {
-  // Retained for view callers; mode bans now affect the chess pool only.
   return null;
 }
 
@@ -169,8 +165,8 @@ export function activatedLayers(bonds) {
 
 /**
  * View list for m.private / m.public: bonds with members or layers, active first, then layers desc, then data order.
- * An entry whose count includes 调和's +1 carries `harmony: 1` (both views; absent otherwise). `off` is retained for legacy callers: explicitly disabled bonds the player has members of follow, in data order, as `{ bondId, count, active: false, tier: 0, layers,
- * off: true }` — the strip's grey 本局禁用 discs; never in computeBonds, so never in the battle input.
+ * An entry whose count includes 调和's +1 carries `harmony: 1` (both views; absent otherwise). Legacy `off` entries,
+ * when supplied by older callers, follow active bonds in data order.
  * @param {import('./gamedata.js').GameData} gd
  * @param {ReturnType<typeof computeBonds>} bonds
  * @param {{ full?: boolean, off?: ReturnType<typeof offBondCounts> }} [opts] full → include thresholds/countsHand (m.private)

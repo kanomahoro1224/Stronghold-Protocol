@@ -2,7 +2,13 @@
 // wires the modules under server/http/, in this order —
 //
 //   http/config.js     ROOT, the served directories, the environment (PORT 3000, HOST '::' dual-stack, TRUST_PROXY auto, DEBUG),
-//                      which startServer() options go to net.js / lobby.js, the console logger
+//                      which startServer() options go to net.js / lobby.js, the console logger, the official versions
+//                      this server offers (SP_VERSIONS / SP_VERSION_DEFAULT / SP_MAX_VERSION_HOSTS — versions.js below)
+//   versions.js        the official versions (DESIGN §35.23, M1): each enabled one's cs, data, manifest
+//                      (/cs/<cs16>/index.json) and data directory (/data/versions/<slug>/); their matches run in match
+//                      hosts of their own (match/host/, kind 'version') — the pool exists when another version is
+//                      enabled (the default: all four) and forks a process on the first match of one, never at boot;
+//                      none when only 第二期下半 is enabled
 //   http/websocket.js  session wiring (SessionRegistry → Lobby → Network) and the WebSocket at /ws (maxPayload 64 KB,
 //                      permessage-deflate from 1 KB; refused at upgrade with 404 / 429 per network / 503)
 //   http/static.js     the static mounts (/ → public/, /data/, /shared/, /sim/ `.js` only), the /data.js browser stand-in,
@@ -47,7 +53,9 @@ export { WS_DEFLATE_THRESHOLD } from './http/websocket.js';
 export { rewriteAssetPaths } from '../shared/cdn.js';
 
 import { getData, loadData } from './data.js';
-import { ROOT, listenAddress, bindCandidates, serveDirs, makeLogger, parseTrustProxy } from './http/config.js';
+import { getBotStrategy } from './match/botStrategies.js';
+import { noteLlmIgnored, releaseIgnoresExternalAi, validateExternalConfig } from './match/llmGate.js';
+import { ROOT, listenAddress, bindCandidates, serveDirs, makeLogger, parseTrustProxy, versionsFrom, parseRoomCode } from './http/config.js';
 import { WS_MAX_PAYLOAD, createSessionStack, attachWebSocket } from './http/websocket.js';
 import { DATA_SHIM_JS, createStaticHandler } from './http/static.js';
 import { parseResourcePackRoutes } from '../shared/resourcePackRoutes.js';
@@ -58,6 +66,9 @@ import { createContentSets } from './plugins/contentSets.js';
 import { createPluginPolicy } from './plugins/policy.js';
 import { createRoomSets } from './plugins/roomSets.js';
 import { createMatchHosts } from './match/host/index.js';
+import { createVersionSets } from './versions.js';
+import { versionById } from '../shared/versions.js';
+import { t } from '../shared/i18n.js';
 import { createTrustedRuntime } from './plugins/trustedRuntime.js';
 import { trustedHostAllowed } from './plugins/trusted.js';
 import { createStudio } from './studio/index.js';
@@ -66,6 +77,7 @@ import { BUILD_INPUTS, computeBuildTag, buildTag, resetBuildTag } from './http/b
 import { createRequestHandler } from './http/routes.js';
 import { createTrafficCounter } from './http/traffic.js';
 import { answerClientError } from './http/common.js';
+import { createEventLoopMonitor } from './health/eventLoop.js';
 import { lanUrls, displayHost, isProcessEntry, runMain } from './http/boot.js';
 
 // The public API of this module (tests and tools import it from here); the code lives in ./http/.
@@ -88,16 +100,39 @@ export {
  *   store?: object | null, resume?: boolean, saveMs?: number, assetsCdn?: string, dataCdn?: string, resourcePackRoutes?: string[] | string, studio?: boolean, matchHost?: object,
  *   workers?: number, roomWorkers?: number, matchWorkers?: number, workerQueue?: number, workerTimeoutMs?: number, workerPool?: SimulationPool | null,
  *   announcementsFile?: string | null, announcementPollMs?: number, wsCompression?: boolean, wsUrl?: string, clientBuild?: boolean,
+ *   versionVoteMs?: number, versionRetryMs?: number,
+ *   roomCode?: string | null,
+ *   versions?: { enabled?: 'all' | string[], default?: string, maxHosts?: number },
  * }} [opts]
+ *   studio: the plugin studio at /studio/ (default on for this machine and the local network — SP_STUDIO=local|off;
+ *   false: none);
+ *   matchHost: options of the match hosts (server/match/host/index.js — watchdogMs, matchOptions …; tests) — the
+ *   version hosts' too; versions: the official versions this server offers (http/config.js versionsFrom; DESIGN §35.23);
+ *   versionVoteMs / versionRetryMs: the version vote's answer window and the guard after a declined or expired vote (tests;
+ *   server/lobby.js header "Official versions")
+ *   roomCode: a fixed alliance key for every new room (--room-code; four letters or digits — config.js parseRoomCode);
  * @returns {Promise<{ port: number, host: string, url: string, server: http.Server, wss: import('ws').WebSocketServer,
  *                     lobby: import('./lobby.js').Lobby, network: import('./net.js').Network,
  *                     registry: import('./net.js').SessionRegistry, packs: ReturnType<typeof createPluginRegistry>,
- *                     traffic: ReturnType<typeof createTrafficCounter>, close: () => Promise<void> }>}
+ *                     content: import('./plugins/identity.js').VanillaContent, visual: ReturnType<typeof createVisualSets>,
+ *                     contents: ReturnType<typeof createContentSets>, hosts: ReturnType<typeof createMatchHosts>,
+ *                     versions: ReturnType<typeof createVersionSets>, versionHosts: ReturnType<typeof createMatchHosts> | null,
+ *                     traffic: ReturnType<typeof createTrafficCounter>, studio: ReturnType<typeof createStudio> | null,
+ *                     close: () => Promise<void> }>}
  */
 export async function startServer(opts = {}) {
+  // A release ignores external-AI settings (one log line) and keeps the built-in bot (§35.66).
+  // An unknown strategy id still fails here, before data is loaded or the port is opened.
   const nameModeration = opts.nameModeration !== undefined ? opts.nameModeration : nameModerationFromEnv();
-  const { port, host } = listenAddress(opts);
   const log = opts.log || makeLogger(!!opts.quiet);
+  if (releaseIgnoresExternalAi()) noteLlmIgnored(log);
+  try {
+    const strategy = getBotStrategy(process.env.SP_BOT_STRATEGY);
+    if (strategy.id === 'external') validateExternalConfig();
+  } catch (cause) {
+    throw new Error(`Invalid SP_BOT_STRATEGY: ${cause.message}. Unset SP_BOT_STRATEGY to use the original bot (legacy).`, { cause });
+  }
+  const { port, host } = listenAddress(opts);
   const { publicDir, dataDir, sharedDir, packsDir, pluginsDir } = serveDirs(opts);
   const simDir = path.join(ROOT, 'server', 'sim');
 
@@ -132,7 +167,10 @@ export async function startServer(opts = {}) {
   // language packs and plugins (docs/PACKS.md, docs/PLUGINS.md): scanned now — the start log names them — and again
   // whenever their folders change
   const scriptMode = process.env.SP_PLUGIN_SCRIPTS;
-  const packs = createPluginRegistry({ publicDir, dataDir, packsDir, pluginsDir }, { log, scriptHost:host, scriptMode, background: true });
+  // The branch scans the production plugin index in a background worker (docs/BACKEND_PERFORMANCE.md), so the
+  // registry is built with `background: true` and its first scan is awaited here. The upstream content-hash index and
+  // its manifest views came with the asset-download entry point the branch removed (AGENTS.md), so they are not built.
+  const packs = createPluginRegistry({ publicDir, dataDir, packsDir, pluginsDir }, { log, scriptHost: host, scriptMode, background: true });
   await packs.refresh(true);
   // the visual sets of the cosmetic plugins (DESIGN §32 P1a): what a room's host switches on, served at /vs/ and /p/
   const visual = createVisualSets({ registry: packs, log });
@@ -145,6 +183,17 @@ export async function startServer(opts = {}) {
   // an out-of-memory abort in a worker thread ends the whole server)
   const transport = String(process.env.SP_MATCH_HOST || '').trim().toLowerCase() === 'worker' ? 'worker' : 'process';
   const hosts = createMatchHosts({ contents, log, options: { transport, maxWorkers: Math.max(1, policy.get().maxSets), ...(opts.matchHost || {}) } });
+  // the official versions (DESIGN §35.23, M1): which ones (the option, else SP_VERSIONS …), their content, and — only
+  // when one beyond 第二期下半 is enabled — the match hosts their rooms play in (counted apart from the plugin hosts)
+  const versionCfg = versionsFrom(opts, log);
+  const versions = createVersionSets({ enabled: versionCfg.enabled, defaultId: versionCfg.default, dataDir, vanilla: content, defaultData: data, log });
+  // (the test options of matchHost apply to both pools, but never the version pool's kind or its own SP_MAX_VERSION_HOSTS)
+  const versionHosts = versions.nonDefault.length
+    ? createMatchHosts({ contents: versions, log, options: { transport, ...(opts.matchHost || {}), kind: 'version', maxWorkers: Math.max(1, versionCfg.maxHosts) } })
+    : null;
+  log.info(`[versions] enabled: ${versions.ids.map((id) => `${id} (${t(/** @type {any} */ (versionById(id)).label)}${id === versions.defaultId ? ', default' : ''})`).join(', ')}`);
+  // The simulation pool (branch phase one, AGENTS.md): `workers` is the budget for ALL lanes together, so the pool is
+  // built once here and only the surface differs — see `simPool` below.
   const workerConfig = workerSettings();
   for (const [option, key] of [['workers', 'size'], ['workerQueue', 'maxQueue'], ['workerTimeoutMs', 'timeoutMs']]) {
     if (opts[option] != null) workerConfig[key] = opts[option];
@@ -157,13 +206,15 @@ export async function startServer(opts = {}) {
   const roomWorkers = rawRoomWorkers == null || String(rawRoomWorkers).trim() === '' ? 0 : Number(rawRoomWorkers);
   if (!Number.isInteger(roomWorkers) || roomWorkers < 0 || roomWorkers > 32) throw new RangeError('roomWorkers must be 0..32');
   if (roomWorkers > workerConfig.size) throw new RangeError('roomWorkers cannot exceed workers');
-  const workerPool = ownsWorkerPool
-    ? (workerConfig.size > 0
-      ? (roomWorkers > 0
-        ? new RoomWorkerPool({ data, lanes: roomWorkers, totalWorkers: workerConfig.size, maxQueue: workerConfig.maxQueue, timeoutMs: workerConfig.timeoutMs })
-        : new SimulationPool({ data, ...workerConfig }))
-      : null)
-      : opts.workerPool;
+  // ONE pool, two surfaces (AGENTS.md:216): `workers` is the budget for ALL lanes together, so the upstream `simPool`
+  // (Match.simPool → MatchRehearsal.poolRehearsal) and the branch `workerPool` must never each start their own threads.
+  const roomPool = ownsWorkerPool && workerConfig.size > 0
+    ? new RoomWorkerPool({ data, lanes: roomWorkers, totalWorkers: workerConfig.size, maxQueue: workerConfig.maxQueue, timeoutMs: workerConfig.timeoutMs })
+    : null;
+  // Single mode keeps the bare SimulationPool — Match.workerPool is then that very object and /metrics reports its
+  // counters (test/workers.test.js); lane mode hands the wrapper over so a room stays pinned to its lane.
+  const workerPool = ownsWorkerPool ? (roomPool ? (roomPool.lanes ? roomPool : roomPool.pool) : null) : opts.workerPool;
+  const simPool = opts.simPool !== undefined ? opts.simPool : roomPool;
   const rawMatchWorkers = opts.matchWorkers ?? process.env.SP_MATCH_WORKERS;
   const matchWorkers = rawMatchWorkers == null || String(rawMatchWorkers).trim() === '' ? 0 : Number(rawMatchWorkers);
   if (!Number.isInteger(matchWorkers) || matchWorkers < 0 || matchWorkers > 32) throw new RangeError('matchWorkers must be 0..32');
@@ -171,7 +222,8 @@ export async function startServer(opts = {}) {
   const matchWorkerPool = ownsMatchWorkerPool && matchWorkers > 0
     ? new MatchWorkerPool({ data, lanes: matchWorkers, log, timeoutMs: workerConfig.timeoutMs })
     : opts.matchWorkerPool || null;
-  const { registry, lobby, network } = createSessionStack({ ...opts, nameModeration }, { data, log, workerPool, matchWorkerPool, content, plugins: roomSets, hosts });
+  const { registry, lobby, network } = createSessionStack({ ...opts, nameModeration },
+    { data, log, workerPool, matchWorkerPool, content, plugins: roomSets, hosts, versions, versionHosts, simPool });
   // Resume the last state before listening: every reconnecting client is recognized by its token right away.
   const persister = store ? new Persister({ store, registry, lobby, log, now: opts.now, saveMs }) : null;
   if (store && opts.resume !== false) {
@@ -209,19 +261,44 @@ export async function startServer(opts = {}) {
   const serveNameReview = createNameModerationRoute({ moderation: nameModeration, trustProxy: network.opts.trustProxy });
   const serveApi = async (req, res, pathname) => await serveNameReview(req, res, pathname) || await servePublicApi(req, res, pathname);
 
-  const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, simDir, packsDir, pluginsDir, packs, content, log, visual, contents, cdnBase: assetsCdn, dataCdnBase: dataCdn, wsUrl, resourcePackRoutes, clientBuild });
+  // Main-thread event-loop delay sampling (server/health/eventLoop.js): opt-in with SP_LOOP_SAMPLE=1, no worker pool involved, and a
+  // LOCAL log line per window (`[loop] p50=… p95=… p99=… max=… cpu=… mem=… rooms=… humans=… phase=…`) — deliberately not
+  // part of /healthz. This is what tells an operator whether a stall is the rehearsal / battle slice or something else.
+  const eventLoop = createEventLoopMonitor({
+    log,
+    windowMs: opts.loopSample?.windowMs,
+    counts: () => {
+      const s = lobby.stats();
+      const phases = new Set();
+      let rehearsals = 0;
+      for (const room of lobby.rooms.values()) {
+        if (room.match?.phase) phases.add(room.match.phase);
+        rehearsals += room.match?._rehearsalTasks?.size || 0;
+      }
+      return { rooms: s.rooms, matches: s.matches, humans: s.humans, spectators: s.spectators,
+        phase: [...phases].sort().join('+') || 'idle', rehearsals };
+    },
+  });
+
+  // The static handler serves the branch's CDN/WS/resource-pack rewrites AND the upstream versions (`versions`): the
+  // branch dropped the content-hash index and the manifest views with the asset-download entry point (AGENTS.md).
+  const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, simDir, packsDir, pluginsDir, packs, content, log, visual, contents, versions, cdnBase: assetsCdn, dataCdnBase: dataCdn, wsUrl, resourcePackRoutes, clientBuild });
   // the plugin studio (DESIGN §32.9): its page and API for this machine and the local network; it watches plugins/ only
   // once it is used (hot reload), and rooms whose host is the author or alone follow a plugin's changes by themselves
   const studio = opts.studio === false ? null : createStudio({ publicDir, pluginsDir, dataDir, registry: packs, lobby, sessions: registry, log, fetch: opts.fetch });
   const trustedRuntime = await createTrustedRuntime({registry:packs,log});
   lobby.trustedRuntime = trustedRuntime;
   const startedAt = Date.now();
-  // The tag is per process (see buildTag): read the browser runtime once, here, not on every /healthz.
+  // The tag is per process (see buildTag): read the browser runtime once, here, not on every /healthz. The branch's
+  // client build and the upstream's served version dirs both feed it.
   resetBuildTag();
-  buildTag(ROOT, { clientBuild });
+  buildTag(ROOT, { clientBuild, servedVersionDirs: versions.servedDirs() });
 
   const traffic = createTrafficCounter();
-  const server = http.createServer(createRequestHandler({ serveStatic, studio, trustedRuntime, health: { startedAt, network, registry, lobby, traffic, content, trusted: trustedRuntime?.health }, serveApi,
+  // The branch's CSP removal is deliberate (AGENTS.md): no `csp`, no asset index and no manifest views reach the
+  // request handler — `serveStatic` owns those responses, and /healthz reports the versions when one is enabled.
+  const server = http.createServer(createRequestHandler({ serveStatic, studio, trustedRuntime, serveApi,
+    health: { startedAt, network, registry, lobby, traffic, content, trusted: trustedRuntime?.health, versions, versionHosts },
     diagnostics: { persister, workerPool, matchWorkerPool, announcements, wsCompression, assetsCdn, dataCdn, serveStatic }, log, trustProxy: network.opts.trustProxy }));
   server.on('clientError', answerClientError);
   const wss = attachWebSocket(server, { network, log, wsCompression, announcements, traffic });
@@ -259,6 +336,9 @@ export async function startServer(opts = {}) {
     const actual = server.address();
     const scriptHost = actual && typeof actual === 'object' ? actual.address : '';
     await packs.setScriptHost(scriptHost);
+    const testGate = lobby.setTestHost(scriptHost);
+    if (testGate.warn) log.warn(`[test-mode] ${testGate.warn}`);
+    else if (testGate.enabled) log.info('[test-mode] test rooms enabled');
     if (!trustedHostAllowed(scriptHost, scriptMode)) {
       lobby.trustedRuntime = null;
       await trustedRuntime?.close();
@@ -267,12 +347,15 @@ export async function startServer(opts = {}) {
     await announcements.stop();
     nameModeration?.close?.();
     network.close(); // stop heartbeat/sweep timers of the half-built server
+    hosts.close();
+    versionHosts?.close();
+    studio?.close();
+    eventLoop?.close();
     persister?.stop();
     await persister?.encoder.close();
     lobby.shutdown('shutdown');
     if (ownsWorkerPool) await workerPool?.close();
     if (ownsMatchWorkerPool) await matchWorkerPool?.close();
-    studio?.close();
     await packs.close();
     await serveStatic.close?.();
     await trustedRuntime?.close();
@@ -280,6 +363,8 @@ export async function startServer(opts = {}) {
   }
   server.on('error', (e) => log.error('[http] server error', e));
   persister?.start();
+  // started only once the server is listening: the first window then reports real counts, not a half-built hall
+  eventLoop?.start();
 
   const addr = server.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
@@ -301,6 +386,10 @@ export async function startServer(opts = {}) {
       }
       try { lobby.shutdown('shutdown'); } catch (e) { log.error('[shutdown] lobby', e); }
       try { hosts.close(); } catch (e) { log.error('[shutdown] match hosts', e); }
+      try { versionHosts?.close(); } catch (e) { log.error('[shutdown] version hosts', e); }
+      // after the lobby: every room is gone, so no rehearsal can still be waiting on a thread
+      try { await simPool?.close(); } catch (e) { log.error('[shutdown] simulation pool', e); }
+      eventLoop?.close();
       network.close();
       if (ownsWorkerPool) await workerPool?.close();
       if (ownsMatchWorkerPool) await matchWorkerPool?.close();
@@ -319,9 +408,37 @@ export async function startServer(opts = {}) {
     return closing;
   }
 
+  // The branch's own surfaces (store/persister/worker pools/announcements/studio) plus the upstream version and
+  // event-loop handles; `simPool` and `workerPool` are the two faces of the same pool (see above).
   return { port: actualPort, host: boundHost, url, server, wss, lobby, network, registry, packs, store: store || null, persister,
-    workerPool, matchWorkerPool, announcements, content, visual, contents, hosts, studio, traffic, close };
+    workerPool, matchWorkerPool, announcements, content, visual, contents, hosts, versions, versionHosts, traffic,
+    studio, eventLoop, simPool, close };
+}
+
+/**
+ * The `--room-code ABCD` / `--room-code=ABCD` argument of this process entry, or null when it is absent. The value is
+ * read once at startup and lives only in this server instance: there is no environment variable and nothing is
+ * persisted, so stopping the server and starting it again without the argument is random again. A missing or invalid
+ * value throws (the boot helper reports it and exits) instead of silently starting random.
+ * @param {string[]} [argv]
+ * @returns {string | null}
+ */
+export function roomCodeFromArgv(argv = process.argv.slice(2)) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--room-code') {
+      const v = argv[i + 1];
+      if (v == null || v.startsWith('-') || !v.trim()) throw new RangeError('--room-code needs 4 letters or digits');
+      return parseRoomCode(v);
+    }
+    if (a.startsWith('--room-code=')) {
+      const v = a.slice('--room-code='.length);
+      if (!v.trim()) throw new RangeError('--room-code needs 4 letters or digits');
+      return parseRoomCode(v);
+    }
+  }
+  return null;
 }
 
 // `node server/index.js` / npm start: listen, print the banner, stop on SIGINT / SIGTERM (http/boot.js).
-if (isProcessEntry(import.meta.url)) runMain(startServer);
+if (isProcessEntry(import.meta.url)) runMain(() => startServer({ roomCode: roomCodeFromArgv() }));

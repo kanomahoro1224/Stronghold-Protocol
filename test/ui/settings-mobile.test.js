@@ -69,13 +69,36 @@ function declaration(selector, prop) {
   return value;
 }
 
-test('settings and shortcut editor share local units, focus stack and saved bindings', () => {
+test('the in-page hotkey panel keeps local units, saved bindings and an accessible rebind flow', () => {
   const source = read('public/js/ui/settings.js');
-  assert.match(source, /utility=\$\{true\} class="settings-shortcuts-modal"/);
-  assert.match(source, /shortcutsStore\.set\(\{ \[action\]: code \}\)/);
-  assert.match(source, /if \(other\) \{ setError/);
-  assert.equal(declaration(':is(.title-screen, .lobby-screen, .room-screen, .protocol-screen, .sweep-host, .lo, .st, .ach, .modal--utility, .guide, .studio)', '--utility-text'),
+  // 快捷键 is the upstream section inside the settings dialog, not a second utility modal.
+  assert.match(source, /function HotkeySection\(\{ keys, touchUi \}\)/);
+  // Every rebindable action is rendered from the shared list (the Q/X retreat/sell pair included).
+  assert.match(source, /<ul class="set-keys__list">\s*\$\{HOTKEY_ACTIONS\.map\(\(a\) => \{/);
+  // A new key runs the shared rebind rules and lands in the settings store — the same map the HUD reads.
+  assert.match(source, /const r = captureHotkey\(e\)/);
+  assert.match(source, /const res = rebindHotkey\(cur, waiting, r\.code\)/);
+  assert.match(source, /updateSettings\(\{ keys: res\.keys \}\)/);
+  assert.match(source, /disabled=\$\{isDefaultHotkeys\(keys\)\}/);
+  // Esc stays with the interface: it ends the wait and can never be rebound.
+  assert.match(source, /<span class="set-key is-fixed"><kbd>Esc<\/kbd>/);
+  // Accessibility: each key is a labelled toggle exposing its state, and the result line is announced.
+  assert.match(source, /data-action=\$\{a\} aria-pressed=\$\{on \? 'true' : 'false'\}/);
+  assert.match(source, /set-keys__note', note\?\.warn && 'is-warn'\)\} role="status" aria-live="polite"/);
+  assert.match(source, /<section class="set-keys" aria-labelledby="set-keys-title">/);
+  // A touch-only device folds the list and says the keys need a keyboard instead of dropping them.
+  assert.match(source, /touchUi \? html`<p class="set-hint">/);
+  assert.match(source, /快捷键需要实体键盘；触屏设备连接键盘后可用/);
+  assert.match(source, /<details class="set-keys__more"><summary>/);
+  assert.equal(declaration(':is(.title-screen, .lobby-screen, .room-screen, .protocol-screen, .sweep-host, .lo, .st, .modal--utility, .guide, .studio)', '--utility-text'),
     'calc(var(--t) * var(--sp-ui-scale, 1))');
+});
+
+test('the live hotkey panel sizes its boxes by design unit and keeps a 30px touch target', () => {
+  assert.equal(property(['.set-key'], 'height', { width: 1440, height: 900, coarse: false }), 'calc(0.36 * var(--ui-unit, 1rem))');
+  assert.equal(property(['.set-key'], 'height', { width: 640, height: 360, coarse: true }), 'max(calc(0.38 * var(--ui-unit, 1rem)), 30px)',
+    'a short coarse viewport keeps a 30px target without inflating the desktop height');
+  assert.equal(property(['.set-keys__name'], 'font-size', { width: 1440, height: 900, coarse: false }), 'calc(.15 * var(--utility-text, var(--t)))');
 });
 
 test('control sizes are design units across phone, touch tablet and desktop, without coarse pixel inflation', () => {

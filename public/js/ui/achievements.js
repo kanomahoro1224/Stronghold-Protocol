@@ -1,6 +1,7 @@
 // Local-only adaptation of isomerpoi UI b2bd17af. Reads the existing sp.pref.stats store, never uploads records.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from '../../vendor/hooks.module.js';
-import { html, Icon, MicroLabel, useModalFocus } from './components.js';
+// The window itself is upstream's 卫戍协议：盟约 Modal shell (.achv, screens/stats.css); only the records inside are ours.
+import { useEffect, useMemo, useRef, useState } from '../../vendor/hooks.module.js';
+import { html, Icon, MicroLabel, Modal } from './components.js';
 import { makeLookups, BandIcon, BondGlyph, UnitThumb, Img } from './gameComponents.js';
 import { data, useData } from '../data.js';
 import { loadStats, subscribeStats, STATS_PREF_KEY } from './stats.js';
@@ -9,14 +10,14 @@ import { useLeave } from './transitions.js';
 import { cardOperators, cardAvatarUrl } from './seatArt.js';
 import { useMyCard, setCardAvatar } from './playerCard.js';
 import { AvatarPicker } from './opPicker.js';
-import { Emblem } from '../screens/title.js';
+import { uiUrl } from './assetUrls.js';
 import { OpCard } from '../screens/settle.js';
 import { openStats } from '../screens/stats.js';
 import { t } from '../../../shared/i18n.js';
+import { scriptOf } from '../../../shared/i18nPacks.js';
 
 const cx = (...p) => p.flat().filter(Boolean).join(' ');
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
-const noHidden = () => false;
 const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '0');
 
 function useAchievements(hiddenLayers) {
@@ -31,33 +32,6 @@ function useAchievements(hiddenLayers) {
   }, []);
   const s = useMemo(() => achievementStats(local.newer ? [] : local.records, { hiddenLayers }), [local, hiddenLayers]);
   return { s, local };
-}
-
-export function AchievementEntry({ onOpen }) {
-  const { s } = useAchievements(noHidden);
-  return html`<${AchievementEntryView} s=${s} onOpen=${onOpen} />`;
-}
-
-/** Hook-free entry; no game data is requested just to show it. */
-export function AchievementEntryView({ s, onOpen }) {
-  return html`<button type="button" class="hub-ach" onClick=${onOpen} title=${t('成就统计（本机记录）')}>
-    <span class="hub-ach__scene" aria-hidden="true">
-      <svg class="hub-ach__land" viewBox="0 0 320 110" preserveAspectRatio="none">
-        <defs><linearGradient id="hubAchSky" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#2a2114" /><stop offset=".5" stop-color="#b8741c" /><stop offset="1" stop-color="#f0a636" /></linearGradient></defs>
-        <rect width="320" height="110" fill="url(#hubAchSky)" />
-        <path d="M0 110V80l28-12 22 9 34-27 27 18 30-13 41 23 27-11 31 17 33-21 47 25V110z" fill="#3a2a16" />
-        <path d="M0 110V94l46-11 41 8 50-15 44 13 50-9 40 11 49-7V110z" fill="#18120b" />
-        <path d="M262 110V70M262 80l-9-8M262 76l8-7M262 86l10-6" stroke="#18120b" stroke-width="2.5" fill="none" />
-      </svg>
-      <span class="hub-ach__mark"><${Emblem} /></span>
-      <span class="hub-ach__rank"><${Icon} name="rook" /><small><${Icon} name="crown" /><b class="num">${s.trophies}</b></small></span>
-    </span>
-    <span class="hub-ach__label">
-      <svg class="hub-ach__badge" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v12l-7 6-7-6zm4 5v2h2V8zm4 0v2h2V8zm-4.5 4.2a4.5 4.5 0 0 0 7 0l-1.3-1a3 3 0 0 1-4.4 0z" fill-rule="evenodd" /></svg>
-      <span>${t('成就统计')}</span><b class="hub-ach__lv">${t('本机记录')}</b>
-    </span>
-  </button>`;
 }
 
 function SectionBar({ title, micro }) {
@@ -235,7 +209,7 @@ export function AchievementMark({ a, icon }) {
   </div>`;
 }
 
-/** Reference design with the branch's shared modal focus lifecycle, without Modal's visual wrappers. */
+/** The window waits for the game data it draws with, so the loader and the reveal delay stay. */
 export function AchievementPanel({ me, onClose }) {
   const ready = useData('config', 'assets', 'chess', 'bonds', 'bands', 'items', 'backups');
   const gd = useMemo(() => makeLookups(ready), [ready, data.locale()]);
@@ -243,7 +217,6 @@ export function AchievementPanel({ me, onClose }) {
   const { s, local } = useAchievements(hidden);
   const card = useMyCard();
   const [picking, setPicking] = useState(false);
-  const boxRef = useRef(null);
   const [closing, close] = useLeave(onClose, 180);
   const [shown, setShown] = useState(false);
   const opened = useRef(Date.now());
@@ -252,55 +225,52 @@ export function AchievementPanel({ me, onClose }) {
     const id = setTimeout(() => setShown(true), Math.max(0, 260 - (Date.now() - opened.current)));
     return () => clearTimeout(id);
   }, [ready, local.newer]);
-  useModalFocus(true, close, boxRef);
-  useLayoutEffect(() => { if (shown) boxRef.current?.querySelector('.ach__close')?.focus(); }, [shown]);
-  return html`<${AchievementView} me=${me} onClose=${close} gd=${gd} ready=${shown} s=${s} local=${local} boxRef=${boxRef} closing=${closing}
+  return html`<${AchievementView} me=${me} onClose=${close} gd=${gd} ready=${shown} s=${s} local=${local} closing=${closing}
     card=${card} onAvatar=${() => setPicking(true)} onStats=${() => { onClose(); openStats(); }} />
     ${picking ? html`<${AvatarPicker} current=${card.avatar} list=${cardOperators(data.list('chess'))} m=${data.get('assets')}
       onPick=${(id) => { setCardAvatar(id); setPicking(false); }} onClose=${() => setPicking(false)} />` : null}`;
 }
 
 /** Hook-free content of the local achievements panel. */
-export function AchievementView({ me, onClose, gd, ready, s, local, boxRef, closing = false, onStats, card, onAvatar }) {
+export function AchievementView({ me, onClose, gd, ready, s, local, closing = false, onStats, card, onAvatar }) {
   const icons = Object.fromEntries(ACHIEVEMENT_GROUPS.map(([id, , icon]) => [id, icon]));
-  return html`<div class=${cx('ach', closing && 'is-closing')} role="presentation"
-    onMouseDown=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <div ref=${boxRef} class=${cx(ready && 'ach__box', !ready && 'ach__pending')} role="dialog" aria-modal="true" aria-label=${t('成就统计')} tabindex="-1">
-    ${!ready ? html`<span class="ach__loader" role="status" aria-label=${t('读取中')}><i></i><i></i><b></b></span>` : html`
-      <header class="ach__head">
-        <span class="ach__logo"><svg viewBox="0 0 40 30" aria-hidden="true"><path d="M8 4h10v8H8zM22 4h10v8H22zM8 18h10v8H8zM22 18h10v8H22z" fill="none" stroke="currentColor" stroke-width="2.4" /><path d="M2 2v26M38 2v26" stroke="currentColor" stroke-width="2" /></svg>
-          <b>STRONGHOLD<br />PROTOCOL</b></span>
-        <span class="ach__band">
-          <svg class="ach__dunes" viewBox="0 0 300 40" preserveAspectRatio="none" aria-hidden="true">
-            <path class="is-far" d="M0 24c28-7 58-13 92-9s56 11 90 4 64-14 118-7V40H0z" /><path d="M0 34c34-9 60-12 96-6s52 9 86 3 70-11 118-5V40H0z" /></svg>
-          <span class="ach__emblem"><${Emblem} /></span>
-          <span class="ach__titles"><i aria-hidden="true">ALLIANCE</i><b>${t('卫戍协议：盟约')}</b></span>
-        </span>
-      </header>
-      <div class="ach__body">
-        ${local.newer ? html`<p role="alert">${t('战绩由更新版本保存，请使用对应版本查看')}</p>` : html`
-        <section class="ach-top-area">
-          <div class="ach-top-area__left"><${Plate} me=${me} s=${s} card=${card} onAvatar=${onAvatar} /><${ModeTable} modes=${s.modes} /></div>
-          <${TitleHex} titles=${s.titles} gd=${gd} />
-        </section>
-        <${SectionBar} title=${t('成就')} micro="ACHIEVEMENTS" />
-        ${ACHIEVEMENT_GROUPS.map(([id, label]) => html`<div key=${id} class="ach-list">
-          <p class="ach-sub">${t(label)}</p>
-          <div class="ach-marks ach-marks--list">${s.achievements.filter((a) => a.group === id).map((a) => html`<${AchievementMark} key=${a.id} a=${a} icon=${icons[id]} />`)}</div>
-        </div>`)}
-        <${SectionBar} title=${t('卫戍成就')} micro="RECORDS" />
-        <${BestRecord} best=${s.best} gd=${gd} />
-        <${Maxima} maxima=${s.maxima} />
-        <${SectionBar} title=${t('盟约纪录')} micro="BONDS" />
-        <${BondRecord} topBonds=${s.topBonds} gd=${gd} />
-        <${SectionBar} title=${t('策略纪录')} micro="STRATEGIES" />
-        <${BandRecord} topBands=${s.topBands} marked=${s.markedBands} gd=${gd} />`}
-        <p class="ach-local"><${Icon} name="info" /><span>${t('本机记录 · 仅统计当前浏览器保留的对局，不上传服务器')}<br />
-          ${t('奖杯按保留记录累计；旧压缩记录缺失的奖杯无法补回。盟约和阵容纪录仅覆盖仍保留明细的对局。')}
-          <button type="button" class="ach-local__stats" onClick=${onStats}>${t('统计数据')}</button></span></p>
+  const colon = scriptOf(t('卫戍协议')) === 'alphabetic' ? ': ' : '：';
+  return html`<${Modal} open=${true} onClose=${onClose} utility=${true} ariaLabel=${t('成就统计')}
+    class=${cx('achv', closing && 'is-closing')} veilClass="achv-veil">
+    <header class="achv__banner">
+      <${Img} src=${ready ? uiUrl(gd.m, 'settle/common_logo') : null} class="achv__logo" fallback=${html`<span class="achv__logo-text">STRONGHOLD PROTOCOL</span>`} />
+      <div class="achv__title">
+        <span class="achv__mark" aria-hidden="true"><${Img} src=${ready ? uiUrl(gd.m, 'entry/season_logo') : null} /></span>
+        <span class="achv__en" aria-hidden="true">ALLIANCE</span>
+        <h2 class="modal__title achv__name">${t('卫戍协议')}<span>${colon}</span>${t('盟约')}</h2>
       </div>
-      <span class="ach__foot">${t('本机记录 · 保存在这台设备的浏览器里 · 每局结束后更新')}</span>`}
-      <button type="button" class="ach__close" data-autofocus onClick=${onClose} aria-label=${t('关闭')}><${Icon} name="close" /></button>
+      <button type="button" class="achv__close" data-autofocus onClick=${onClose} aria-label=${t('关闭')} title=${t('关闭')}><${Icon} name="close" /></button>
+    </header>
+    <div class="achv__scroll" data-testid="achievement-dialog">
+      ${!ready ? html`<span class="ach__loader" role="status" aria-label=${t('读取中')}><i></i><i></i><b></b></span>` : local.newer
+        ? html`<p role="alert">${t('战绩由更新版本保存，请使用对应版本查看')}</p>` : html`
+      <section class="ach-top-area">
+        <div class="ach-top-area__left"><${Plate} me=${me} s=${s} card=${card} onAvatar=${onAvatar} /><${ModeTable} modes=${s.modes} /></div>
+        <${TitleHex} titles=${s.titles} gd=${gd} />
+      </section>
+      <${SectionBar} title=${t('成就')} micro="ACHIEVEMENTS" />
+      ${ACHIEVEMENT_GROUPS.map(([id, label]) => html`<div key=${id} class="ach-list">
+        <p class="ach-sub">${t(label)}</p>
+        <div class="ach-marks ach-marks--list">${s.achievements.filter((a) => a.group === id).map((a) => html`<${AchievementMark} key=${a.id} a=${a} icon=${icons[id]} />`)}</div>
+      </div>`)}
+      <${SectionBar} title=${t('卫戍成就')} micro="RECORDS" />
+      <${BestRecord} best=${s.best} gd=${gd} />
+      <${Maxima} maxima=${s.maxima} />
+      <${SectionBar} title=${t('盟约纪录')} micro="BONDS" />
+      <${BondRecord} topBonds=${s.topBonds} gd=${gd} />
+      <${SectionBar} title=${t('策略纪录')} micro="STRATEGIES" />
+      <${BandRecord} topBands=${s.topBands} marked=${s.markedBands} gd=${gd} />`}
+      <p class="ach-local"><${Icon} name="info" /><span>${t('本机记录 · 仅统计当前浏览器保留的对局，不上传服务器')}<br />
+        ${t('奖杯按保留记录累计；旧压缩记录缺失的奖杯无法补回。盟约和阵容纪录仅覆盖仍保留明细的对局。')}</span></p>
     </div>
-  </div>`;
+    <footer class="achv__foot">
+      <span><${Icon} name="info" />${t('本机记录 · 保存在这台设备的浏览器里 · 每局结束后更新')}</span>
+      <button type="button" class="achv__more" onClick=${onStats}>${t('查看完整统计')}<${Icon} name="chevronRight" /></button>
+    </footer>
+  <//>`;
 }

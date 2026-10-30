@@ -2,7 +2,7 @@
    device.js supplies a local unit below theme.css's 40px rem floor; the battlefield's
    rem, HUD, shop and chat never inherit it. Text preferences still affect only text.
    Keep all information visible; scrolling handles large text and keyboard shrink. */
-:is(.title-screen, .lobby-screen, .room-screen, .protocol-screen, .sweep-host, .lo, .st, .ach, .modal--utility, .guide, .studio) {
+:is(.title-screen, .lobby-screen, .room-screen, .protocol-screen, .sweep-host, .lo, .st, .modal--utility, .guide, .studio) {
   --ui-unit: var(--sp-ui-unit, 1rem);
   --utility-text: calc(var(--t) * var(--sp-ui-scale, 1));
   --bk-l: calc(.14 * var(--ui-unit));
@@ -41,7 +41,7 @@
   top: calc(var(--sp-vtop, 0px) + var(--sa-t, 0px)); bottom: auto;
   height: calc(var(--sp-vh, 1vh) * 100 - var(--sa-t, 0px) - var(--sa-b, 0px));
 }
-:is(.lo, .guide, .ach) { top: var(--sp-vtop, 0px); bottom: auto; height: calc(var(--sp-vh, 1vh) * 100); }
+:is(.lo, .guide) { top: var(--sp-vtop, 0px); bottom: auto; height: calc(var(--sp-vh, 1vh) * 100); }
 .st {
   --stats-height: min(calc(7.8 * var(--ui-unit)), calc(var(--sp-vh, 1vh) * 100 - var(--sa-t, 0px) - var(--sa-b, 0px)));
   top: calc(var(--sp-vtop, 0px) + (var(--sp-vh, 1vh) * 100 - var(--stats-height)) / 2);
@@ -49,7 +49,7 @@
 }
 .st--replay { top: var(--sp-vtop, 0px); height: calc(var(--sp-vh, 1vh) * 100); max-height: none; }
 /* Keep actual, non-overlapping targets. Never expand a hit box over a neighbouring control. */
-.sp-coarse :is(.utility-modal, .lo, .st, .lobby-screen, .room-screen, .title-screen, .guide, .ach, .studio) :is(.btn, .tabs__tab, .set-toggle, .set-seg button, .fsbtn)::before {
+.sp-coarse :is(.utility-modal, .lo, .st, .lobby-screen, .room-screen, .title-screen, .guide, .studio) :is(.btn, .tabs__tab, .set-toggle, .set-seg button, .fsbtn)::before {
   inset: 0; width: 100%; height: 100%; transform: none;
 }
 .utility-modal :is(.btn, .set-toggle, .set-seg button, .set-native, .shortcut-key) { height: auto; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
@@ -141,8 +141,6 @@
 .lo-card__bonds { display: flex; }
 .lo-skins { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(1.5 * var(--ui-unit))), 1fr)); gap: calc(.06 * var(--ui-unit)); }
 .lo-skin { min-width: 0; max-width: none; }
-.ach { padding: var(--sa-t, 0px) var(--sa-r, 0px) var(--sa-b, 0px) var(--sa-l, 0px); }
-.ach__box { max-width: calc(100vw - var(--sa-l, 0px) - var(--sa-r, 0px) - .4 * var(--ui-unit)); max-height: calc(var(--sp-vh, 1vh) * 100 - var(--sa-t, 0px) - var(--sa-b, 0px) - .4 * var(--ui-unit)); }
 .ach-mark__text small { white-space: normal; overflow-wrap: anywhere; }
 .sweep-host .sw-top, .sweep-host .sw-codex__top { min-height: calc(1 * var(--ui-unit)); padding-block: calc(.06 * var(--ui-unit)); }
 .sweep-host .sw-tabs { overflow-x: auto; }
@@ -182,7 +180,7 @@
 /* Existing in-battle damage panel behaviour remains unchanged. */
 @media (max-width: 1000px), (max-height: 600px) {
   .combat-metrics {
-    width: min(max(7.2rem, 360px), calc(100vw - var(--sa-l, 0px) - var(--sa-r, 0px) - .48rem));
+    width: min(max7.2rem, 32px, calc(360px * var(--sp-ui, 1))), calc(100vw - var(--sa-l, 0px) - var(--sa-r, 0px) - .48rem));
     height: min(10rem, var(--combat-available-height, 240px));
     max-height: min(10rem, var(--combat-available-height, 240px));
   }

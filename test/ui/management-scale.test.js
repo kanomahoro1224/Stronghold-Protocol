@@ -52,15 +52,20 @@ test('protocol and report own safe areas once; the final outer viewport override
   assert.equal(declaration(css, selector, 'right'), '0');
   assert.equal(declaration(css, selector, 'bottom'), 'auto');
   assert.equal(length(declaration(css, selector, 'height'), { '--sp-vh': 2.1 }), 210);
-  assert.match(declaration(sheet('public/css/screens/lobby.css'), '.proto', 'padding'), /--sa-t/);
-  assert.match(declaration(sheet('public/css/screens/lobby.css'), '.sw', 'padding'), /--sa-t/);
+  // the protocol screen is a Modal too (ui/components.js): the safe-area padding sits on the modal box
+  assert.match(declaration(sheet('public/css/screens/lobby.css'), '.modal__box.proto, .modal__box.ally', 'padding'), /--sa-t/);
+  // S.W.E.E.P.是 Modal：安全区由内容列承担，裸 `.sw` 规则随分支外壳一并删除
+  assert.match(declaration(sheet('public/css/screens/sweep.css'), '.sw > .modal__body, .sw-codex > .modal__body', 'padding'), /--sa-t/);
 });
 
 test('global layout/text roots and in-battle CSS retain their original ownership', () => {
   const css = sheet('public/css/utility-mobile.css');
   css.walkDecls('--ui-unit', d => assert.doesNotMatch(d.parent.selector, /\.gm\b|\.shopbar|\.combat-metrics/));
   css.walkDecls('--t', () => assert.fail('only theme.css owns --t'));
-  assert.match(read('public/css/theme.css'), /font-size: clamp\(40px/);
+  // Dropped with the abandoned fork UI: this case also asserted the un-factored
+  // `font-size: clamp(40px, …)` root in theme.css. Upstream now scales that root through
+  // `--sp-ui` (`calc(clamp(40px, min(…), 240px) * var(--sp-ui, 1))`), which the merge adopts
+  // and `test/ui/ui-size.test.js` guards on the upstream side, so the old assertion cannot hold.
   for (const file of ['public/js/ui/fieldHost.js', 'public/js/ui/underframe.js', 'public/js/ui/gameLogic/panel.js'])
     assert.doesNotMatch(read(file), /--ui-unit|--sp-ui/);
 });

@@ -61,7 +61,7 @@ function stateText(st, enabled) {
   if (busy(st)) return t('处理中');
   if (st.cacheVerified === false && st.selectionComplete && st.tier1Total) return t('缓存索引已读取');
   if (st.complete) return t('全部已保存');
-  if (st.selectionComplete && st.tier1Total) return st.optional || st.skins ? t('所选资源已齐全。') : t('必备已保存');
+  if (st.selectionComplete && st.tier1Total) return st.optional ? t('所选资源已齐全。') : t('必备已保存');
   return enabled ? t('已暂停') : t('未开启');
 }
 
@@ -116,7 +116,7 @@ function ResourceTier({ st, tier, optional, onOptional, disabled }) {
   </section>`;
 }
 
-function ResourceOptions({ optional, voiceLang, onVoiceLang, skins, onSkins, disabled }) {
+function ResourceOptions({ optional, voiceLang, onVoiceLang, disabled }) {
   const selected = normalizePreloadVoiceLang(voiceLang);
   return html`<div class="resource-manager__options">
     <fieldset class="resource-voice-choice" disabled=${disabled}>
@@ -131,14 +131,11 @@ function ResourceOptions({ optional, voiceLang, onVoiceLang, skins, onSkins, dis
       <p>${t('仅影响预载范围；播放语言仍在设置中选择。切换后保留已有缓存。')}</p>
       ${!optional ? html`<p>${t('勾选“同时预载”后下载所选语音。')}</p>` : null}
     </fieldset>
-    <div class="resource-skin-options"><label class="resource-choice resource-skin-choice"><input type="checkbox" checked=${skins} disabled=${disabled}
-      onChange=${(e) => onSkins(e.currentTarget.checked)} />${t('预载皮肤')}</label>
-      <p class="resource-skin-hint">${t('独立于“同时预载”；不勾选时，启用的皮肤仅在显示时按需加载。保留已有缓存。')}</p></div>
   </div>`;
 }
 
 /** Mounted once in main.js, above all screens including the settings modal. */
-export function ResourceHost({ enabled, optional, voiceLang = 'cn', onVoiceLang, skins = false, onSkins, onChange, onOptional }) {
+export function ResourceHost({ enabled, optional, voiceLang = 'cn', onVoiceLang, onChange, onOptional }) {
   const { open } = useStore((s) => s, Object.is, resourceUi);
   const st = useResources();
   const fileInput = useRef(null);
@@ -173,7 +170,7 @@ export function ResourceHost({ enabled, optional, voiceLang = 'cn', onVoiceLang,
       <${Button} variant="secondary" onClick=${closeResources}>${t('关闭')}<//>`}>
     <div class="resource-manager">
       <p class="resource-manager__intro">${t('先预载必备资源；可选资源可按需加载。关闭此窗口后，下载会在后台继续。')}</p>
-      <${ResourceOptions} optional=${optional} voiceLang=${voiceLang} onVoiceLang=${onVoiceLang} skins=${skins} onSkins=${onSkins} disabled=${archiveBusy} />
+      <${ResourceOptions} optional=${optional} voiceLang=${voiceLang} onVoiceLang=${onVoiceLang} disabled=${archiveBusy} />
       <div class="resource-manager__tiers">
         <${ResourceTier} st=${st} tier=${1} />
         <${ResourceTier} st=${st} tier=${2} optional=${optional} onOptional=${onOptional} disabled=${archiveBusy} />

@@ -99,6 +99,7 @@ describe('community UI: lobby header and shared DIY details', { skip: !enabled }
         await page.waitForSelector('.lacct__btns', { visible: true, timeout: 15000 });
         await page.click('.lacct__btns button:last-child');
         await page.waitForSelector('.st .st-tab');
+
         await page.click('.st-back');
         await page.waitForSelector('.st', { hidden: true });
         await page.click('.lobby-screen [data-testid="settings-btn"]'); await page.waitForSelector('.modal');
@@ -112,11 +113,13 @@ describe('community UI: lobby header and shared DIY details', { skip: !enabled }
       await page.click('.diy-slot[data-slot="chess_char_6_diy1_a"] .diy-slot__fill');
       const picker = '[data-testid="diy-picker"]';
       await page.waitForSelector(`${picker} [data-char="char_112_siege"]`);
-      await page.click(`${picker} [data-char="char_112_siege"]`);
+      await page.click(`${picker} .diy-opt[data-char="char_112_siege"] .diy-opt__pick`);
+    // 窄屏是两步（screens/diy.js sel）：第一下只选中该干员，第二下才让详情滑出
+    if (width < 1000) await page.click(`${picker} .diy-opt[data-char="char_112_siege"] .diy-opt__pick`);
       await page.waitForSelector(`${picker} .lo-sec--stats[data-variant="elite"]`);
       const detail = () => page.$eval(`${picker} .diy-pick__detail`, e => ({ stats: [...e.querySelectorAll('.dstat__v')].map(n => n.textContent),
-        skill: [...e.querySelectorAll('.diy-choice__desc')].map(n => n.textContent), talents: e.querySelectorAll('.lo-minfo__row').length,
-        tags: e.querySelector('.diy-choice__tags')?.textContent }));
+        skill: [...e.querySelectorAll('.lo-skill__desc')].map(n => n.textContent), talents: e.querySelectorAll('.lo-minfo__row').length,
+        tags: e.querySelector('.lo-skill__tags')?.textContent }));
       const elite = await detail(); assert.equal(elite.stats.length, 8); assert.ok(elite.talents >= 2); assert.match(elite.tags, /初始|被动/);
       await page.click(`${picker} button[data-variant="normal"]`);
       await page.waitForSelector(`${picker} .lo-sec--stats[data-variant="normal"]`);

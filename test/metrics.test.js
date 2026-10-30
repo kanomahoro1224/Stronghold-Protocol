@@ -21,7 +21,12 @@ test('healthz retains metadata and all headline counters; metrics collects the d
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   const health = await response.json();
-  assert.deepEqual(Object.keys(health).sort(), ['ok', 'version', 'app', 'uptimeSec', 'build', 'content', ...COUNTERS].sort());
+  assert.deepEqual(Object.keys(health).sort(), ['ok', 'version', 'app', 'uptimeSec', 'build', 'content', 'versions', ...COUNTERS].sort());
+  // the official versions this server offers (DESIGN §35.23): a server that enables another one than 第二期下半 carries
+  // the list and its hosts; one that only serves the default omits the key
+  assert.ok(Array.isArray(health.versions.enabled) && health.versions.enabled.length > 1);
+  assert.equal(typeof health.versions.default, 'string');
+  assert.deepEqual(health.versions.hosts, { workers: 0, matches: 0, transport: 'process' });
   assert.equal(health.ok, true);
   assert.equal(health.app, APP_VERSION);
   assert.equal(health.version, PROTOCOL_VERSION);

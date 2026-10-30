@@ -6,6 +6,7 @@ import { VOICE_LANGS, sanitizeVoiceOverrides } from '../../voicePrefs.js';
 export { VOICE_LANGS } from '../../voicePrefs.js';
 
 import { clamp, isObj } from './shared.js';
+import { DEFAULT_HOTKEYS, sanitizeHotkeys } from './shortcuts.js';
 
 
 // ---- settings ------------------------------------------------------------------------------------------------------
@@ -33,19 +34,48 @@ export const TEXT_SIZES = Object.freeze(['sm', 'md', 'lg', 'xl']);
  */
 export const UI_THEMES = Object.freeze(['default', 'glass']);
 
-/** Shortcuts persist separately in ui/shortcuts.js; voiceLang: VOICE_LANGS.
- *  textSize: TEXT_SIZES (css/theme.css `--t`, applied by ui/settings.js applyTextSize).
- *  uiTheme: UI_THEMES (applied by ui/settings.js applyUiTheme). */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, mysticEnergy: false, officialFx: 'auto', voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoCount: false, deploymentZoom: false, quality: 'high', textSize: 'sm', uiTheme: 'default', fpsLimit: 0, skinsEnabled: false, preload: false, preloadOptional: false, preloadVoiceLang: Object.freeze(['cn']), preloadSkins: false });
+/** keys: the in-match shortcuts' key map (ui/gameLogic/shortcuts.js; settings → 快捷键). voiceLang: VOICE_LANGS.
+ *  voiceNative: the 本土语言 switch (default off). textSize: TEXT_SIZES (css/theme.css `--t`, applied by ui/settings.js
+ *  applyTextSize). uiTheme: UI_THEMES (applied by ui/settings.js applyUiTheme). ammoEnergyCount: 设置「显示弹药与能量数量」 —
+ *  the rounds left / the magazine under an ammo skill's bar and a 秘术师's stored attack energies as stored/cap
+ *  (render/units.js). One switch for the old 「弹药数量」 (`ammoCount`, PR #552) and 「秘术师能量」 (`mysticEnergy`, PR #636);
+ *  off by default: the official HUD has neither number. A profile that still has either old key `true` migrates to on;
+ *  those keys are not written back. [ASSUMED] a stored boolean `ammoEnergyCount` wins over the old keys, so turning the
+ *  merged switch off stays off.
+ *  bondTimers: selected-unit timed bond readouts (#746), off by default. [ASSUMED] Convenience HUD absent from
+ *  the official game; maintainer approved 2026-10-18. Stored with the other preferences in sp.pref.settings.
+ *  combatMetrics: 设置「作战统计」 (PR #618), off by default: the official HUD has no such panel.
+ *  prepDeployFold: 设置「部署时收起商店」 — picking up a piece on the own prep board folds the shop and zooms
+ *  (GitHub #602, PR #646). Default on (the 0.3.0 behaviour). Off: the pickup changes neither the shop's fold nor the
+ *  camera. [ASSUMED] the label; only an explicit false turns it off (a missing or junk value stays on).
+ *  officialFx: 设置「官方特效」 (0.3.0, render/vfx): 'auto' (完整 on a desktop, 精简 on a touch device — render/vfx/tier.js),
+ *  'off', 'lite' (精简), 'full' (完整); only shown when effects were extracted from the local client.
+ *  otherSkins: 设置「显示其他玩家的皮肤」 (docs/SKINS.md), ON by default — draw the appearance another player chose instead
+ *  of the operator's own model. A pure client preference (never sent): off, only this player's own pieces wear a skin.
+ *  fpsLimit: normalizeFrameRate (frameRate.js) — the render loop's cap, 0 = uncapped. Shortcuts persist separately.
+ *  preload / preloadOptional / preloadVoiceLang: the asset preload panel (docs/ASSETS.md「Preload」).
+ */
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: true, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: Object.freeze(['cn']), keys: DEFAULT_HOTKEYS });
 const QUALITIES = ['high', 'medium', 'low'];
-/** The values of 设置「官方特效」 (render/vfx/tier.js OFFICIAL_FX). */
+/** The values of 设置「官方特效」 (render/vfx/tier.js OFFICIAL_FX). Display order in the dialog is low / medium / high. */
 export const OFFICIAL_FX_MODES = Object.freeze(['auto', 'off', 'lite', 'full']);
 
 /**
- * Sanitize persisted settings.
+ * The merged 显示弹药与能量数量 switch. A stored boolean wins. Otherwise on when either retired key was the boolean
+ * true (`ammoCount` PR #552, `mysticEnergy` PR #636). Junk and a missing key stay off.
+ * [ASSUMED] the new boolean wins, so a leftover old key cannot turn the switch back on.
+ * @param {Record<string, any>} r
+ */
+function ammoEnergyCountOf(r) {
+  if (typeof r.ammoEnergyCount === 'boolean') return r.ammoEnergyCount;
+  return r.ammoCount === true || r.mysticEnergy === true;
+}
+
+/**
+ * Sanitize persisted settings. Retired keys `ammoCount` and `mysticEnergy` are read here and never returned.
  * @param {any} raw
- * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoCount: boolean, deploymentZoom: boolean, combatMetrics: boolean, mysticEnergy: boolean, quality: 'high'|'medium'|'low', officialFx: 'auto'|'off'|'lite'|'full',
- *   textSize: 'sm'|'md'|'lg'|'xl', keys: Record<'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
+ * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoEnergyCount: boolean, fullscreenWakeLock: boolean, bondTimers: boolean, combatMetrics: boolean, prepDeployFold: boolean, quality: 'high'|'medium'|'low', fpsLimit: number, preload: boolean, preloadOptional: boolean, preloadVoiceLang: string[], officialFx: 'auto'|'off'|'lite'|'full', otherSkins: boolean,
+ *   textSize: 'sm'|'md'|'lg'|'xl', uiTheme: 'default'|'glass', keys: Record<'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
  */
 export function sanitizeSettings(raw) {
   const r = isObj(raw) ? raw : {};
@@ -60,19 +90,21 @@ export function sanitizeSettings(raw) {
     muted: typeof r.muted === 'boolean' ? r.muted : DEFAULT_SETTINGS.muted,
     damageNumbers: typeof r.damageNumbers === 'boolean' ? r.damageNumbers : DEFAULT_SETTINGS.damageNumbers,
     officialDamageNumbers: typeof r.officialDamageNumbers === 'boolean' ? r.officialDamageNumbers : false,
-    ammoCount: typeof r.ammoCount === 'boolean' ? r.ammoCount : DEFAULT_SETTINGS.ammoCount,
-    deploymentZoom: r.deploymentZoom === true,
-    mysticEnergy: typeof r.mysticEnergy === 'boolean' ? r.mysticEnergy : DEFAULT_SETTINGS.mysticEnergy,
+    ammoEnergyCount: ammoEnergyCountOf(r),
+    bondTimers: r.bondTimers === true,
+    combatMetrics: typeof r.combatMetrics === 'boolean' ? r.combatMetrics : DEFAULT_SETTINGS.combatMetrics,
+    prepDeployFold: typeof r.prepDeployFold === 'boolean' ? r.prepDeployFold : true,
+    fullscreenWakeLock: typeof r.fullscreenWakeLock === 'boolean' ? r.fullscreenWakeLock : DEFAULT_SETTINGS.fullscreenWakeLock,
     quality: QUALITIES.includes(r.quality) ? r.quality : DEFAULT_SETTINGS.quality,
     fpsLimit: normalizeFrameRate(r.fpsLimit),
-    skinsEnabled: typeof r.skinsEnabled === 'boolean' ? r.skinsEnabled : false,
     // optional asset preload (docs/ASSETS.md「Preload」): off unless the player turned it on
     preload: typeof r.preload === 'boolean' ? r.preload : DEFAULT_SETTINGS.preload,
     preloadOptional: typeof r.preloadOptional === 'boolean' ? r.preloadOptional : DEFAULT_SETTINGS.preloadOptional,
     preloadVoiceLang: normalizePreloadVoiceLang(r.preloadVoiceLang, r.voiceLang),
-    preloadSkins: typeof r.preloadSkins === 'boolean' ? r.preloadSkins : false,
     officialFx: OFFICIAL_FX_MODES.includes(r.officialFx) ? r.officialFx : DEFAULT_SETTINGS.officialFx,
+    otherSkins: r.otherSkins !== false,
     textSize: TEXT_SIZES.includes(r.textSize) ? r.textSize : DEFAULT_SETTINGS.textSize,
     uiTheme: UI_THEMES.includes(r.uiTheme) ? r.uiTheme : DEFAULT_SETTINGS.uiTheme,
+    keys: sanitizeHotkeys(r.keys),
   };
 }

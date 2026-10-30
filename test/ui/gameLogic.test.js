@@ -11,8 +11,8 @@ import {
   phaseMode, phaseBanner, isCombatPhase, isBossPhase, countdownState, phaseTotalSeconds, sortBonds, bondTier, nextThreshold,
   battleOverSfx, ownRoundLoss, uniteResultBox, battleResultBox, roundResultBox, RESULT_BOX_MS,
   bondMembers, memberHeadCount, bannedPerBond, priceTone, mergeProgress, shopBlockReason, deploySets, indexPieces, placementContext, canPlace,
-  boardTargets, dropIntent, normalizeDraft, normalizeSp, normalizePersonalChoice, groupEnemies, factionTypes, snapHud, bossFrac, attackInterval, fmtNum,
-  rangeGridBox, shortcutFor, sanitizeSettings, DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, sanitizeShortcuts, normalizeResult, cycleField, fieldLabel, homeFieldId,
+  boardTargets, dropIntent, normalizeDraft, heldDraftPub, normalizeSp, normalizePersonalChoice, groupEnemies, factionTypes, snapHud, bossFrac, attackInterval, fmtNum,
+  rangeGridBox, shortcutFor, sanitizeSettings, DEFAULT_SETTINGS, DEFAULT_HOTKEYS, DEFAULT_SHORTCUTS, sanitizeShortcuts, normalizeResult, cycleField, fieldLabel, homeFieldId,
   activeBubbles, sortedPlayers, tileKey, prepCapsuleLabel, prepCamera, dropFailureReason, terrainInfo,
 } from '../../public/js/ui/gameLogic.js';
 import { PHASE, GEO } from '../../shared/constants.js';
@@ -557,6 +557,24 @@ describe('placement mirror (canPlace)', () => {
 
 describe('drafts', () => {
   const players = [{ playerId: 'a', seat: 0 }, { playerId: 'b', seat: 1 }, { playerId: 'c', seat: 2 }];
+  test('heldDraftPub: the draft as it ended — the last picks plus the players’ bandId, no turn, no countdown', () => {
+    const last = { phase: 'BAND_DRAFT', round: 0, deadline: 99, players: [{ playerId: 'a' }, { playerId: 'b' }],
+      draft: { order: ['a', 'b'], turn: 1, picks: { a: 'band_x' }, turnDeadline: 99, skipsLeft: { a: 1 } } };
+    const now = { phase: 'BATTLE_CHECK', round: 1, players: [{ playerId: 'a', bandId: 'band_x' }, { playerId: 'b', bandId: 'band_y' }] };
+    const h = heldDraftPub(last, now);
+    assert.equal(h.phase, 'BAND_DRAFT', 'still the draft for the draft screen');
+    assert.deepEqual(h.draft.picks, { a: 'band_x', b: 'band_y' });
+    assert.equal(h.draft.turn, null);
+    assert.equal(h.deadline, 0);
+    assert.equal(h.draft.turnDeadline, 0);
+    assert.deepEqual(h.draft.skipsLeft, { a: 1 });
+    assert.equal(h.players, now.players);
+    const d = normalizeDraft(h.draft, h.players);
+    assert.equal(d.turnPid, null);
+    assert.ok(d.order.every((pid) => d.picks.has(pid)), 'every pick in');
+    assert.deepEqual(last.draft.picks, { a: 'band_x' }, 'the snapshot is left as it was');
+  });
+
   test('normalizeDraft: index or id turn, object or array picks', () => {
     const d1 = normalizeDraft({ order: ['c', 'a', 'b'], turn: 1, picks: { c: 'band_x' } }, players);
     assert.equal(d1.turnPid, 'a'); assert.equal(d1.picks.get('c'), 'band_x'); assert.equal(d1.done, false);
@@ -690,25 +708,54 @@ describe('enemies, HUD, stats', () => {
 
 describe('keyboard & settings', () => {
   test('shortcutFor', () => {
-    assert.equal(shortcutFor({ key: 'r', code: 'KeyR' }), 'refresh');
-    assert.equal(shortcutFor({ key: 'F', code: 'KeyF' }), 'freeze');
-    assert.equal(shortcutFor({ key: 'd' }), 'levelUp');
-    assert.equal(shortcutFor({ key: ' ', code: 'Space' }), 'ready');
-    assert.equal(shortcutFor({ key: 'Escape' }), 'escape');
-    assert.equal(shortcutFor({ key: 'r', ctrlKey: true }), null);
-    assert.equal(shortcutFor({ key: 'r', repeat: true }), null);
-    assert.equal(shortcutFor({ key: 'Escape', repeat: true }), 'escape');
-    assert.equal(shortcutFor({ key: 'r', target: { tagName: 'input' } }), null);
-    assert.equal(shortcutFor({ key: ' ', code: 'Space', target: { tagName: 'BUTTON' } }), 'ready', 'space readies even with a HUD button focused');
-    assert.equal(shortcutFor({ key: ' ', code: 'Space', target: { tagName: 'TEXTAREA' } }), null);
-    assert.equal(shortcutFor({ key: 'd', target: { tagName: 'DIV', isContentEditable: true } }), null);
-    assert.equal(shortcutFor({ key: 'x' }), null);
+    // The default map is the upstream v0.3.3 key map (buy W / refresh R / freeze F / levelUp D / retreat Q / sell X /
+    // ready Space). GameScreen always passes the persisted map (`shortcutFor(e, shortcutsStore.get())`), so the
+    // rebindable actions are asserted through it instead of the legacy no-map fallback (r / f / d / Space only).
+    const keys = DEFAULT_SETTINGS.keys;
+    assert.deepEqual(keys, { ...DEFAULT_HOTKEYS }, 'the persisted default map is the upstream v0.3.3 key map');
+    assert.equal(shortcutFor({ key: 'r', code: 'KeyR' }, keys), 'refresh');
+    assert.equal(shortcutFor({ key: 'F', code: 'KeyF' }, keys), 'freeze');
+    assert.equal(shortcutFor({ key: 'd' }, keys), 'levelUp');
+    assert.equal(shortcutFor({ key: 'q', code: 'KeyQ' }, keys), 'retreat');
+    assert.equal(shortcutFor({ key: 'Q' }, keys), 'retreat');
+    assert.equal(shortcutFor({ code: 'KeyX' }, keys), 'sell');
+    assert.equal(shortcutFor({ key: 'X' }, keys), 'sell');
+    for (const key of ['q', 'x']) {
+      assert.equal(shortcutFor({ key, repeat: true }, keys), null);
+      assert.equal(shortcutFor({ key, ctrlKey: true }, keys), null);
+      assert.equal(shortcutFor({ key, metaKey: true }, keys), null);
+      assert.equal(shortcutFor({ key, altKey: true }, keys), null);
+      for (const tagName of ['INPUT', 'TEXTAREA', 'SELECT']) {
+        assert.equal(shortcutFor({ key, target: { tagName } }, keys), null);
+      }
+      assert.equal(shortcutFor({ key, target: { isContentEditable: true } }, keys), null);
+    }
+    assert.equal(shortcutFor({ key: ' ', code: 'Space' }, keys), 'ready');
+    assert.equal(shortcutFor({ key: 'Escape' }, keys), 'escape');
+    assert.equal(shortcutFor({ key: 'r', ctrlKey: true }, keys), null);
+    assert.equal(shortcutFor({ key: 'r', repeat: true }, keys), null);
+    assert.equal(shortcutFor({ key: 'Escape', repeat: true }, keys), 'escape');
+    assert.equal(shortcutFor({ key: 'r', target: { tagName: 'input' } }, keys), null);
+    assert.equal(shortcutFor({ key: ' ', code: 'Space', target: { tagName: 'BUTTON' } }, keys), 'ready', 'space readies even with a HUD button focused');
+    assert.equal(shortcutFor({ key: ' ', code: 'Space', target: { tagName: 'TEXTAREA' } }, keys), null);
+    assert.equal(shortcutFor({ key: 'd', target: { tagName: 'DIV', isContentEditable: true } }, keys), null);
+    assert.equal(shortcutFor({ key: 'z' }, keys), null, 'z is bound to nothing');
+    assert.equal(shortcutFor({ key: 'x' }, keys), 'sell', 'x sells (the branch map bound x the same way)');
     assert.equal(shortcutFor(null), null);
+    // the legacy no-map fallback kept for pure helper callers from older clients (r / f / d / Space)
+    assert.equal(shortcutFor({ key: 'r', code: 'KeyR' }), 'refresh');
+    assert.equal(shortcutFor({ key: ' ', code: 'Space' }), 'ready');
   });
   test('sanitizeSettings', () => {
     assert.deepEqual(sanitizeSettings(null), { ...DEFAULT_SETTINGS });
     assert.deepEqual(sanitizeSettings({ bgm: 3, sfx: -1, voice: 2, muted: 'yes', damageNumbers: false, quality: 'ultra' }),
-      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, mysticEnergy: false, officialFx: 'auto', voiceOverrides: {}, textSize: 'sm', uiTheme: 'default', muted: false, damageNumbers: false, officialDamageNumbers: false, ammoCount: false, deploymentZoom: false, quality: 'high', fpsLimit: 0, skinsEnabled: false, preload: false, preloadOptional: false, preloadVoiceLang: ['cn'], preloadSkins: false });
+      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, voiceOverrides: {}, muted: false, damageNumbers: false, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: true, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: ['cn'], keys: { ...DEFAULT_SETTINGS.keys } },
+      'a saved profile without `keys` (before 0.2.0) gets the default key map (test/ui/feedback5-hotkeys.test.js)');
+    // 显示其他玩家的皮肤 (docs/SKINS.md): on by default, and off only when the profile says so
+    assert.equal(DEFAULT_SETTINGS.otherSkins, true);
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).otherSkins, true, 'a profile saved before the switch draws other players\' skins');
+    assert.equal(sanitizeSettings({ otherSkins: false }).otherSkins, false);
+    assert.equal(sanitizeSettings({ otherSkins: 'no' }).otherSkins, true, 'only `false` turns it off (the renderer reads it the same way)');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).voice, DEFAULT_SETTINGS.voice, 'a saved profile without `voice` gets the default');
     // 语音语言: 中文 by default. en / kr are dubs (0.3.0); anything else, including the per-operator 'native', stays 中文.
     assert.equal(DEFAULT_SETTINGS.voiceLang, 'cn');
@@ -720,6 +767,17 @@ describe('keyboard & settings', () => {
     assert.equal(sanitizeSettings({ bgm: 0.5 }).officialFx, 'auto', 'a profile saved before 官方特效 gets the default');
     for (const v of ['off', 'lite', 'full', 'auto']) assert.equal(sanitizeSettings({ officialFx: v }).officialFx, v);
     assert.equal(sanitizeSettings({ officialFx: 'ultra' }).officialFx, 'auto');
+    // 作战统计 (PR #618): off by default (the official HUD has no such panel), a stored boolean is kept
+    assert.equal(DEFAULT_SETTINGS.combatMetrics, false);
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).combatMetrics, false, 'a profile saved before 作战统计 stays off');
+    assert.equal(sanitizeSettings({ combatMetrics: true }).combatMetrics, true);
+    assert.equal(sanitizeSettings({ combatMetrics: 'yes' }).combatMetrics, false, 'a non-boolean stays off');
+    // the branch's opt-in 「部署时镜头缩放」 (deploymentZoom) is retired: upstream 0.3.3 replaced it with
+    // 「部署时收起商店」 (prepDeployFold), on by default, and the retired key is neither read nor written back.
+    assert.equal(Object.hasOwn(DEFAULT_SETTINGS, 'deploymentZoom'), false);
+    assert.equal(Object.hasOwn(sanitizeSettings({ deploymentZoom: true }), 'deploymentZoom'), false);
+    assert.equal(DEFAULT_SETTINGS.prepDeployFold, true);
+    assert.equal(sanitizeSettings({ deploymentZoom: true }).prepDeployFold, true, 'the retired key never turns 部署时收起商店 off');
     assert.equal(sanitizeSettings({ voiceLang: 'jp' }).voiceLang, 'jp');
     assert.equal(sanitizeSettings({ voiceLang: 'en' }).voiceLang, 'en');
     assert.equal(sanitizeSettings({ voiceLang: 'kr' }).voiceLang, 'kr');
@@ -745,6 +803,27 @@ describe('keyboard & settings', () => {
     assert.deepEqual(sanitizeShortcuts({ refresh: 'KeyT', ready: 'bad value', levelUp: 3 }), {
       ...DEFAULT_SHORTCUTS, refresh: 'KeyT',
     });
+  });
+  test('fullscreen wake lock is opt-in and accepts only boolean saved values', () => {
+    assert.equal(DEFAULT_SETTINGS.fullscreenWakeLock, false);
+    for (const profile of [null, undefined, {}, { bgm: 0.5 }, { fullscreenWakeLock: undefined }]) {
+      assert.equal(sanitizeSettings(profile).fullscreenWakeLock, false);
+    }
+    for (const value of [true, false]) assert.equal(sanitizeSettings({ fullscreenWakeLock: value }).fullscreenWakeLock, value);
+    for (const value of ['true', 1, null, {}, []]) assert.equal(sanitizeSettings({ fullscreenWakeLock: value }).fullscreenWakeLock, false);
+  });
+  test('the old combat wake lock preference never enables fullscreen wake lock', () => {
+    assert.equal(Object.hasOwn(DEFAULT_SETTINGS, 'screenWakeLock'), false);
+    for (const screenWakeLock of [true, false]) {
+      const migrated = sanitizeSettings({ screenWakeLock });
+      assert.equal(migrated.fullscreenWakeLock, false);
+      assert.equal(Object.hasOwn(migrated, 'screenWakeLock'), false);
+      for (const fullscreenWakeLock of [true, false, undefined, null, 'true', 1]) {
+        const settings = sanitizeSettings({ screenWakeLock, fullscreenWakeLock });
+        assert.equal(settings.fullscreenWakeLock, fullscreenWakeLock === true);
+        assert.equal(Object.hasOwn(settings, 'screenWakeLock'), false);
+      }
+    }
   });
 });
 
