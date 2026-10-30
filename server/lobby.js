@@ -363,6 +363,13 @@ function cardCharId(v) {
   return v && typeof v === 'object' && typeof v.charId === 'string' && v.charId ? v.charId : null;
 }
 
+/** The operator a card names, for the "is that operator in this content?" checks: a skin id (char_…@series#n) belongs to
+ * its owner operator, which is the id the content lists. No card or no portrait operator is null (nothing to check). */
+function cardOperatorOf(v) {
+  const id = cardCharId(v);
+  return id ? cardPortraitOperatorId(id) || null : null;
+}
+
 /** A restored seat card as the branch keeps it — `{ charId, avatar }` (shared/playerCard.js cleanPlayerCard) — from a
  * save of either shape: a build of the other line stored a plain charId string, which becomes an avatar-less card. */
 function storedCard(v) {
@@ -2244,7 +2251,7 @@ export class Lobby {
       if (s.playerId !== room.hostId) s.ready = false;
       s.loadout = null; s.ops = null; s.notOwned = null; s.diy = null;
       s.loadoutCs = null; s.notOwnedCs = null; s.diyCs = null;
-      if (s.card && !operators.has(cardCharId(s.card))) s.card = null;
+      if (s.card && !operators.has(cardOperatorOf(s.card))) s.card = null;
     }
     this.log.info(`[lobby] ${room.code} version → ${version} (${how})`);
     this.broadcastState(room);
@@ -3478,7 +3485,7 @@ export class Lobby {
   humanSeat(idx, session, room) {
     // 名片干员 (room.card): a card the room's content does not have is left off this seat — the session keeps it, so it
     // follows the player into the next room (docs/design/network.md). `room` is absent for a matchmaking queue seat.
-    const cardId = cardCharId(session.card);
+    const cardId = cardOperatorOf(session.card);
     const card = session.card && (!room || !cardId || chessCharIds(this.dataFor(room)).has(cardId)) ? session.card : null;
     return {
       seat: idx, playerId: session.playerId, name: session.name, isBot: false, ready: false, connected: session.connected, left: false,
