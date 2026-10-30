@@ -101,17 +101,21 @@ test('a state frame older than the channel baseline is dropped, never applied as
   assert.equal(receiver.receive({ kind: 'm.public', seq: 12, full: next }).message, null);
 });
 
-test('only the public view is compressed today; a private view keeps the bytes it is given', () => {
+test('the private view is compressed too, against its own per-connection baseline', () => {
+  // This fork compresses both state channels (DELTA_KINDS): m.private is per player and each connection keeps its own
+  // baseline, so one player's patch is never another's. Upstream ships the public one only.
   const ws = fakeWs();
   negotiateStateDelta(ws, 1);
   const view = { t: 'm.private', playerId: 'p1', funds: 10, padding: 'q'.repeat(500) };
   const encoded = JSON.stringify(view);
   const first = prepareStateFrame(ws, view, encoded);
-  assert.equal(first.data, encoded, 'm.private is not a delta channel yet');
+  const firstWire = wire(first.data);
+  assert.ok('full' in firstWire, 'the private channel opens with a full frame');
   first.commit();
   view.funds = 11;
-  const next = JSON.stringify(view);
-  assert.equal(prepareStateFrame(ws, view, next).data, next, 'still plain on the second frame');
+  const second = wire(prepareStateFrame(ws, view, JSON.stringify(view)).data);
+  assert.equal(second.base, firstWire.seq, 'the patch is taken against the private baseline');
+  assert.ok('patch' in second, 'm.private is a delta channel in this fork');
 });
 
 test('a repeated hello keeps the baseline, and a reset never rewinds the sequence', () => {

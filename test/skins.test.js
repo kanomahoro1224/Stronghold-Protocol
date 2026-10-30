@@ -384,7 +384,7 @@ describe('皮肤: the own prep view carries the choice (render/app.js)', () => {
 
   test('pieceInfo hands the piece\'s skin to the view (server/match/player/views.js pieceView sends it)', () => {
     const body = appFunctionBody('function pieceInfo(piece, area) {');
-    assert.match(body, /\n      skin: piece\.skin \|\| null,/,
+    assert.match(body, /\n      skin: si \|\| dr \? null : piece\.skin \?\? null,/,
       'the op branch must carry it: without it the prep board, the hand and the 临时整备区 draw the default model until '
       + 'the first battle, while a teammate scouting the same board already sees the skin');
   });

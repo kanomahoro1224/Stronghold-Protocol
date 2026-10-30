@@ -798,13 +798,13 @@ export async function createFieldView(host, options = {}) {
     return {
       kind: 'op', side: 'ally', defId: piece.id,
       spine: rec?.assets?.spine || rec?.charId || null, avatar: rec?.assets?.avatar || rec?.charId || null,
-      // Owner-provided metadata only: never put this browser's choice on somebody else's/default unit.
-      skin: si || dr ? null : piece.skin ?? null,
-      tier: chess?.tier || piece.tier || 1, golden: !!(piece.golden || chess?.isGolden), dir,
       // 皮肤 (docs/SKINS.md): the appearance this player chose for the piece's operator. It rides on the piece itself
       // (server/match/player/views.js pieceView) — the prep board, the hand and the 临时整备区 used to ignore it and draw
       // the default model until the first battle (the snapshot's UnitInfo.skin), while a teammate scouting the same
       // board already saw the skin: the own pieces are all this player's, so no 设置「显示其他玩家的皮肤」 applies here.
+      // Owner-provided metadata only: never put this browser's choice on somebody else's/default unit.
+      skin: si || dr ? null : piece.skin ?? null,
+      tier: chess?.tier || piece.tier || 1, golden: !!(piece.golden || chess?.isGolden), dir,
       ...(si ? { standInFor: si.standInFor } : null),
       ...(dr ? { diy: { charId: pick.charId, skillIndex: pick.skillIndex ?? null, uniEquipId: pick.uniEquipId ?? null } } : null),
     };
