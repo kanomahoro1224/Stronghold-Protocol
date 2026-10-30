@@ -180,7 +180,7 @@
 /* Existing in-battle damage panel behaviour remains unchanged. */
 @media (max-width: 1000px), (max-height: 600px) {
   .combat-metrics {
-    width: min(max7.2rem, 32px, calc(360px * var(--sp-ui, 1))), calc(100vw - var(--sa-l, 0px) - var(--sa-r, 0px) - .48rem));
+    width: min(max(7.2rem, 32px, calc(360px * var(--sp-ui, 1))), calc(100vw - var(--sa-l, 0px) - var(--sa-r, 0px) - .48rem));
     height: min(10rem, var(--combat-available-height, 240px));
     max-height: min(10rem, var(--combat-available-height, 240px));
   }

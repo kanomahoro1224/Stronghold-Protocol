@@ -39,6 +39,10 @@ const FIXTURE = fileURLToPath(new URL('./fixtures/hostMatch.js', import.meta.url
 const HANG = '房间的插件内容长时间无响应，本局模拟已结束';
 const CRASH = '房间的插件内容出错，本局模拟已结束';
 const START = '房间的插件内容无法启动模拟';
+// room.setPlugins composes (and validates) the room's content set before it answers: a Windows runner is slower than
+// the client's 2 s default at it (the same allowance the tests below take, header at START_MS), so the restart test's
+// own set-up asks for a longer wait rather than reading a slow composition as a hang.
+const SLOW_MS = 20_000;
 const quiet = { info() {}, warn() {}, error() {}, debug() {} };
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Resolves null after `ms` without keeping the process alive (a race's fallback). */
@@ -415,8 +419,8 @@ for (const transport of ['process', 'worker']) test(`plugin checkpoints survive 
       if (!pass) {
         assert.equal((await c.request({ t: 'room.create', mode: 'solo', difficulty: 'NORMAL' })).t, 'ok');
         const original = await c.waitFor('room.state', s => s.code); code = original.code;
-        assert.equal((await c.request({ t: 'room.setPlugins', plugins: [{ id: 'save-room' }] })).t, 'ok');
-        const state = await c.waitFor('room.state', s => s.content?.vanilla === false); cs = state.content.cs;
+        assert.equal((await c.request({ t: 'room.setPlugins', plugins: [{ id: 'save-room' }] }, SLOW_MS)).t, 'ok');
+        const state = await c.waitFor('room.state', s => s.content?.vanilla === false, SLOW_MS); cs = state.content.cs;
         assert.equal((await c.request({ t: 'room.setMode', modeId })).t, 'ok');
         const session = srv.registry.byToken(token), seat = srv.lobby.getRoom(code).seatOf(session.playerId);
         for (const key of ['loadoutCs', 'notOwnedCs', 'diyCs']) session[key] = seat[key] = cs;

@@ -301,10 +301,10 @@ export function localPathFor(url, publicDir, cdnBase = '') {
  * The served resource manifest, built from the data directory and cached until one of its sources changes.
  * @param {{ dataDir: string, publicDir: string, cdnBase?: string, resourcePackRoutes?: string[], rewrite?: (v: any) => any,
  *           statFile?: (p: string) => Promise<{ isFile(): boolean, size: number, mtimeMs: number }>,
- *           readFile?: typeof fsp.readFile, log?: any }} opts
+ *           readFile?: typeof fsp.readFile, log?: any, extraArt?: string[] }} opts
  */
 export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resourcePackRoutes = [], rewrite = (v) => v,
-  statFile = (p) => fsp.stat(p), readFile = fsp.readFile, log = null } = {}) {
+  statFile = (p) => fsp.stat(p), readFile = fsp.readFile, log = null, extraArt = CUSTOM_EMOTE_ART } = {}) {
   /** @type {{ key: string, sourceKey: string, tileFiles: { url: string }[], body: Buffer, gzip: Buffer,
    *   etag: string, mtimeMs: number, manifest: any } | null} */
   let cache = null;
@@ -412,7 +412,7 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resource
     const assetsDoc = assets ? rewrite(assets.doc) : null;
     const localDoc = local || fx ? rewrite({ ...(local?.doc || {}), groups: { ...(local?.doc?.groups || {}), ...(fx?.doc?.groups || {}) } }) : null;
     // The emote art follows the same CDN rewrite as the manifest entries (the client preloads from the CDN).
-    const emoteArt = rewrite({ art: [...CUSTOM_EMOTE_ART] }).art;
+    const emoteArt = rewrite({ art: [...extraArt] }).art;
     const collected = collectResourceFiles(assetsDoc, localDoc, emoteArt);
     const tileFiles = collected.filter((f) => /\/assets\/local\/map\/autochess\/tiles\.json$/.test(f.url));
     const tiles = await tileSources(tileFiles);

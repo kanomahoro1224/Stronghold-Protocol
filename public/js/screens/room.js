@@ -677,10 +677,10 @@ export function RoomScreen() {
   // the room's version is not this browser's lobby choice: the banner says leaving restores it (on a short screen, where
   // the banner gives its room to the seats, the pill's tooltip says it)
   const bannerText = curVersion !== myLobby && Array.isArray(versions) ? t('本房间为「{room}」，离开后恢复你的大厅版本「{mine}」', { room: versionLabel(curVersion), mine: versionLabel(myLobby) }) : null;
-  // 立即开始 sends room.start, or match.join while 匹配同盟队友 is on (co-op rooms only: the queue is a party of humans)
+  // 开始模拟 sends room.start, or match.join while 匹配同盟队友 is on (co-op rooms only: the queue is a party of humans;
+  // a queued party does not have to be ready — the matchmaking rule above)
   const queueing = coop && matchTeammates;
   const queueBlocked = queueing && (!!room.consoleEnabled || facts.modded || hasBots);
-  const startDisabled = queueBlocked || (!queueing && !facts.canStart) || !online || !!vote || busy === 'start' || busy === 'match';
   const startWhy = queueing
     ? facts.modded ? t('插件房间不能参加公共匹配') : room.consoleEnabled ? t('控制台已启用，不能匹配同盟队友') : hasBots ? t('请先移除 AI 队友，再匹配真人队友') : null
     : facts.canStart ? null
@@ -789,9 +789,11 @@ export function RoomScreen() {
                   onChange=${(e) => setMatchTeammates(e.currentTarget.checked)} /><span>${t('匹配同盟队友')}</span></label>
               </div>` : null}
               <${Tooltip} text=${startWhy}>
-                <${GoButton} label=${queueing ? t('开始同盟匹配') : t('开始模拟')}
-                  icon=${queueing ? 'users' : 'play'} loading=${busy === (queueing ? 'match' : 'start')}
-                  disabled=${startDisabled} onClick=${start} />
+                ${queueing
+                  ? html`<${GoButton} label=${t('开始同盟匹配')} icon="users" loading=${busy === 'match'}
+                      disabled=${queueBlocked || !online || !!vote || busy === 'match'} onClick=${start} />`
+                  : html`<${GoButton} label=${t('开始模拟')} icon="play" loading=${busy === 'start'}
+                      disabled=${!facts.canStart || !online || busy === 'start' || !!vote} onClick=${start} />`}
               <//>
             </div>`
           : facts.spectating

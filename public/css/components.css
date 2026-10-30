@@ -1074,11 +1074,11 @@
   position: fixed; top: max(calc(calc(1.9 * var(--ui-unit, 1rem)) + var(--sa-t, 0px)), 20vh);
   left: 50%; right: auto; width: 50%; transform: translateX(-50%);
   z-index: var(--z-banner); pointer-events: none;
-  display: flex; align-items: center; gap: maxcalc(.18 * var(--ui-unit, 1rem)), calc(10px * var(--sp-ui, 1)));
-  padding: maxcalc(.1 * var(--ui-unit, 1rem)), calc(8px * var(--sp-ui, 1))) maxcalc(.2 * var(--ui-unit, 1rem)), calc(12px * var(--sp-ui, 1)));
+  display: flex; align-items: center; gap: max(calc(.18 * var(--ui-unit, 1rem)), calc(10px * var(--sp-ui, 1)));
+  padding: max(calc(.1 * var(--ui-unit, 1rem)), calc(8px * var(--sp-ui, 1))) max(calc(.2 * var(--ui-unit, 1rem)), calc(12px * var(--sp-ui, 1)));
   background: rgba(10, 17, 14, .9);
   box-shadow: 0 calc(.06 * var(--ui-unit, 1rem)) calc(.2 * var(--ui-unit, 1rem)) rgba(0, 0, 0, .35);
-  color: var(--text-hi); font-size: maxcalc(.2 * var(--utility-text, var(--t))), calc(14px * var(--sp-ui, 1))); line-height: 1.6;
+  color: var(--text-hi); font-size: max(calc(.2 * var(--utility-text, var(--t))), 14px); line-height: 1.6;
 }
 .site-notice--warning { --notice-color: var(--amber); }
 .site-notice--urgent { --notice-color: var(--red-premium); }
@@ -1144,8 +1144,8 @@
    a 10 px gap, so their 44 px hit areas (css/devices.css) never overlap and a tap lands on the intended one */
 .topbar__tools { display: flex; align-items: center; gap: calc(.14 * var(--ui-unit, 1rem)); }
 .topbar__tools .btn--square.btn--sm { --sq: calc(.46 * var(--ui-unit, 1rem)); height: var(--sq); min-width: var(--sq); }
-.sp-coarse .topbar__tools { gap: maxcalc(.16 * var(--ui-unit, 1rem)), calc(10px * var(--sp-ui, 1))); }
-.sp-coarse .topbar__tools .btn--square.btn--sm { --sq: maxcalc(.56 * var(--ui-unit, 1rem)), 32px, calc(40px * var(--sp-ui, 1))); }
+.sp-coarse .topbar__tools { gap: max(calc(.16 * var(--ui-unit, 1rem)), calc(10px * var(--sp-ui, 1))); }
+.sp-coarse .topbar__tools .btn--square.btn--sm { --sq: max(calc(.56 * var(--ui-unit, 1rem)), 32px, calc(40px * var(--sp-ui, 1))); }
 .topbar__right { justify-self: end; display: flex; align-items: center; gap: calc(.16 * var(--ui-unit, 1rem)); min-width: 0; }
 .connection-status { display: flex; align-items: center; gap: calc(.1 * var(--ui-unit, 1rem)); flex: none; }
 .connection-status .ping { flex: none; white-space: nowrap; }

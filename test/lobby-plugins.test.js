@@ -573,13 +573,13 @@ describe('room content sets (P1c: gameplay plugins)', () => {
     await ok(host, { t: 'room.setPlugins', plugins: [{ id: 'data-demo' }] });
     await host.waitFor('room.state', (s) => s.content?.vanilla === false);
     await ok(host, { t: 'room.card', charId: OP });
-    await host.waitFor('room.state', (s) => seatOf(s, host.id)?.card === OP);
+    await host.waitFor('room.state', (s) => seatOf(s, host.id)?.card?.charId === OP);
     await ok(host, { t: 'room.leave' });
     // a new vanilla room checks the card again when the player takes the seat (server/lobby.js humanSeat)
     const plain = await room(host, 'solo');
-    assert.ok(!('card' in seatOf(plain, host.id)), 'a room without the operator shows no card for it');
-    assert.equal(srv.registry.byId(host.id).card, OP, 'the session keeps it (the page sends the card it can show: installCardSync)');
-    await refuse(host, { t: 'room.card', charId: OP }, ERR.BAD_MSG);
+    assert.ok(!seatOf(plain, host.id)?.card, 'a room without the operator shows no card for it');
+    assert.equal(srv.registry.byId(host.id).card?.charId, OP, 'the session keeps it (the page sends the card it can show: installCardSync)');
+    await refuse(host, { t: 'room.card', charId: OP }, ERR.BAD_TARGET);
     await ok(host, { t: 'room.leave' });
   });
 

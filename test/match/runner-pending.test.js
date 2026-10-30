@@ -68,6 +68,8 @@ function rig() {
     raf: (fn) => { frames.push(fn); return frames.length; }, caf: () => {},
     setInterval: () => 1, clearInterval: () => {},
     loadSim: () => loaded, logger: QUIET,
+    // 作战统计 is opt-in (设置, default off): a test pins the meter for the same reason test/match/runner.test.js does.
+    combatMetrics: true,
   });
   runner.on('field', (f) => shown.push(f.battleId));
   store.patch('match', { public: { phase: PHASE.COMBAT } });

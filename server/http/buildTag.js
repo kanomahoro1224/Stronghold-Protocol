@@ -19,6 +19,8 @@ import { ROOT } from './config.js';
  * change without a restart the server still runs the old simulation and data — a page that reloaded into the new files
  * would be out of step with the server that validates its battles (and DEPLOY.md restarts the server for every update).
  * Exceptions: shared/stateDelta.js and shared/chat.js are browser protocol helpers; source-client must track them.
+ * The served official versions' data/versions/ directories are the second exception: the browser fetches them, so
+ * computeBuildTag adds them itself (VERSIONS_BUILD_DIR) instead of listing data/ here.
  */
 export const BUILD_INPUTS = Object.freeze(['public/index.html', 'public/js', 'public/css', 'shared/stateDelta.js', 'shared/chat.js']);
 
@@ -73,6 +75,9 @@ export function computeBuildTag(root = ROOT, { clientBuild = true, servedVersion
   const inputs = clientBuild && fs.existsSync(path.join(root, 'public/build/index.html'))
     ? ['public/build', 'public/resource-sw.js', 'public/js/resources', 'shared/media.js', 'shared/i18n.js', 'shared/i18nPacks.js', 'shared/resourcePaths.js', 'shared/resourcePackRoutes.js', 'public/js/battle', 'public/js/asset-cdn.js', 'shared/plugins', 'server/sim'] : BUILD_INPUTS;
   for (const rel of inputs) buildEntries(path.join(root, rel), rel, out, served);
+  // The official versions' data is the one data/ tree the browser fetches (§35.22/§35.23): it is not in BUILD_INPUTS,
+  // and only the directories this process serves count (the served filter above).
+  buildEntries(versionsAbs, VERSIONS_BUILD_DIR, out, served);
   if (!out.length) return null;
   out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   const h = createHash('sha1');

@@ -50,6 +50,12 @@ jobs:
       - name: Setup check (no downloads)
         run: node tools/setup.mjs --check --no-local
 
+      # tools/local-extract/requirements.txt lists Pillow: the FX add-only test of test/version-assets.test.js drives
+      # fx.py's _export_texture, which imports it. The runner images ship python3 but no Pillow, so that test failed
+      # with ModuleNotFoundError instead of exercising the extractor.
+      - name: Python deps for the local-extract tests
+        run: python3 -m pip install --disable-pip-version-check --no-input --quiet Pillow
+
       - name: Build production client
         run: npm run build
 

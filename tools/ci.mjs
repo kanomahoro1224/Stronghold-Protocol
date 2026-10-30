@@ -63,6 +63,7 @@ export const SKIPPED_CI_STEPS = [
   { uses: 'actions/checkout', why: 'GitHub runner: the checkout is this folder' },
   { uses: 'actions/setup-node', why: 'GitHub runner: the Node.js of this machine is used' },
   { name: 'Install (npm ci → postinstall copies public/vendor)', why: 'run `npm ci` yourself; it is not a check' },
+  { job: 'test', name: 'Python deps for the local-extract tests', why: 'GitHub runner: installs Pillow for fx.py; a runner setup step, not a check' },
   { job: 'test', name: 'Build production client', why: 'CI builds the client in every job; run `npm run build` yourself (buildProductionClient is the same commands)' },
   { job: 'golden', name: 'Full Golden regression check', run: 'npm run golden', why: 'run `npm run golden` separately for the full corpus' },
 ];

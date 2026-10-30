@@ -157,7 +157,7 @@ test('compressed transfers still hash/cache/export decoded bytes; existing cache
   assert.equal(hashes.count, 1, 'static sidecars are not resource ZIP entries');
   await writeFile(path.join(f.root, 'data', 'assets.json'), JSON.stringify({ hash: 'fixture', ui: { a: '/assets/a.skel' } }));
   await writeFile(path.join(f.root, 'data', 'asset-hashes.json'), JSON.stringify(hashes));
-  const { manifest } = await createResourceIndex({ dataDir: path.join(f.root, 'data'), publicDir: f.publicDir }).get();
+  const { manifest } = await createResourceIndex({ dataDir: path.join(f.root, 'data'), publicDir: f.publicDir, extraArt: [] }).get();
   assert.equal(manifest.files[0].size, f.raw.length);
   const cache = new CompressCache();
   const port = await listen(t, async (req, res) => serveFile(req, res, f.file, await stat(f.file),

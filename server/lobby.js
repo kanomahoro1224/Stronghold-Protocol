@@ -3475,14 +3475,18 @@ export class Lobby {
    * @param {number} idx @param {any} session
    * @returns {Seat}
    */
-  humanSeat(idx, session) {
+  humanSeat(idx, session, room) {
+    // 名片干员 (room.card): a card the room's content does not have is left off this seat — the session keeps it, so it
+    // follows the player into the next room (docs/design/network.md). `room` is absent for a matchmaking queue seat.
+    const cardId = cardCharId(session.card);
+    const card = session.card && (!room || !cardId || chessCharIds(this.dataFor(room)).has(cardId)) ? session.card : null;
     return {
       seat: idx, playerId: session.playerId, name: session.name, isBot: false, ready: false, connected: session.connected, left: false,
       // 干员皮肤 (docs/SKINS.md): the appearances this player wears, keyed by operator charId (PUBLIC: the match
       // publishes them to teammates)
       skins: session.skins || null,
       // 名片干员 (room.card): the operator and avatar on this player's seat card (PUBLIC: room.state seats[].card)
-      card: session.card || null,
+      card,
       loadout: session.loadout || null,
       ops: session.ops || null,
       notOwned: session.notOwned || null,

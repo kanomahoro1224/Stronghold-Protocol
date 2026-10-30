@@ -94,7 +94,8 @@ export function SkinSection({ charId }) {
   // the choice (this module's store) and the composed manifest (the catalogue): either can change while the panel is
   // open — the player picks a skin, a plugin's document lands, a layer is switched off
   const s = useStore((v) => v, Object.is, skinsStore);
-  const ready = useData('assets');
+  // the optional skin catalogue is awaited by this picker only, never a prerequisite for starting a match
+  const ready = useData('skins', 'assets');
   const [preview, setPreview] = useState(null);
 
   const id = typeof charId === 'string' && charId ? charId : null;

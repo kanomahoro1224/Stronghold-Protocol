@@ -104,7 +104,7 @@
 }
 .st-record::before, .st-record::after {
   content: ''; position: absolute; top: 0; bottom: 0; width: max(calc(0.1125 * var(--ui-unit, 1rem)), calc(0.07 * var(--ui-unit, 1rem)));
-  border: maxcalc(0.01875 * var(--ui-unit, 1rem)), calc(1px * var(--sp-ui, 1))) solid rgba(222, 238, 243, .2); pointer-events: none;
+  border: max(calc(0.01875 * var(--ui-unit, 1rem)), calc(1px * var(--sp-ui, 1))) solid rgba(222, 238, 243, .2); pointer-events: none;
 }
 .st-record::before { left: 0; border-right: none; }
 .st-record::after { right: 0; border-left: none; }
@@ -159,7 +159,7 @@
 .st-achievement__bond { display: flex; align-items: center; justify-content: center; width: calc(1.31875 * var(--ui-unit, 1rem)); aspect-ratio: 1; margin: calc(0.38 * var(--ui-unit, 1rem)) 0 calc(0.175 * var(--ui-unit, 1rem)); background-position: center; background-size: contain; }
 .st-achievement__bond .bglyph { width: 83.4%; height: 83.4%; }
 .st-achievement__peak > b { margin-top: calc(0.0875 * var(--ui-unit, 1rem)); color: #4ed7b8; font-family: 'Official Stats Numerals', var(--font-num); font-size: max(calc(0.525 * var(--utility-text, var(--t))), calc(0.28 * var(--ui-unit, 1rem))); font-weight: 400; line-height: 1; }
-.st-achievement__detail { display: grid; grid-template-columns: minmax(0, 1fr) calc(1.775 * var(--ui-unit, 1rem)); padding: calc(0.16875 * var(--ui-unit, 1rem)) calc(0.1 * var(--ui-unit, 1rem)) calc(0.16875 * var(--ui-unit, 1rem)) calc(0.325 * var(--ui-unit, 1rem)); border: maxcalc(0.01875 * var(--ui-unit, 1rem)), calc(1px * var(--sp-ui, 1))) solid rgba(222,238,243,.2); border-left-width: calc(0.06 * var(--ui-unit, 1rem)); background-position: left center; background-size: contain; background-repeat: no-repeat; }
+.st-achievement__detail { display: grid; grid-template-columns: minmax(0, 1fr) calc(1.775 * var(--ui-unit, 1rem)); padding: calc(0.16875 * var(--ui-unit, 1rem)) calc(0.1 * var(--ui-unit, 1rem)) calc(0.16875 * var(--ui-unit, 1rem)) calc(0.325 * var(--ui-unit, 1rem)); border: max(calc(0.01875 * var(--ui-unit, 1rem)), calc(1px * var(--sp-ui, 1))) solid rgba(222,238,243,.2); border-left-width: calc(0.06 * var(--ui-unit, 1rem)); background-position: left center; background-size: contain; background-repeat: no-repeat; }
 .st-achievement__lineup { display: grid; grid-template-columns: repeat(5, minmax(0, calc(0.73125 * var(--ui-unit, 1rem)))); justify-content: space-between; gap: calc(0.14375 * var(--ui-unit, 1rem)) calc(0.23125 * var(--ui-unit, 1rem)); margin: 0; padding: 0; list-style: none; }
 .st-achievement-unit { box-sizing: border-box; position: relative; min-width: 0; aspect-ratio: .73125 / 1.40625; border: calc(0.01875 * var(--ui-unit, 1rem)) solid; border-image: linear-gradient(#fff, #7c7c7c) 1; background: linear-gradient(#fff 0%, #fff 50%, #272727 80%); }
 .st-achievement-unit.is-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; border: none; background: #383939; }
@@ -311,7 +311,7 @@
 .st-titlehex__label--4 { left: 15%; top: 72%; }
 .st-titlehex__label--5 { left: 15%; top: 28%; }
 .st-titlehex__count { position: relative; isolation: isolate; font-family: 'Official Stats Numerals', 'Novecento Wide', var(--font-num); font-size: max(calc(0.2 * var(--utility-text, var(--t))), calc(0.16 * var(--ui-unit, 1rem))); font-weight: 400; line-height: 1; letter-spacing: 0; color: #40eec9; }
-.st-titlehex__count.is-bright { color: #fff; text-shadow: 0 0 maxcalc(0.045 * var(--ui-unit, 1rem)), calc(2px * var(--sp-ui, 1))) rgba(88, 255, 227, .73), 0 0 maxcalc(0.045 * var(--ui-unit, 1rem)), calc(2px * var(--sp-ui, 1))) rgba(88, 255, 227, .73); }
+.st-titlehex__count.is-bright { color: #fff; text-shadow: 0 0 max(calc(0.045 * var(--ui-unit, 1rem)), calc(2px * var(--sp-ui, 1))) rgba(88, 255, 227, .73), 0 0 max(calc(0.045 * var(--ui-unit, 1rem)), calc(2px * var(--sp-ui, 1))) rgba(88, 255, 227, .73); }
 .st-titlehex__count.is-bright::before {
   content: ''; position: absolute; z-index: -1; width: 3.9444em; height: 1.75em; top: 50%; left: 50%; transform: translate(-50%, -50%);
   background: var(--st-title-glow, radial-gradient(ellipse, rgba(64, 238, 200, .85), transparent 75%)) center / contain no-repeat;

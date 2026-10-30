@@ -163,7 +163,12 @@ test('startMatch and wireOptions omit soloUnlimited unless the flag is on', () =
   assert.equal(Rec.last.soloUnlimited, undefined);
   assert.equal(wireOptions(Rec.last).soloUnlimited, undefined);
   assert.equal(wireOptions({ roomCode: 'ABCD', mode: 'solo', hostId: 'p', test: false, soloUnlimited: true }).soloUnlimited, true);
-  assert.deepEqual(wireOptions({ roomCode: 'ABCD', mode: 'solo', hostId: 'p', test: false }), { roomCode: 'ABCD', mode: 'solo' });
+  // The fork forwards hostId in every worker payload (server/match/host/proxy.js: host migration and the delegated
+  // bot rehearsal need it — see test/test-mode.test.js), so this asserts the option is absent, not the exact shape.
+  const plain = wireOptions({ roomCode: 'ABCD', mode: 'solo', hostId: 'p', test: false });
+  assert.equal(plain.soloUnlimited, undefined);
+  assert.equal(plain.roomCode, 'ABCD');
+  assert.equal(plain.mode, 'solo');
 
   // the first match is still running, so the same session cannot create again (ROOM_STARTED)
   const h2 = harness();

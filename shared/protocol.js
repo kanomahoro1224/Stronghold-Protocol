@@ -509,7 +509,6 @@ export const C2S = {
     noReplace: isBool, claimAt: (v) => isNum(v, 0, Number.MAX_SAFE_INTEGER),
     $optional: ['token', 'version', 'noReplace', 'claimAt', 'delta', 'stateDelta'] },
   ping: { c: (v) => typeof v === 'number' && Number.isFinite(v) },
-  'state.resync': {},
   // test: only the literal true (DESIGN §34.8). Omit it for a normal room — `false` is a bad field, so a
   // string cannot sneak in as "not a test". The server still refuses it unless SP_TEST_MODE is on.
   // difficulty: may be left out — the room starts at the server's default (server/lobby.js DEFAULT_DIFFICULTY) and the

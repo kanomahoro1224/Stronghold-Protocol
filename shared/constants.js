@@ -145,7 +145,6 @@ export const ANIM = Object.freeze({ IDLE: 0, MOVE: 1, ATTACK: 2, SKILL: 3, DIE: 
 export const ERR = Object.freeze({
   BAD_MSG: 'BAD_MSG',             // malformed / unknown message
   SESSION_IN_USE: 'SESSION_IN_USE', // a local recovery candidate cannot replace the connected holder
-  SERVER_FULL: 'SERVER_FULL',
   NAME_REJECTED: 'NAME_REJECTED',
   CHAT_REJECTED: 'CHAT_REJECTED',
   RATE: 'RATE',                   // rate limited

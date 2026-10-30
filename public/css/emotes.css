@@ -219,9 +219,9 @@
 .echat__text { margin-top: 3px; overflow-wrap: anywhere; line-height: 1.5; }
 .echat__empty { padding: 10px 0; color: #c0d0c7; }
 .ebubble.ebubble--chat {
-  width: max-content; max-width: min(3.2rem, 55vw); height: auto; padding: max.08rem, calc(6px * var(--sp-ui, 1))) max.12rem, calc(8px * var(--sp-ui, 1)));
+  width: max-content; max-width: min(3.2rem, 55vw); height: auto; padding: max(.08rem, calc(6px * var(--sp-ui, 1))) max(.12rem, calc(8px * var(--sp-ui, 1)));
   border-radius: 6px; background: #17241e; border: 1px solid #638a75; color: #f2fff6;
-  font-size: max.15rem, calc(12px * var(--sp-ui, 1))); line-height: 1.5; overflow-wrap: anywhere; white-space: normal;
+  font-size: max(.15rem, 12px); line-height: 1.5; overflow-wrap: anywhere; white-space: normal;
 }
 .ebubble.ebubble--chat::before, .ebubble.ebubble--chat::after { content: none; }
 

@@ -7,7 +7,11 @@ const messageTypes = new Set(['invalid', 'hello', 'ping', 'g.ready', 'g.rerollVo
   'g.leave', 'g.pause', 'g.autoplay', 'g.console', 'g.destroy', 'g.art', 'g.emote', 'b.result', 'b.progress', 'b.rehearsalResult',
   'room.create', 'room.join', 'room.leave', 'room.ready', 'room.start', 'room.setDifficulty', 'room.setAiPicksLast', 'room.rerollSetup', 'room.cancelReroll', 'room.addBot',
   'room.removeBot', 'room.kick', 'room.loadout', 'room.skins', 'room.card', 'room.setPlugins', 'room.setMode', 'room.contentReady', 'room.consent', 'room.ownership', 'room.diy', 'room.spectate',
-  'room.removeSpectator', 'room.console.enable', 'room.console.disable', 'match.join', 'match.leave', 'state.resync']);
+  'room.removeSpectator', 'room.console.enable', 'room.console.disable', 'match.join', 'match.leave', 'state.resync',
+  // The fork's additions to the protocol catalog must stay inside the bounded label set too, or their histogram
+  // series never reaches Prometheus and test/monitoring-exporter.test.js cannot find every C2S type.
+  'room.setSoloUnlimited', 'room.setAiTakeover', 'room.aiRequest', 'room.aiVote', 'room.proposeVersion',
+  'room.versionVote', 'room.cancelVersionVote', 'rtc.signal', 'g.unequip', 'g.offer', 'g.offerRefresh', 'g.test']);
 const fields = [
   ['uptime_seconds', 'uptimeSec'],
   ...['sockets', 'sessions', 'rooms', 'matches', 'roomMatches', 'standaloneMatches', 'humans', 'bots', 'spectators', 'queued']

@@ -12,10 +12,11 @@
 import { diffState, isStateKind, STATE_DELTA_VERSION } from '../shared/stateDelta.js';
 
 /**
- * The channels this build compresses. Both state channels: m.private is per player and each connection keeps its own
- * baseline, so one player's patch is never another's (this branch's channel; upstream ships the public one only).
+ * The channels this build compresses. Only the public view for now: it is the frame every member of a room receives, so
+ * a client that cannot apply one loses nothing it cannot get back from the next full frame, while m.private is per
+ * player and gets its opt-in only after the round-trip is proven in a whole match.
  */
-export const DELTA_KINDS = new Set(['m.public', 'm.private']);
+export const DELTA_KINDS = new Set(['m.public']);
 
 // ws -> { seq, roomCode, kinds: Map<kind, { snapshot, seq, owner, stream, streamSeq }> }
 const connections = new WeakMap();
