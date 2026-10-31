@@ -1360,6 +1360,10 @@ export class Lobby {
       if (room.mode !== 'coop') return fail(ERR.BAD_MSG, 'solo rooms cannot join co-op matchmaking');
       if (room.consoleEnabled) return fail(ERR.MATCHING, 'console and matchmaking are mutually exclusive');
       if (room.modded || room.recoveryContentMissing) return fail(ERR.MATCHING, t('插件房间不能参加公共匹配'));
+      // 公共匹配只有一种内容（第二期下半）：其它官方版本的房间必须整队留在本房间开赛。队列本身也不带版本
+      // （matchQueues 的键是 mode:difficulty，startQueuedMatchWorker / startQueuedMatchLocal 都不传 version），
+      // 放进来只会让比赛按默认版本的模块数据跑，和房间声明的版本对不上
+      if (room.version !== DEFAULT_VERSION) return fail(ERR.VERSION_UNSUPPORTED, t('公共匹配固定为第二期下半：其他版本的房间请直接开赛'));
       if (room.hostId !== session.playerId) return fail(ERR.NOT_HOST);
       if (room.seats.some((s) => s?.isBot)) return fail(ERR.BAD_MSG, t('请先移除 AI 队友，再匹配真人队友'));
       const humans = room.activeHumans();

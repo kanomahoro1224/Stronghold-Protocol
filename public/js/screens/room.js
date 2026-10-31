@@ -785,7 +785,7 @@ export function RoomScreen() {
             ? html`<div class="room-match-actions room-match-actions--active"><span class="room-match-state"><${Icon} name="signal" />${t('正在寻找同盟队友')} <b class="num">${room.matching.count}/${room.matching.capacity}</b></span><${Button} variant="danger" size="lg" icon="close" loading=${busy === 'cancel-match'} onClick=${cancelQueue}>${t('取消匹配')}<//></div>`
             : html`<div class="room-match-actions">
               ${coop ? html`<div class="room-match-options">
-                <label class="room-match-toggle"><input type="checkbox" checked=${matchTeammates} disabled=${!!room.consoleEnabled || facts.modded}
+                <label class="room-match-toggle" title=${facts.versionRoom ? t('公共匹配固定为第二期下半：其他版本的房间请直接开赛') : null}><input type="checkbox" checked=${matchTeammates} disabled=${!!room.consoleEnabled || facts.modded || facts.versionRoom}
                   onChange=${(e) => setMatchTeammates(e.currentTarget.checked)} /><span>${t('匹配同盟队友')}</span></label>
               </div>` : null}
               <${Tooltip} text=${startWhy}>

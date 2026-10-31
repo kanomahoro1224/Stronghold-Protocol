@@ -714,3 +714,23 @@ test('server/plugins/roomSets.js resolve({ gameplay: false }): a content / scrip
   assert.equal(sets.resolve(['skin'], { gameplay: false }).ok, true);
   assert.equal(sets.resolve(['rules']).ok, true, 'the default keeps gameplay plugins');
 });
+
+test('public matchmaking refuses a room of another official version (the queue plays 第二期下半 only)', () => {
+  const h = harness();
+  try {
+    const { people, room } = coop(h, 1, { version: 'act1autochess' });
+    assert.equal(room.version, 'act1autochess');
+    // the queue neither keys by version nor hands one to the match, so such a room must not enter it
+    refused(h.lobby.matchJoin(people[0], { mode: 'coop', difficulty: 'NORMAL' }), ERR.VERSION_UNSUPPORTED);
+    assert.equal(room.matching, null, 'nothing was queued');
+    // back on the default version the same room may queue (its lone human waits for a full team)
+    ok(h.lobby.proposeVersion(people[0], { version: DEFAULT_VERSION }));
+    assert.equal(room.version, DEFAULT_VERSION);
+    ok(h.lobby.matchJoin(people[0], { mode: 'coop', difficulty: 'NORMAL' }));
+    assert.ok(room.matching, 'the room is in the public queue');
+    ok(h.lobby.matchLeave(people[0]));
+    assert.equal(room.matching, null);
+  } finally {
+    h.lobby.shutdown();
+  }
+});
