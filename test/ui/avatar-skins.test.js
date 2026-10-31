@@ -1,6 +1,7 @@
 // Node/vnode tests only; no browser automation or image/model downloads.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { Component, h, options } from '../../public/vendor/preact.module.js';
 import { AvatarPickerView, AvatarVariantsView, OperatorPickerView } from '../../public/js/ui/opPicker.js';
 import { cardAvatarUrl, cardAvatarSkins } from '../../public/js/ui/seatArt.js';
@@ -144,4 +145,15 @@ test('settlement portraits prefer the chosen room operator and keep lineup art o
     cardStore.set({ charId });
     assert.equal(render(ResultPortrait, { ...props, player: { playerId: 'me' }, self: true }).props.src, props.fallbackSrc);
   }
+});
+
+// The room's seat plate must carry the card avatar (user report 2026-10-31: 同盟里看不到自己设置的头像，队友也看不到).
+// The 0.3.3 merge dropped the branch's `cardAvatarUrl(seat.card.avatar)` wiring, so every seat showed the operator's
+// initial instead of the picture; this pins the wiring at the source level (the seat is a Preact tree the vnode walk
+// above cannot raise without the whole room screen, so the contract is read from the file like the hub's).
+test('the room seat plate draws the card avatar, not just the operator initial', () => {
+  const src = readFileSync(new URL('../../public/js/screens/room.js', import.meta.url), 'utf8');
+  assert.match(src, /import \{[^}]*\bcardAvatarUrl\b[^}]*\} from '\.\.\/ui\/seatArt\.js';/);
+  assert.match(src, /const avatar = seat\.isBot \? null : cardAvatarUrl\(seat\.card\?\.avatar, data\.get\('assets'\)\);/);
+  assert.match(src, /\$\{AvatarFrame\} size="sm" [^>]*src=\$\{avatar \|\| undefined\} \/>/);
 });

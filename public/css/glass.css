@@ -100,15 +100,21 @@ html[data-ui-theme="glass"] .hub-tile { border-left: 3px solid var(--mint-500); 
 html[data-ui-theme="glass"] .hub-recruit { border-top: 2px solid var(--mint-500); }
 html[data-ui-theme="glass"] .hub-maint { border-color: var(--amber); background-color: rgba(40, 24, 6, .42); }
 
-/* 高亮 CTA（搜寻队友, .hub-entry--bright）: 用户 2026-10-15 要求它也走玻璃材质 —— 薄荷实心改为薄荷玻璃，
-   深色字随之换成浅色（半透明底上深字会糊掉）；它自己那行灰色副标（FIND ALLIES）改薄绿。
-   注意范围：只有这一个入口，独立模拟/同盟模拟（.hub-entry 默认）保持原样，不要动它们的灰色副标 */
-html[data-ui-theme="glass"] .hub-entry--bright {
+/* 高亮 CTA（同盟模拟, .hub-entry--coop）: 用户 2026-10-15 要求它也走玻璃材质 —— 薄荷实心改为薄荷玻璃，
+   深色字随之换成浅色（半透明底上深字会糊掉）；它自己那行灰色副标（ALLIANCE SIMULATION）改薄绿。
+   注意范围：只有这一个入口；独立模拟/同盟匹配（.hub-entry 默认）保持原样，不要动它们的灰色副标。
+   为什么不是 .hub-entry--bright: 这个 name 是上一版留下的空类，没有任何入口真的戴着它（git grep 只在
+   本文件命中），合并 0.3.3 后高亮入口的类名是 .hub-entry--coop（screens/lobby.css 的薄荷实心）—— 下面的
+   通用 .hub-entry 玻璃规则（特异性更高）会把它的渐变底盖掉、只留下深色字，所以必须在这里把它也接上。 */
+html[data-ui-theme="glass"] .hub-entry--bright,
+html[data-ui-theme="glass"] .hub-entry--coop {
   background-color: rgba(78, 216, 175, .26);
   color: var(--text-hi);
 }
-html[data-ui-theme="glass"] .hub-entry--bright .hub-entry__en { color: var(--glass-en); }
-html[data-ui-theme="glass"] .hub-entry--bright .hub-entry__icon { color: rgba(226, 255, 246, .34); }
+html[data-ui-theme="glass"] .hub-entry--bright .hub-entry__en,
+html[data-ui-theme="glass"] .hub-entry--coop .hub-entry__en { color: var(--glass-en); }
+html[data-ui-theme="glass"] .hub-entry--bright .hub-entry__icon,
+html[data-ui-theme="glass"] .hub-entry--coop .hub-entry__icon { color: rgba(226, 255, 246, .34); }
 
 /* ---- the top bar: controls become glass chips, the bar itself stays a scrim ------------------------
    顶栏三组按钮都要玻璃：左上（返回）/ 中（工具）/ 右上（续战、账号胶囊）；返回是 ghost 变体，不写它就会
