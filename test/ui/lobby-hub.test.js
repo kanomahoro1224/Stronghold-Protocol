@@ -242,8 +242,14 @@ test('成就统计 card: the lobby’s only statistics entry (no top-bar 统计�
   assert.match(lobbySrc, /<\$\{AchievementCard\} onOpen=\$\{\(\) => setAchPanel\(true\)\} \/>/);
   assert.match(lobbySrc, /achPanel \? html`<\$\{AchievementPanel\} me=\$\{me\} onClose=\$\{\(\) => setAchPanel\(false\)\}/);
   assert.doesNotMatch(lobbySrc, /AchievementDialog|AchievementEntry/, 'one achievement window, opened by the card only');
-  assert.doesNotMatch(lobbySrc, /openStats/, 'the 统计数据 page opens from the window’s 查看完整统计 only');
-  assert.doesNotMatch(lobbySrc, /stats-entry|me-chip/, 'the top-bar chip is gone');
+  // 2026-10-29 (user request): the branch's local account chip is back in the top bar — it is not a statistics entry,
+  // it opens the 本机账号 panel, whose 统计数据 link is the only other way to that page. The maintainer's decision of
+  // 2026-10-21 still stands: no standalone 统计数据 chip in the top bar.
+  assert.match(lobbySrc, /<\$\{AccountMeChip\} player=\$\{me\} onStats=\$\{openStats\}/, 'the local account chip carries the 统计数据 link');
+  assert.doesNotMatch(lobbySrc, /icon="chart"/, 'no standalone 统计数据 chip in the top bar');
+  // the other two widgets the v0.3.3 merge dropped from this file and the restore brings back
+  assert.match(lobbySrc, /<\$\{OnlineCount\} online=\$\{presence\.online\} \/>/, 'the 在线人数 pill (site.presence)');
+  assert.match(lobbySrc, /<\$\{AnnouncementButton\} variant="ghost" size="sm" class="topbar-announcement" \/>/, 'the branch’s 公告 entry');
   // (the season of the version shown: DESIGN §35.23 — every record on a server without versions)
   assert.match(lobbySrc, /const records = recordsOfSeason\(peekStatsRecords\(\), season\);\s*return \{ prog: levelProgress\(records/);
   assert.match(lobbySrc, /trophies: aggregateStats\(records\)\.trophies/, 'the same trophy count as the window’s 获得奖杯');
@@ -288,8 +294,11 @@ test('选择同盟方式 creates the room itself: the lobby never stacks 选择�
   assert.match(lobbySrc, /<\$\{ProtocolSelect\} roomMode="solo"/, '选择模拟协议 stays before 独立模拟');
 });
 
-test('no server-only features: accounts, friends, federation, 无限火力, Android', () => {
-  for (const re of [/accounts\.js/, /friends\.js/, /federation/, /randomMode/, /AndroidNative/, /__onRoomFound/, /room\.list/]) {
+test('no server-only features: friends, federation, 无限火力, Android', () => {
+  // (`accounts.js` is allowed since 2026-10-29: the branch's file is this browser's local account — name + tag + avatar,
+  // no server and no friends — and it is the top-right chip the user asked to restore; the server-only account system
+  // upstream forbids is not what it is. The rest stays forbidden.)
+  for (const re of [/friends\.js/, /federation/, /randomMode/, /AndroidNative/, /__onRoomFound/, /room\.list/]) {
     assert.doesNotMatch(lobbySrc, re, String(re));
   }
   // 同盟匹配 is this branch's own hub entry (a public queue of real players — server/lobby.js match.join, the product

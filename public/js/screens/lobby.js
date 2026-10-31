@@ -44,7 +44,7 @@ import { TestMark } from '../ui/testConsole.js';
 import { ResumeMatchButton } from '../ui/resumeMatch.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from '../../vendor/hooks.module.js';
 import { DIFFICULTIES, DIFFICULTY_NAMES, DIFFICULTY_COLORS, ROOM_CODE_LEN, MAX_SEATS, MAX_SPECTATORS, modeIdFor, ERR } from '../../../shared/constants.js';
-import { html, confirmDialog, Button, Icon, MicroLabel, Modal, PingPill, Spinner, DifficultyIcon, TextField } from '../ui/components.js';
+import { html, confirmDialog, Button, Icon, MicroLabel, Modal, PingPill, OnlineCount, Spinner, DifficultyIcon, TextField } from '../ui/components.js';
 import { Sprite, Img } from '../ui/gameComponents.js';
 import { uiUrl } from '../ui/assetUrls.js';
 import { peekStatsRecords, trophyMedalOf, aggregateStats, recordsOfSeason } from '../ui/stats.js';
@@ -57,19 +57,22 @@ import { toast, toastError } from '../ui/toasts.js';
 import { GuideButton, openGuide } from '../ui/guide.js';
 import { RadarScene, CreateArt, JoinArt } from '../ui/allyArt.js';
 import { ProtocolScene } from '../ui/protocolScene.js';
-import { useStatsOpen } from './stats.js';
+import { useStatsOpen, openStats } from './stats.js';
 import { Emblem } from './title.js';
 import { SettingsButton } from '../ui/settings.js';
 import { PwaInstallButton, detectFeatures, useMediaQuery, SHORT_SCREEN_QUERY } from '../ui/device.js';
 import { UiThemeButton } from '../ui/theme.js';
 import { LoadoutButton } from './loadout.js';
 import { AchievementPanel } from '../ui/achievements.js';
+import { AccountMeChip } from '../ui/accounts.js';
+import { AnnouncementButton } from '../ui/announcement.js';
+import { useMyCard } from '../ui/playerCard.js';
+import { cardAvatarUrl } from '../ui/seatArt.js';
 import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual, loadPref, savePref } from '../store.js';
 import { data, getConfig, getMode, getStage, useData } from '../data.js';
 import { t, tc, N_ } from '../../../shared/i18n.js';
 import { scriptOf } from '../../../shared/i18nPacks.js';
-import { NoticesButton } from '../ui/notices.js';
 import { VersionSwitch } from '../ui/versionPicker.js';
 import { contentSet, retryContentSet } from '../content.js';
 import { DEFAULT_VERSION, lobbyVersion, offeredDifficulties, fallbackDifficulty, seasonOf, soloTimedOf, soloTimeMsgid, versionLabel } from '../versions.js';
@@ -692,6 +695,10 @@ export function AllianceSelect({ onClose, onCreate, difficulty = 'FUNNY', code, 
 export function LobbyScreen() {
   const me = useStore((s) => s.me, shallowEqual);   // the branch's 成就 window (ui/achievements.js) takes it
   const conn = useStore((s) => s.connection, shallowEqual);
+  // 分支自研: 顶栏的「N 在线」(site.presence) 与右上角的本机账号名片 —— 这次合并 v0.3.3 时从本文件丢了，
+  // 2026-10-29 按用户要求补回（成就统计/统计数据的合并现状不变）。
+  const presence = useStore((s) => s.presence, shallowEqual);
+  const myCard = useMyCard();
   useData('config', 'assets');
   const [difficulty, setDifficulty] = useState(() => {
     const d = loadPref('lobby.difficulty', 'FUNNY');
@@ -826,9 +833,10 @@ export function LobbyScreen() {
         <${Button} variant="ghost" size="sm" icon="chevronLeft" onClick=${backToTitle} title=${t('返回标题')}>${t('返回')}<//>
         <div class="connection-status">
           <${PingPill} ms=${conn.ping} online=${online} />
+          <${OnlineCount} online=${presence.online} />
         </div>
         <div class="topbar__tools">
-          <${NoticesButton} />
+          <${AnnouncementButton} variant="ghost" size="sm" class="topbar-announcement" />
           <${SettingsButton} class="lobby-settings" variant="secondary" square=${true} />
           <${GuideButton} class="lobby-guide" variant="secondary" square=${true} />
           <${UiThemeButton} class="lobby-theme" />
@@ -841,6 +849,8 @@ export function LobbyScreen() {
       <div class="topbar__right">
         <${VersionSwitch} />
         <${ResumeMatchButton} />
+        <${AccountMeChip} player=${me} onStats=${openStats}
+          fallbackAvatar=${cardAvatarUrl(myCard.avatar, data.get('assets'))} />
       </div>
     </header>
 
