@@ -828,15 +828,15 @@ export function LobbyScreen() {
 
   return html`<div class="screen lobby-screen lobby-hub" data-hub-theme=${backdropTheme(bg)} data-hub-scene=${backdropScene(bg)}>
     <${HubBackdrop} bg=${bg} />
-    <header class="topbar">
+    <header class="topbar hub-topbar">
       <div class="topbar__left">
         <${Button} variant="ghost" size="sm" icon="chevronLeft" onClick=${backToTitle} title=${t('返回标题')}>${t('返回')}<//>
         <div class="connection-status">
           <${PingPill} ms=${conn.ping} online=${online} />
           <${OnlineCount} online=${presence.online} />
+          <${AnnouncementButton} variant="ghost" size="sm" class="topbar-announcement" />
         </div>
         <div class="topbar__tools">
-          <${AnnouncementButton} variant="ghost" size="sm" class="topbar-announcement" />
           <${SettingsButton} class="lobby-settings" variant="secondary" square=${true} />
           <${GuideButton} class="lobby-guide" variant="secondary" square=${true} />
           <${UiThemeButton} class="lobby-theme" />

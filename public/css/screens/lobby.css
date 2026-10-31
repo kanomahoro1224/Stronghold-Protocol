@@ -68,6 +68,11 @@
   mask-image: radial-gradient(70% 70% at 50% 50%, #000 30%, transparent 85%);
 }
 .lobby-hub .topbar { background: linear-gradient(180deg, rgba(4, 8, 8, .85), transparent); border-bottom: 0; }
+/* 大厅顶栏是两列网格（工具组在左、续战与名片贴右），并带 .hub-topbar 这个玻璃主题与移动端都在用的钩子：
+   分支原本的写法，v0.3.3 合并时随 lobby.css 一起丢了，顶栏按钮（尤其「公告」）因此退回裸 .btn 的样子 */
+.lobby-hub > .hub-topbar { grid-template-columns: minmax(0, 1fr) auto; }
+.lobby-hub > .hub-topbar > .topbar__right { grid-column: 2; }
+.lobby-hub[data-hub-scene="photo"] .hub-topbar { background: none; border-bottom-color: transparent; }
 
 /* ---- 大厅背景与音乐 (PR #643 split 8, ui/lobbyMedia.js): the player's own picture / video over the official layers,
    darkened by its 暗度 (--own-dim) so the title and the entries stay readable; the dialog reuses the settings rows ---- */
