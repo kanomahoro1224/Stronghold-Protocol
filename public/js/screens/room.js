@@ -72,6 +72,7 @@ import { data, useData, getConfig } from '../data.js';
 import { chessAvatarUrl, chessPortraitUrl } from '../ui/assetUrls.js';
 import { cardStore, setCard, cardOperators, cardContext, seatOperator, seatCardSkin, seatArtSrc, cardAvatarUrl } from '../ui/seatArt.js';
 import { skinsStore, SKINS_KEY, ownerSkin } from '../ui/skins.js';
+import { useAccount } from '../ui/accounts.js';
 import { settingsStore } from '../ui/settingsStore.js';
 import { difficultyInfo, ProtocolSelect } from './lobby.js';
 import { useRise } from '../ui/transitions.js';
@@ -268,6 +269,10 @@ function SeatCard({ seat, index, room, facts, myId, busy, onAddBot, onRemoveBot,
   // the 转场 flash: a seat that turns ready (or becomes the host's), and an AI teammate added while the room is open
   // (`fresh`: this card mounted after the room was already on screen)
   const flash = useRise(!!seat && (seat.ready || seat.isBot || seat.playerId === room.hostId), 700, fresh);
+  // 账号头像: this browser's own uploaded picture, or a teammate's once it arrives over the 头像 P2P mesh
+  // (ui/accounts.js useAccount → ui/peerAvatars.js DataChannel; the server never sees it). No account info means
+  // the namecard avatar below, then the operator's initial — the old build's behaviour.
+  const account = useAccount(seat?.playerId || null);
   if (!seat) {
     const canAdd = coop && facts.isHost;
     const invitable = coop && !facts.spectating;
@@ -294,9 +299,9 @@ function SeatCard({ seat, index, room, facts, myId, busy, onAddBot, onRemoveBot,
   const lit = state === 'ready' || state === 'host';
   const art = seat.isBot ? null : seatArtSrc([portrait, portraitDefault], badArt);
   // 名片头像 (room.card { charId, avatar }): the operator's avatar the player picked for their card, resolved
-  // against the art manifest (`data.get('assets')`, same table chessPortraitUrl reads). The seat plate drew only
-  // the operator's initial without it — ui/seatArt.js cardAvatarUrl is the branch's resolver (test/ui/avatar-skins).
-  const avatar = seat.isBot ? null : cardAvatarUrl(seat.card?.avatar, data.get('assets'));
+  // against the art manifest (`data.get('assets')`, same table chessPortraitUrl reads). The uploaded account
+  // picture wins when there is one; ui/seatArt.js cardAvatarUrl is the branch's resolver (test/ui/avatar-skins).
+  const avatar = seat.isBot ? null : (account?.avatar || cardAvatarUrl(seat.card?.avatar, data.get('assets')));
   const canPick = isMe && !seat.isBot && !!onPickCard;
   // an AI teammate's name without its 「AI·」 prefix on a phone (room.css; botNameParts)
   const botPrefix = botNameParts(seat);

@@ -151,9 +151,15 @@ test('settlement portraits prefer the chosen room operator and keep lineup art o
 // The 0.3.3 merge dropped the branch's `cardAvatarUrl(seat.card.avatar)` wiring, so every seat showed the operator's
 // initial instead of the picture; this pins the wiring at the source level (the seat is a Preact tree the vnode walk
 // above cannot raise without the whole room screen, so the contract is read from the file like the hub's).
-test('the room seat plate draws the card avatar, not just the operator initial', () => {
+// 2026-10-31 second report (「还是不显示头像」): the picture a doctor uploads for their account is not the card
+// avatar — it travels over the 头像 P2P mesh (ui/accounts.js useAccount → ui/peerAvatars.js), and the 0.3.3 room
+// screen never read it. The uploaded picture therefore wins on the plate, the namecard avatar is the fallback.
+test('the room seat plate draws the card avatar and the uploaded account avatar', () => {
   const src = readFileSync(new URL('../../public/js/screens/room.js', import.meta.url), 'utf8');
   assert.match(src, /import \{[^}]*\bcardAvatarUrl\b[^}]*\} from '\.\.\/ui\/seatArt\.js';/);
-  assert.match(src, /const avatar = seat\.isBot \? null : cardAvatarUrl\(seat\.card\?\.avatar, data\.get\('assets'\)\);/);
+  assert.match(src, /import \{[^}]*\buseAccount\b[^}]*\} from '\.\.\/ui\/accounts\.js';/);
+  // the hook has to sit above the `if (!seat)` early return of SeatCard (hooks cannot be conditional)
+  assert.match(src, /const account = useAccount\(seat\?\.playerId \|\| null\);\n  if \(!seat\) \{/);
+  assert.match(src, /const avatar = seat\.isBot \? null : \(account\?\.avatar \|\| cardAvatarUrl\(seat\.card\?\.avatar, data\.get\('assets'\)\)\);/);
   assert.match(src, /\$\{AvatarFrame\} size="sm" [^>]*src=\$\{avatar \|\| undefined\} \/>/);
 });
