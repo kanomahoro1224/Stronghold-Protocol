@@ -613,6 +613,8 @@
 .room-match-state .icon { width: calc(0.18 * var(--ui-unit, 1rem)); height: calc(0.18 * var(--ui-unit, 1rem)); }
 .room-match-toggle { display: inline-flex; align-items: center; gap: calc(0.06 * var(--ui-unit, 1rem)); color: var(--text-lo); font-size: calc(.14 * var(--utility-text, var(--t))); cursor: pointer; }
 .room-match-toggle input { accent-color: var(--mint-500); width: calc(0.18 * var(--ui-unit, 1rem)); height: calc(0.18 * var(--ui-unit, 1rem)); }
+/* 公共匹配固定为第二期下半：别的官方版本下这一项仍可点，但只会提示先切回版本（room.js toggleMatchTeammates） */
+.room-match-toggle.is-locked { opacity: .55; }
 .room-match-actions > .tt-anchor { justify-self: end; }
 .room-match-actions > .tt-anchor, .room-match-actions > .tt-anchor .btn { width: 100%; }
 .rs-go.proto-start { flex: none; width: min(4.6rem, 40vw); }

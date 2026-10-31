@@ -501,6 +501,10 @@ export function RoomScreen() {
   const otherSkins = useStore((s) => s.otherSkins !== false, Object.is, settingsStore);
   const [matchTeammates, setMatchTeammates] = useState(false);
   const [picking, setPicking] = useState(false);
+  // 公共匹配（同盟匹配）只有第二期下半这一套内容：房间换成别的官方版本时，已经勾上的「匹配同盟队友」自动取消，
+  // 勾选框也不再能被勾上（点了只提示怎么改回来；服务端 match.join 同样会拒绝）
+  const versionRoom = roomVersion(room) !== DEFAULT_VERSION;
+  useEffect(() => { if (versionRoom) setMatchTeammates(false); }, [versionRoom]);
   // the room whose seats are on screen: a seat card that mounts after its first render is new (an AI teammate added)
   const shownRoom = useRef('');
   useEffect(() => { shownRoom.current = room?.code || ''; });
@@ -564,9 +568,20 @@ export function RoomScreen() {
   const toggleReady = () => run('ready', () => net.request('room.ready', { ready: !myReady }));
   // 立即开始 with 匹配同盟队友 on puts the whole connected party into the public queue instead of starting; the server
   // refuses rooms with AI seats, a console or plugin content (real players only).
-  const start = () => run(matchTeammates ? 'match' : 'start', () => (matchTeammates
+  const start = () => run(matchTeammates && !versionRoom ? 'match' : 'start', () => (matchTeammates && !versionRoom
     ? net.request('match.join', { mode: 'coop', difficulty: room.difficulty })
     : net.request('room.start', {})));
+  // a version room cannot queue for the public match: the box stays visible, and clicking it says why
+  const toggleMatchTeammates = (e) => {
+    const on = e.currentTarget.checked;
+    if (versionRoom) {
+      e.currentTarget.checked = false;
+      setMatchTeammates(false);
+      toast(t('请将版本切换到第二期下半再勾选'), 'warn');
+      return;
+    }
+    setMatchTeammates(on);
+  };
   const cancelQueue = () => run('cancel-match', () => net.request('match.leave', {}));
   const addBot = () => run('add', () => net.request('room.addBot', {}));
   const removeBot = (seat) => run(`rm${seat}`, () => net.request('room.removeBot', { seat }));
@@ -679,7 +694,7 @@ export function RoomScreen() {
   const bannerText = curVersion !== myLobby && Array.isArray(versions) ? t('本房间为「{room}」，离开后恢复你的大厅版本「{mine}」', { room: versionLabel(curVersion), mine: versionLabel(myLobby) }) : null;
   // 开始模拟 sends room.start, or match.join while 匹配同盟队友 is on (co-op rooms only: the queue is a party of humans;
   // a queued party does not have to be ready — the matchmaking rule above)
-  const queueing = coop && matchTeammates;
+  const queueing = coop && matchTeammates && !versionRoom;
   const queueBlocked = queueing && (!!room.consoleEnabled || facts.modded || hasBots);
   const startWhy = queueing
     ? facts.modded ? t('插件房间不能参加公共匹配') : room.consoleEnabled ? t('控制台已启用，不能匹配同盟队友') : hasBots ? t('请先移除 AI 队友，再匹配真人队友') : null
@@ -785,8 +800,9 @@ export function RoomScreen() {
             ? html`<div class="room-match-actions room-match-actions--active"><span class="room-match-state"><${Icon} name="signal" />${t('正在寻找同盟队友')} <b class="num">${room.matching.count}/${room.matching.capacity}</b></span><${Button} variant="danger" size="lg" icon="close" loading=${busy === 'cancel-match'} onClick=${cancelQueue}>${t('取消匹配')}<//></div>`
             : html`<div class="room-match-actions">
               ${coop ? html`<div class="room-match-options">
-                <label class="room-match-toggle" title=${facts.versionRoom ? t('公共匹配固定为第二期下半：其他版本的房间请直接开赛') : null}><input type="checkbox" checked=${matchTeammates} disabled=${!!room.consoleEnabled || facts.modded || facts.versionRoom}
-                  onChange=${(e) => setMatchTeammates(e.currentTarget.checked)} /><span>${t('匹配同盟队友')}</span></label>
+                <label class="room-match-toggle${versionRoom ? ' is-locked' : ''}"><input type="checkbox" checked=${matchTeammates && !versionRoom}
+                  disabled=${!!room.consoleEnabled || facts.modded} aria-disabled=${versionRoom ? 'true' : null}
+                  onChange=${toggleMatchTeammates} /><span>${t('匹配同盟队友')}</span></label>
               </div>` : null}
               <${Tooltip} text=${startWhy}>
                 ${queueing
