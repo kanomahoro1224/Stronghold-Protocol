@@ -179,13 +179,6 @@ export function HubRadar({ bg }) {
   </div>`;
 }
 
-/** The topbar button glyph: a framed landscape. */
-export function BackdropGlyph() {
-  return html`<svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-    <path fill="currentColor" fill-rule="evenodd" d="M2 4h20v16H2zm2 2v9.6l4.6-4.8 3.6 3.7 2.6-2.6L20 17V6zm13 1.6a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6z" />
-  </svg>`;
-}
-
 function Swatch({ theme }) {
   return html`<span class="bgset__swatch" data-hub-theme=${theme} aria-hidden="true">
     <svg viewBox="0 0 160 90" preserveAspectRatio="none">
@@ -204,10 +197,11 @@ export function BackdropSettings({ bg }) {
   const action = async (fn) => { setError(''); try { await fn(); } catch (e) { setError(e.message || t('操作失败')); } };
   return html`<div class="bgset">
     <div class="bgset__themes" role="group" aria-label=${t('背景主题')}>
-      ${HUB_THEMES.map((x) => html`<button key=${x.id} type="button" aria-pressed=${pref.theme === x.id}
+      ${HUB_THEMES.map((x) => html`<button key=${x.id} type="button" aria-pressed=${pref.theme === x.id} data-theme=${x.id}
         class=${`bgset__theme${pref.theme === x.id ? ' is-selected' : ''}`} onClick=${() => update({ theme: x.id })}>
         <${Swatch} theme=${x.id} /><span class="bgset__name">${t(x.name)}</span><span class="bgset__en">${x.en}</span></button>`)}
-      <button type="button" disabled=${busy} aria-pressed=${pref.theme === 'custom'} class=${`bgset__theme${pref.theme === 'custom' ? ' is-selected' : ''}`}
+      <button type="button" disabled=${busy} aria-pressed=${pref.theme === 'custom'} data-theme="custom"
+        class=${`bgset__theme${pref.theme === 'custom' ? ' is-selected' : ''}`}
         onClick=${() => imageUrl ? update({ theme: 'custom' }) : fileRef.current?.click()}>
         <span class="bgset__swatch bgset__swatch--custom"
           style=${imageUrl && !video ? { backgroundImage: `url("${imageUrl}")` } : null} aria-hidden="true">
@@ -215,22 +209,22 @@ export function BackdropSettings({ bg }) {
         <span class="bgset__name">${t('自定义背景')}</span><span class="bgset__en">CUSTOM</span></button>
     </div>
     <div class="bgset__themes bgset__themes--photos" role="group" aria-label=${t('内置背景')}>
-      ${HUB_PHOTOS.map((x) => html`<button key=${x.id} type="button" aria-pressed=${pref.theme === x.id}
+      ${HUB_PHOTOS.map((x) => html`<button key=${x.id} type="button" aria-pressed=${pref.theme === x.id} data-theme=${x.id}
         class=${`bgset__theme${pref.theme === x.id ? ' is-selected' : ''}`} onClick=${() => update({ theme: x.id })}>
         <span class="bgset__swatch bgset__swatch--custom" style=${{ backgroundImage: `url("${hubPhotoThumbUrl(x.id)}")` }} aria-hidden="true"></span>
         <span class="bgset__name">${t(x.name)}</span><span class="bgset__en">${x.id.toUpperCase()}</span></button>`)}
     </div>
-    <input ref=${fileRef} type="file" accept="image/*,video/mp4,video/webm,.mp4,.webm,.m4v" hidden onChange=${(e) => {
+    <input ref=${fileRef} type="file" accept="image/*,video/mp4,video/webm,.mp4,.webm,.m4v" hidden data-testid="media-backdrop-file" onChange=${(e) => {
       const file = e.currentTarget.files?.[0]; e.currentTarget.value = '';
       if (file) action(() => bg.setImage(file));
     }} />
     ${imageUrl ? html`<div class="bgset__row">
       <button type="button" class="btn btn--secondary btn--sm" disabled=${busy} onClick=${() => fileRef.current?.click()}>${t('更换背景')}</button>
-      <button type="button" class="btn btn--ghost btn--sm" disabled=${busy} onClick=${() => action(bg.clearImage)}>${t('移除背景')}</button></div>` : null}
+      <button type="button" class="btn btn--ghost btn--sm" disabled=${busy} data-testid="media-backdrop-remove" onClick=${() => action(bg.clearImage)}>${t('移除背景')}</button></div>` : null}
     ${photoTheme ? html`<div class="bgset__custom">
-      <label class="bgset__slider"><span>${t('暗化')}</span><input type="range" min="0" max="85" value=${pref.dim}
+      <label class="bgset__slider"><span>${t('暗化')}</span><input type="range" min="0" max="85" value=${pref.dim} data-testid="media-dim"
         onInput=${(e) => update({ dim: Number(e.currentTarget.value) })} /><b class="num">${pref.dim}%</b></label>
-      <label class="bgset__slider"><span>${t('模糊')}</span><input type="range" min="0" max="16" value=${pref.blur}
+      <label class="bgset__slider"><span>${t('模糊')}</span><input type="range" min="0" max="16" value=${pref.blur} data-testid="media-blur"
         onInput=${(e) => update({ blur: Number(e.currentTarget.value) })} /><b class="num">${pref.blur}px</b></label>
       <label class="bgset__check"><input type="checkbox" checked=${pref.overlay} onChange=${(e) => update({ overlay: e.currentTarget.checked })} />${t('叠加战术网格')}</label></div>` : null}
     ${video ? html`<div class="bgset__custom">

@@ -49,9 +49,9 @@ import { Sprite, Img } from '../ui/gameComponents.js';
 import { uiUrl } from '../ui/assetUrls.js';
 import { peekStatsRecords, trophyMedalOf, aggregateStats, recordsOfSeason } from '../ui/stats.js';
 import { levelProgress, levelOf } from './settle.js';
-import { OwnBackdrop, LobbyScene, LobbyMediaButton } from '../ui/lobbyMedia.js';
+import { LobbyMediaButton } from '../ui/lobbyMedia.js';
 // 分支自研大厅接线 (§5.1): the hub's themed backdrop and its preference, the 界面主题 button (the 成就 entry below)
-import { HubBackdrop as HubThemeBackdrop, BackdropGlyph, BackdropSettings } from '../ui/hubBackdrop.js';
+import { HubBackdrop as HubThemeBackdrop } from '../ui/hubBackdrop.js';
 import { useHubBackdrop, backdropTheme, backdropScene } from '../ui/hubAppearance.js';
 import { toast, toastError } from '../ui/toasts.js';
 import { GuideButton, openGuide } from '../ui/guide.js';
@@ -490,10 +490,10 @@ function SweepPlate({ onClick }) {
 
 /**
  * The event entry's backdrop: the official glow (`entry/entry_bkg_01`) and Rhodes Island hologram (`entry/entry_bkg_02`)
- * over a dark field with a faint grid; without the art pack only the field and the grid. `bg` is the branch's own hub
- * appearance (ui/hubAppearance.js useHubBackdrop): its scene / 鹿乃 photo / this browser's picture or video is the ground
- * layer (ui/hubBackdrop.js HubBackdrop), the official art and 大厅背景与音乐's own scene and file (ui/lobbyMedia.js,
- * PR #643 split 8) lie over it — a scene picked there, or a file, is the override.
+ * over a dark field with a faint grid; without the art pack only the field and the grid. `bg` is the hub appearance
+ * (ui/hubAppearance.js useHubBackdrop): its scene / 鹿乃 photo / this browser's picture or video is the ground layer
+ * (ui/hubBackdrop.js HubBackdrop) and the only backdrop source — v0.3.3's own 大厅背景与音乐 layers (ui/lobbyMedia.js
+ * LobbyScene / OwnBackdrop, PR #643 split 8) drew a second, redundant copy of the same scene and file and are gone.
  */
 function HubBackdrop({ bg }) {
   return html`<div class="hub-bg" data-scene=${backdropScene(bg)} aria-hidden="true">
@@ -501,8 +501,6 @@ function HubBackdrop({ bg }) {
     <${Sprite} k="entry/entry_bkg_01" class="hub-bg__glow" />
     <${Sprite} k="entry/entry_bkg_02" class="hub-bg__ship" />
     <span class="hub-bg__grid"></span>
-    <${LobbyScene} />
-    <${OwnBackdrop} />
   </div>`;
 }
 
@@ -711,9 +709,9 @@ export function LobbyScreen() {
   const [allyOpen, setAllyOpen] = useState(false);
   const [soloOpen, setSoloOpen] = useState(false);
   const [matchOpen, setMatchOpen] = useState(false);
-  // 分支自研: the hub backdrop's preference (ui/hubAppearance.js) and its panel; the branch's 成就 window
+  // 分支自研: the hub backdrop's preference (ui/hubAppearance.js) — its panel is the top bar's 大厅背景与音乐 button
+  // (ui/lobbyMedia.js LobbyMediaButton, which opens 大厅背景 + 大厅音乐 in one window); the branch's 成就 window
   const bg = useHubBackdrop();
-  const [bgOpen, setBgOpen] = useState(false);
   const [achPanel, setAchPanel] = useState(false);
   const [code, setCode] = useState('');
   const [asTest, setAsTest] = useState(false);
@@ -840,8 +838,6 @@ export function LobbyScreen() {
           <${SettingsButton} class="lobby-settings" variant="secondary" square=${true} />
           <${GuideButton} class="lobby-guide" variant="secondary" square=${true} />
           <${UiThemeButton} class="lobby-theme" />
-          <${Button} variant="secondary" size="sm" square=${true} title=${t('大厅背景')} aria-label=${t('大厅背景')}
-            onClick=${() => setBgOpen(true)}><${BackdropGlyph} /><//>
           <${LobbyMediaButton} />
           <${PwaInstallButton} class="lobby-pwa" square=${true} />
         </div>
@@ -890,8 +886,5 @@ export function LobbyScreen() {
       difficulties=${coop} loading=${versionLoading} failed=${versionFailed}
       queue=${matchQueue} onCancel=${cancelMatchmaking} />` : null}
     ${achPanel ? html`<${AchievementPanel} me=${me} onClose=${() => setAchPanel(false)} />` : null}
-    <${Modal} open=${bgOpen} utility=${true} class="hub-backdrop-panel" title=${t('大厅背景')} micro="LOBBY BACKDROP" onClose=${() => setBgOpen(false)}>
-      <${BackdropSettings} bg=${bg} />
-    <//>
   </div>`;
 }

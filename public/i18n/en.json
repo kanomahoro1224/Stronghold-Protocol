@@ -2847,5 +2847,6 @@
   "视频处理中…": "Processing video…",
   "本服务器不要求赞助　扫码纯属自愿": "This server does not ask for sponsorship — scanning the code is entirely voluntary",
   "赞助码（支付宝）": "Sponsorship code (Alipay)",
-  "请将版本切换到第二期下半再勾选": "Switch to Season 2 · Part 2 before ticking this"
+  "请将版本切换到第二期下半再勾选": "Switch to Season 2 · Part 2 before ticking this",
+  "文件只保存在这台浏览器里，不会上传，队友也看不到。音乐不超过 20 MB、6 分钟，替换标题、大厅、房间、开局前和结算时的音乐（外观插件的大厅音乐也被替换），音量跟随「背景音乐」。": "The file stays in this browser: nothing is uploaded and teammates do not see it. Music up to 20 MB and 6 minutes, in place of the music of the title, lobby and room screens, the match start and the results (a cosmetic plugin's lobby music too), at the Music volume."
 }

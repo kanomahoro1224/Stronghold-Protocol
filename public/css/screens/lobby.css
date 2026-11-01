@@ -74,12 +74,9 @@
 .lobby-hub > .hub-topbar > .topbar__right { grid-column: 2; }
 .lobby-hub[data-hub-scene="photo"] .hub-topbar { background: none; border-bottom-color: transparent; }
 
-/* ---- 大厅背景与音乐 (PR #643 split 8, ui/lobbyMedia.js): the player's own picture / video over the official layers,
-   darkened by its 暗度 (--own-dim) so the title and the entries stay readable; the dialog reuses the settings rows ---- */
-.hub-bg__own { position: absolute; inset: 0; background: #050807; animation: hub-own-in 400ms ease-out backwards; }
-.hub-bg__own img, .hub-bg__own video, .hub-bg__own canvas { display: block; width: 100%; height: 100%; object-fit: cover; }
-.hub-bg__own::after { content: ''; position: absolute; inset: 0; background: rgba(5, 8, 7, var(--own-dim, .35)); }
-@keyframes hub-own-in { from { opacity: 0; } }
+/* ---- 大厅背景与音乐 (ui/lobbyMedia.js): the 大厅背景 rows of ui/hubBackdrop.js (BackdropSettings) plus the
+   player's own music. v0.3.3 shipped a second backdrop renderer with its own shade variable; the hub has one
+   backdrop source now, so only the music row and the shared panel chrome live here. ------------------------- */
 .lmedia .modal__body { display: flex; flex-direction: column; gap: .16rem; }
 .lmedia__part { display: flex; flex-direction: column; gap: .1rem; padding: .14rem .16rem; border: 1px solid var(--line); background: rgba(0, 0, 0, .25); }
 .lmedia__head { display: flex; align-items: baseline; gap: .1rem; font-size: calc(.18 * var(--t)); color: var(--text-hi); }
@@ -93,7 +90,9 @@
 .lmedia__note { display: flex; gap: .06rem; margin: 0; font-size: calc(.15 * var(--t)); line-height: 1.6; color: var(--text-lo); }
 .lmedia__note .icon { flex: none; width: .18rem; height: .18rem; margin-top: .04rem; }
 
-/* 大厅场景 (ui/hubScene.js): four generated scenes over the official backdrop; colour tokens per scene ---------- */
+/* 大厅背景 (ui/hubBackdrop.js): the four generated scenes (夜巡/霜原/烬野/静默) drawn over the official layers, and the
+   colour tokens each one and its swatch use. v0.3.3's second scene renderer (ui/hubScene.js, with its own `official`
+   swatch) was the same drawing again and is gone — 大厅背景与音乐's scene rows are these four only. ------------------ */
 [data-hub-theme="night"] {
   --sky-0: #03080a; --sky-1: #08141a; --sky-2: #12262a; --sky-3: #050909;
   --haze: rgba(92, 168, 156, .17); --cloud: rgba(140, 196, 186, .055);
@@ -103,10 +102,6 @@
   --mote: rgba(170, 245, 225, .7);
 }
 /* the official backdrop's swatch: its dark field and glow */
-[data-hub-theme="official"] {
-  --sky-0: #08100f; --sky-1: #0c1a1b; --sky-2: #1b3134; --sky-3: #040606;
-  --ridge-far: transparent; --ridge-mid: transparent; --ridge-near: transparent; --beacon: rgba(150, 220, 230, .7);
-}
 [data-hub-theme="frost"] {
   --sky-0: #070c12; --sky-1: #142029; --sky-2: #34444f; --sky-3: #090d11;
   --haze: rgba(205, 226, 240, .2); --cloud: rgba(220, 236, 246, .08);
@@ -132,7 +127,6 @@
   --mote: transparent;
 }
 
-.hub-scene { position: absolute; inset: 0; pointer-events: none; overflow: hidden; background: var(--sky-3); }
 .hub-bg__sky { position: absolute; inset: 0;
   background: linear-gradient(180deg, var(--sky-0) 0%, var(--sky-1) 36%, var(--sky-2) 63%, var(--sky-3) 100%); }
 .hub-bg__stars { position: absolute; left: 0; top: 0; width: 1px; height: 1px; border-radius: 50%;
@@ -179,8 +173,7 @@
 .bgset__swatch .sw-near { fill: var(--ridge-near); }
 .bgset__swatch .sw-beacon { fill: var(--beacon); }
 @media (prefers-reduced-motion: reduce) {
-  .hub-scene * { animation: none; }
-  .hub-scene .hub-bg__mote { opacity: .3; }
+  .hub-bg .hub-bg__mote { opacity: .3; }
 }
 /* the scene buttons of 大厅背景与音乐 */
 .bgset__themes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .1rem; }
@@ -1221,7 +1214,7 @@ button.ally-card:disabled .ally-card__bar { filter: grayscale(.5) brightness(.8)
 
 @media (prefers-reduced-motion: reduce) {
   .hub-bg__ship, .hub-center, .hub-entry-wrap, .hub-radar__sweep, .proto__pic, .modal__box.proto, .modal__box.ally, .pcard.is-on .pcard__stamp,
-  .mf-radar__sweep, .mf-radar__blip, .mf-blk.is-lit, .hub-bg__own, .lobby-hub .hub-bg, .lobby-hub > .topbar, .lobby-hub .hub-center, .lobby-hub .hub-side,
+  .mf-radar__sweep, .mf-radar__blip, .mf-blk.is-lit, .lobby-hub .hub-bg, .lobby-hub > .topbar, .lobby-hub .hub-center, .lobby-hub .hub-side,
   .lobby-hub .hub-right, .hub-entries .hub-entry-wrap, .proto__bg, .proto-top, .proto-title, .proto-stage, .ally-stage, .proto-list .pcard, .proto-foot,
   .ally-card--create, .ally-card--join, .ally-guide, .pcard.is-on .pcard__ring path, .ps, .ps-fig, .ps-spike, .ps-call, .ps-beacon, .ps-scan { animation: none; }
   .ps-cable__pulse { display: none; }

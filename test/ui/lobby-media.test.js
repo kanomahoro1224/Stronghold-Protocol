@@ -1,16 +1,17 @@
-// test/ui/lobby-media.test.js — 自定义大厅背景与音乐 (PR #643 split 8): which files a slot takes (type, extension, size
-// limits, empty), the saved switches sanitised, the audio manager playing the player's own lobby track from its bytes
+// test/ui/lobby-media.test.js — 自定义大厅音乐 (ui/lobbyMedia.js): which music files the slot takes (type, extension,
+// size limit, empty), the saved switch sanitised, the audio manager playing the player's own lobby track from its bytes
 // (never fetched, only for the 'lobby' key, through the BGM gain; off → the manifest's track; a file that will not decode
 // → the official track and onLobbyTrackFailed; a track already decoded by the file's check is not decoded again), the
 // buffer cache's budget around it (#814 review: a superseded own track's read / decode that finishes late records nothing,
 // so the budget never leaks; a track larger than the whole budget no longer flushes every sound and then itself; an idle
-// track leaves first), the picture / video / music guards (moving pictures sniffed, 2560 px, 1080p, 6 minutes, the
-// storage messages), and the lobby css following 文字大小 without !important. (The browser side: test/ui/lobby-media.e2e.test.js.)
+// track leaves first), the music guards (6 minutes, the storage messages), and the dialog's css following 文字大小
+// without !important. (The browser side: test/ui/lobby-media.e2e.test.js.)
 //
 // This file also carries the branch's own suite (ui/localMedia.js, ui/hubAppearance.js, ui/lobbyMusic.js,
-// ui/hubBackdrop.js, audio.js setLobbyMusic / setLobbyVideoAudio). The two lobby-media implementations were
-// merged side by side (main.js installs both installLobbyMusic and installLobbyMedia, lobby.js nests
-// LobbyScene / OwnBackdrop inside the branch HubBackdrop), so both suites have to run here.
+// ui/hubBackdrop.js, audio.js setLobbyMusic / setLobbyVideoAudio). v0.3.3 shipped a second, redundant copy of the
+// whole backdrop feature inside ui/lobbyMedia.js (its own scene rows, its own picture / video slot, its own renderer
+// over the lobby). The hub's backdrop is ui/hubAppearance.js + ui/hubBackdrop.js alone (大厅背景 panel, 2026-11-01),
+// so that half and its suite are gone; main.js still installs both installLobbyMusic and installLobbyMedia.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -26,7 +27,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const mem = new Map();
 globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
 const {
-  classifyFile, loadMediaPrefs, MEDIA_LIMITS, MAX_EDGE, MUSIC_MAX_S, isAnimatedImage, fitEdge, videoTooLarge, storageError,
+  classifyMusic, loadMediaPrefs, MUSIC_LIMIT, MUSIC_MAX_S, storageError,
 } = await import('../../public/js/ui/lobbyMedia.js');
 const { LOCAL_BGM } = await import('../../public/js/audio.js');
 const { mediaUrl } = await import('../../public/js/media.js');
@@ -245,8 +246,12 @@ test('a held lobby track still yields to the battle, and a local song pauses thr
 test('lobby media uses existing modal management and audio bootstrap without changing battle choices', () => {
   const read = (file) => readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
   assert.match(read('public/js/main.js'), /installLobbyMusic\(\)/);
-  assert.match(read('public/js/screens/lobby.js'), /title=\$\{t\('大厅背景'\)\}/);
-  assert.match(read('public/js/screens/lobby.js'), /open=\$\{bgOpen\} utility=\$\{true\}/);
+  // one topbar button only: the picture icon opens 大厅背景与音乐, and the panel it opens is the hub backdrop's
+  assert.match(read('public/js/screens/lobby.js'), /<\$\{LobbyMediaButton\} \/>/);
+  assert.doesNotMatch(read('public/js/screens/lobby.js'), /bgOpen/, 'no second backdrop button / modal left in the hub');
+  assert.match(read('public/js/ui/lobbyMedia.js'), /class="lmedia hub-backdrop-panel"/);
+  assert.match(read('public/js/ui/lobbyMedia.js'), /<\$\{BackdropSettings\} bg=\$\{bg\} \/>/, 'the backdrop half is ui/hubBackdrop.js');
+  assert.match(read('public/js/ui/lobbyMedia.js'), /data-testid="lobby-media"/);
   assert.match(read('public/js/ui/lobbyMusic.js'), /open=\$\{open\} utility=\$\{true\}/);
   // the video's sound hold reaches the built-in track too, not only an imported song
   assert.match(read('public/js/ui/lobbyMusic.js'), /audio\.setLobbyVideoAudio\(videoAudio\)/);
@@ -256,43 +261,26 @@ test('lobby media uses existing modal management and audio bootstrap without cha
 
 
 // ---- upstream v0.3.3 lobby media: ui/lobbyMedia.js and audio.js setLobbyTrack ------------------------------
-describe('which files a slot takes', () => {
-  test('the backdrop: a picture or an MP4 / WebM video, by type, else by extension', () => {
-    for (const [f, kind] of [
-      [file('a.png', 'image/png'), 'image'], [file('a.jpg', 'image/jpeg'), 'image'], [file('a.webp', 'image/webp'), 'image'],
-      [file('a.gif', 'image/gif'), 'image'], [file('a.avif', 'image/avif'), 'image'], [file('b.mp4', 'video/mp4'), 'video'],
-      [file('b.webm', 'video/webm'), 'video'], [file('noType.JPEG', ''), 'image'], [file('noType.m4v', ''), 'video'],
-    ]) assert.deepEqual(classifyFile(f, 'backdrop'), { ok: true, kind }, f.name);
-    for (const f of [file('a.svg', 'image/svg+xml'), file('a.mov', 'video/quicktime'), file('a.mp3', 'audio/mpeg'), file('a.png', 'text/plain'), file('x', '')]) {
-      const r = classifyFile(f, 'backdrop');
-      assert.equal(r.ok, false, f.name);
-      // the refusal names every picture type it takes
-      for (const kind of ['PNG', 'JPG', 'WebP', 'GIF', 'AVIF', 'MP4', 'WebM']) assert.ok(r.reason.includes(kind), `${f.name}: ${kind}`);
-    }
-  });
+describe('which files the music slot takes', () => {
   test('the music: an audio type, or a known audio extension without a usable type', () => {
     for (const f of [file('a.mp3', 'audio/mpeg'), file('a.m4a', 'audio/mp4'), file('a.ogg', 'audio/ogg'), file('a.wav', 'audio/wav'),
       file('a.flac', 'audio/flac'), file('a.opus', ''), file('a.webm', 'video/webm'), file('a.ogg', 'application/ogg')]) {
-      assert.deepEqual(classifyFile(f, 'music'), { ok: true, kind: 'music' }, `${f.name} ${f.type}`);
+      assert.deepEqual(classifyMusic(f), { ok: true, kind: 'music' }, `${f.name} ${f.type}`);
     }
     for (const f of [file('a.png', 'image/png'), file('a.mp4', 'video/mp4'), file('a.txt', ''), file('a.mid', 'text/plain')]) {
-      assert.equal(classifyFile(f, 'music').ok, false, f.name);
+      assert.equal(classifyMusic(f).ok, false, f.name);
     }
   });
-  test('the size limits (20 / 60 / 20 MB) and an empty file', () => {
-    assert.deepEqual(MEDIA_LIMITS, { image: 20 * MB, video: 60 * MB, music: 20 * MB });
-    assert.equal(classifyFile(file('a.png', 'image/png', 20 * MB), 'backdrop').ok, true);
-    assert.match(classifyFile(file('a.png', 'image/png', 20 * MB + 1), 'backdrop').reason, /20 MB/);
-    assert.equal(classifyFile(file('a.mp4', 'video/mp4', 60 * MB), 'backdrop').ok, true);
-    assert.match(classifyFile(file('a.mp4', 'video/mp4', 60 * MB + 1), 'backdrop').reason, /60 MB/);
-    assert.match(classifyFile(file('a.mp3', 'audio/mpeg', 20 * MB + 1), 'music').reason, /20 MB/);
-    for (const f of [null, file('a.png', 'image/png', 0)]) assert.equal(classifyFile(f, 'backdrop').ok, false);
+  test('the size limit (20 MB) and an empty file', () => {
+    assert.equal(MUSIC_LIMIT, 20 * MB);
+    assert.equal(classifyMusic(file('a.mp3', 'audio/mpeg', 20 * MB)).ok, true);
+    assert.match(classifyMusic(file('a.mp3', 'audio/mpeg', 20 * MB + 1)).reason, /20 MB/);
+    for (const f of [null, file('a.mp3', 'audio/mpeg', 0)]) assert.equal(classifyMusic(f).ok, false);
   });
-  test('the saved switches are sanitised (off by default, 暗度 0–0.8)', () => {
-    assert.deepEqual(loadMediaPrefs(null), { backdrop: false, music: false, dim: 0.35, scene: 'official' });
-    assert.deepEqual(loadMediaPrefs({ backdrop: true, music: 'yes', dim: 3, scene: 'frost' }), { backdrop: true, music: false, dim: 0.8, scene: 'frost' });
-    assert.deepEqual(loadMediaPrefs({ dim: -1, scene: 'sunny' }), { backdrop: false, music: false, dim: 0, scene: 'official' }, 'an unknown scene is the official backdrop');
-    assert.deepEqual(loadMediaPrefs({ dim: 'x' }).dim, 0.35);
+  test('the saved switch is sanitised (off by default)', () => {
+    assert.deepEqual(loadMediaPrefs(null), { music: false });
+    assert.deepEqual(loadMediaPrefs({ music: 'yes' }), { music: false });
+    assert.deepEqual(loadMediaPrefs({ music: true }), { music: true });
   });
 });
 
@@ -519,35 +507,9 @@ describe('the buffer cache around the own track (audio.js _buffer / _trimBuffers
   });
 });
 
-describe('the picture / video / music guards (ui/lobbyMedia.js)', () => {
-  const bytes = (...parts) => new Uint8Array(parts.flatMap((x) => (typeof x === 'string' ? [...Buffer.from(x, 'latin1')] : x)));
-  const u32 = (n) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
-  const chunk = (type, len) => [...u32(len), ...Buffer.from(type, 'latin1'), ...new Array(len).fill(0), 0, 0, 0, 0];
-  const PNG = [0x89, ...Buffer.from('PNG\r\n\x1a\n', 'latin1')];
-  test('a picture that may move is told from its first bytes (GIF, APNG, animated WebP, AVIF sequence)', () => {
-    assert.equal(isAnimatedImage(bytes(PNG, chunk('IHDR', 13), chunk('IDAT', 20), chunk('IEND', 0))), false, 'a PNG');
-    assert.equal(isAnimatedImage(bytes(PNG, chunk('IHDR', 13), chunk('acTL', 8), chunk('fcTL', 26), chunk('IDAT', 20))), true, 'an APNG');
-    assert.equal(isAnimatedImage(bytes(PNG, chunk('IHDR', 13), chunk('IDAT', 20), chunk('acTL', 8))), false, 'acTL after IDAT is not an APNG');
-    assert.equal(isAnimatedImage(bytes('GIF89a', new Array(20).fill(0))), true, 'any GIF');
-    const webp = (fourcc, flags) => bytes('RIFF', [0, 0, 0, 0], 'WEBP', fourcc, [10, 0, 0, 0], [flags, 0, 0, 0], new Array(10).fill(0));
-    assert.equal(isAnimatedImage(webp('VP8 ', 0)), false, 'a lossy WebP');
-    assert.equal(isAnimatedImage(webp('VP8X', 0x10)), false, 'a WebP with alpha');
-    assert.equal(isAnimatedImage(webp('VP8X', 0x12)), true, 'the WebP animation flag');
-    const ftyp = (major, ...compat) => bytes(u32(16 + compat.length * 4), 'ftyp', major, [0, 0, 0, 0], ...compat, new Array(8).fill(0));
-    assert.equal(isAnimatedImage(ftyp('avif', 'mif1', 'miaf')), false, 'an AVIF image');
-    assert.equal(isAnimatedImage(ftyp('avis', 'msf1', 'avif')), true, 'an AVIF sequence');
-    assert.equal(isAnimatedImage(ftyp('msf1', 'avis')), true, 'avis among the compatible brands');
-    assert.equal(isAnimatedImage(bytes([0xff, 0xd8, 0xff, 0xe0], new Array(20).fill(0))), false, 'a JPEG');
-    for (const b of [null, undefined, new Uint8Array(3)]) assert.equal(isAnimatedImage(b), false);
-  });
-  test('the kept sizes: a picture\'s longest edge 2560 px, a video up to 1080p (#643), music up to 6 minutes', () => {
-    assert.equal(MAX_EDGE, 2560);
+describe('the music guards (ui/lobbyMedia.js)', () => {
+  test('the kept length: music up to 6 minutes', () => {
     assert.equal(MUSIC_MAX_S, 6 * 60);
-    assert.deepEqual(fitEdge(4032, 3024), { w: 2560, h: 1920 }, 'a phone photo');
-    assert.deepEqual(fitEdge(3000, 10000), { w: 768, h: 2560 });
-    assert.deepEqual(fitEdge(1920, 1080), { w: 1920, h: 1080 }, 'kept as it is');
-    for (const [w, h] of [[1920, 1080], [1080, 1920], [1280, 720]]) assert.equal(videoTooLarge(w, h), false, `${w}×${h}`);
-    for (const [w, h] of [[2560, 1440], [1920, 1200], [2048, 800], [3840, 2160]]) assert.equal(videoTooLarge(w, h), true, `${w}×${h}`);
   });
   test('a save that fails says 存储空间不足 only for a full quota', () => {
     assert.match(storageError({ name: 'QuotaExceededError' }), /存储空间不足/);
@@ -558,7 +520,7 @@ describe('the picture / video / music guards (ui/lobbyMedia.js)', () => {
   });
 });
 
-test('lobby.css: the own backdrop and its dialog follow 文字大小, no !important / :has()', () => {
+test('lobby.css: 大厅背景与音乐 follows 文字大小, no !important / :has(), and one backdrop source only', () => {
   const css = readFileSync(path.join(ROOT, 'public/css/screens/lobby.css'), 'utf8');
   const start = css.indexOf('/* ---- 大厅背景与音乐');
   assert.ok(start > 0);
@@ -567,6 +529,8 @@ test('lobby.css: the own backdrop and its dialog follow 文字大小, no !import
   assert.ok(sizes.length >= 5);
   for (const v of sizes) assert.match(v, /^calc\(\.\d+ \* var\(--t\)\)$/, v);
   assert.ok(!/!important|:has\(/.test(block));
-  assert.match(block, /\.hub-bg__own::after[^}]*var\(--own-dim/);
-  assert.match(css.slice(css.lastIndexOf('prefers-reduced-motion')), /\.hub-bg__own/);
+  // v0.3.3's second renderer is gone: one backdrop source (ui/hubBackdrop.js), plus the music row
+  assert.doesNotMatch(css, /hub-bg__own|--own-dim|hub-own-in/);
+  assert.match(block, /\.lmedia__now/);
+  assert.match(block.slice(block.indexOf('prefers-reduced-motion')), /\.hub-bg \.hub-bg__mote \{ opacity: \.3; \}/);
 });

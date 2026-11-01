@@ -509,6 +509,9 @@ function MatchScreen() {
   // (last round's battle): combat only enters an m.field pushed after that (a new object), and every new m.field
   // push (watch switch, reconnect) re-enters the battle view.
   const showPrep = (mode === 'prep' || mode === 'boot') && !watchingOther;
+  // The keyboard handler reads it off `live.current` (it runs outside this render): without it Q / X always return
+  // early, so 撤退 / 出售 looked dead after the 0.3.3 merge (upstream sets it right after its own live.current).
+  live.current.showPrep = showPrep;
 
   // public issue #602: while a piece is picked up on the own prep board — a deploy / equip / reposition drag, or the
   // direction wheel a legal drop opens — the official client folds the shop and zooms to the shop-collapsed prep
@@ -1667,14 +1670,9 @@ function MatchScreen() {
         e.preventDefault();
         return;
       }
-      if (act === 'viewEnemies') {
-        if (!L.penAvail) return;
-        e.preventDefault();
-        togglePenRef.current(!L.pen);
-        return;
-      }
-      // Space pauses / resumes a solo battle (the official battle key)
-      if (act === 'pause' && (L.canPause || L.paused)) {
+      // Space pauses / resumes a solo battle (the official battle key: 准备就绪 and the pause share it, as upstream
+      // binds them to one action)
+      if (act === 'ready' && (L.canPause || L.paused)) {
         e.preventDefault();
         if (e.target instanceof HTMLElement && e.target.closest('button, [role="button"]')) e.target.blur();
         togglePauseRef.current(!L.paused);
