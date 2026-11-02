@@ -496,10 +496,13 @@ function SweepPlate({ onClick }) {
  * LobbyScene / OwnBackdrop, PR #643 split 8) drew a second, redundant copy of the same scene and file and are gone.
  */
 function HubBackdrop({ bg }) {
-  return html`<div class="hub-bg" data-scene=${backdropScene(bg)} aria-hidden="true">
+  const scene = backdropScene(bg);
+  // 自定义背景（photo 场景：内置鹿乃图、玩家导入的图片或视频）下不画正中间那两张精灵。它们是画在场景上的装饰，
+  // 叠在玩家自己的图上就是「中间多出来的特效」；整屏的网格、点阵与暗角保留（maintainer 2026-11-02）。
+  return html`<div class="hub-bg" data-scene=${scene} aria-hidden="true">
     <${HubThemeBackdrop} bg=${bg} />
-    <${Sprite} k="entry/entry_bkg_01" class="hub-bg__glow" />
-    <${Sprite} k="entry/entry_bkg_02" class="hub-bg__ship" />
+    ${scene === 'photo' ? null : html`<${Sprite} k="entry/entry_bkg_01" class="hub-bg__glow" />
+      <${Sprite} k="entry/entry_bkg_02" class="hub-bg__ship" />`}
     <span class="hub-bg__grid"></span>
   </div>`;
 }
