@@ -50,12 +50,37 @@ export class PlayerRound {
     this.dirty();
   }
 
+  /**
+   * The chess this player fields right now, in board order — the settlement lineup (results.js `lineupEntries`, the
+   * result screen's ten slots and the team card's ace). Built with the tier, the gear, the 自选 pick and the 补位 mark
+   * the result rows carry, so a snapshot taken here is indistinguishable from one read off a live board.
+   * @returns {any[]}
+   */
+  lineupNow() {
+    const gd = this.gd;
+    return boardOrder(this.board).filter((x) => x.piece.kind === 'chess').map(({ r, c, piece }) => {
+      const e = { id: piece.id, golden: gd.isGolden(piece.id), tier: gd.tierOf(piece.id), row: r, col: c, items: (piece.items || []).map((i) => i.id) };
+      // 0.2.0 自选编队: a DIY slot's pick — the result screen names and draws the operator (shared/diy.js diyRecord)
+      const pick = typeof this.diyPickOf === 'function' ? this.diyPickOf(piece.id) : null;
+      if (pick) e.diy = { charId: pick.charId, skillIndex: pick.skillIndex, uniEquipId: pick.uniEquipId };
+      // 0.2.0 补位: a chess this player fielded as its stand-in — the result screen draws the stand-in (the owner's recall
+      // of the official mode, 2026-10-06); `standInFor` = the replaced operator's charId, like the sim's UnitInfo
+      const si = typeof this.fieldsStandIn === 'function' && this.fieldsStandIn(piece.id) ? gd.standIn(piece.id) : null;
+      if (si && si.standInFor) e.standInFor = si.standInFor;
+      return e;
+    });
+  }
+
   // `effects` are kept: a 信标 gift still pending is delivered to the teammate at the next round start (builtin_gift is
   // flagged afterElimination — GitHub #86); nothing else of an eliminated player is dispatched.
   eliminate(round) {
     this.alive = false;
     this.ready = false;
     this.eliminatedRound = round;
+    // The settlement lineup (results.js lineupEntries): the board is cleared below, and an eliminated or departed seat
+    // would then settle with no lineup at all — the result screen's ten slots read `NO INFO` and the team card loses its
+    // art. Keep the chess it fielded (in board order, with their tier / gear / 自选 / 补位 marks) as it stands now.
+    this.lineupSnapshot = this.lineupNow();
     const all = [];
     for (const p of this.board.values()) all.push(p);
     for (const p of this.hand) if (p) all.push(p);

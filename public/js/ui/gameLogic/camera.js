@@ -96,40 +96,54 @@ export function foldCamera(s) {
 }
 
 /**
- * Whether a deploy interaction temporarily folds the shop and zooms the own prep board (public issue #602 "部署干员、
- * 装备时棋盘缩放": the official client folds the shop and takes the shop-collapsed prep camera while a piece is picked
- * up for 部署干员 / 装备 / repositioning, and while the dropped piece's direction wheel is open, then gives the
- * player's own shop state back — the board was too small to aim on phones): the viewer edits the own prep board
- * (`ownPrep`, `editable`), the camera is not over the enemy pen (`pen`), and a piece is dragged (`drag`) or the
- * direction wheel of a legal drop is open (`facing`; equipment and summons skip the wheel and restore on drop).
- * Unlike a hand-made fold this one never waits for the interaction to end — it zooms as the piece is picked up. It is
- * derived from the interaction state and never writes the player's 收起/展开 state. `enabled` omitted stays on (callers
- * and the default of 设置「部署时收起商店」). Only an explicit false turns the temporary fold off. [ASSUMED] that label.
+ * Whether a deploy interaction temporarily folds the shop (public issue #602 "部署干员、装备时棋盘缩放": the official
+ * client folds the shop while a piece is picked up for 部署干员 / 装备 / repositioning, and while the dropped piece's
+ * direction wheel is open, then gives the player's own shop state back — the board was too small to aim on phones):
+ * the viewer edits the own prep board (`ownPrep`, `editable`), the camera is not over the enemy pen (`pen`), and a
+ * piece is dragged (`drag`) or the direction wheel of a legal drop is open (`facing`; equipment and summons skip the
+ * wheel and restore on drop). Unlike a hand-made fold this one never waits for the interaction to end — it folds as
+ * the piece is picked up. It is derived from the interaction state and never writes the player's 收起/展开 state.
+ *
+ * `enabled` is 设置「部署时收起商店」 (`prepDeployFold`) and defaults OFF (2026-11-02): only an explicit true folds.
+ * The camera zoom of the same interaction is a separate preference (`deployZoom`, `deployZoomsBoard`), so either half
+ * can be wanted alone. The two arguments stay separate on purpose: the old shape took one switch for both.
  * @param {{ ownPrep?: boolean, editable?: boolean, pen?: boolean, drag?: boolean, facing?: boolean, enabled?: boolean }|null|undefined} o
  * @returns {boolean}
  */
 export function deployFoldsShop(o) {
-  if (!o || o.enabled === false) return false;
+  if (!o || o.enabled !== true) return false;
   return !!o.ownPrep && !!o.editable && !o.pen && (!!o.drag || !!o.facing);
 }
 
 /**
- * Whether this frame's deploy fold should zoom the board, and whether a zoom already applied must be given back now.
- * `zoomed` is the previous frame's deploy zoom (the caller remembers it). Turning 设置「部署时收起商店」 off while a
- * piece is still held (`deployFold` becomes false) releases that zoom on this one frame — later frames of the same
+ * Whether the same deploy interaction zooms the own prep board to the shop-collapsed framing — 设置「部署时镜头缩放」
+ * (`deployZoom`, the fork's own `deploymentZoom` restored 2026-11-02). Same interaction test as `deployFoldsShop`;
+ * kept apart so the shop fold and the camera are two preferences (both off by default: a pickup changes nothing).
+ * @param {{ ownPrep?: boolean, editable?: boolean, pen?: boolean, drag?: boolean, facing?: boolean, enabled?: boolean }|null|undefined} o
+ * @returns {boolean}
+ */
+export function deployZoomsBoard(o) {
+  if (!o || o.enabled !== true) return false;
+  return !!o.ownPrep && !!o.editable && !o.pen && (!!o.drag || !!o.facing);
+}
+
+/**
+ * Whether this frame's deploy zoom should zoom the board, and whether a zoom already applied must be given back now.
+ * `zoomed` is the previous frame's deploy zoom (the caller remembers it). Turning 设置「部署时镜头缩放」 off while a
+ * piece is still held (`deployZoom` becomes false) releases that zoom on this one frame — later frames of the same
  * drag do not, so a hand-made 收起 during the rest of the drag still waits (issue #5).
  * @param {boolean} zoomed
- * @param {boolean} deployFold
+ * @param {boolean} deployZoom
  * @returns {{ release: boolean, zoomed: boolean }}
  */
-export function deployZoomStep(zoomed, deployFold) {
-  return { release: !!zoomed && !deployFold, zoomed: !!deployFold };
+export function deployZoomStep(zoomed, deployZoom) {
+  return { release: !!zoomed && !deployZoom, zoomed: !!deployZoom };
 }
 
 /**
  * Whether the deploy zoom is still owed after this frame (`deployZoomedRef`). `step` is `deployZoomStep`;
  * `frame.next` is what `prepDeployCamera` returned for that same step and `frame.pen` is the enemy pen.
- * Turning 设置「部署时收起商店」 off asks for the player's camera on one frame. Opening 敌方情报 during the
+ * Turning 设置「部署时镜头缩放」 off asks for the player's camera on one frame. Opening 敌方情报 during the
  * held drag makes that frame return null (`foldCamera` while `pen`), and forgetting the zoom there left an
  * open shop on the still-zoomed board until the drag ended. A null because the pen is open keeps the zoom
  * owed, so closing the pen still passes `releaseDeploy` while the piece is held. A null only because the
@@ -145,18 +159,22 @@ export function deployZoomRemember(step, frame) {
 }
 
 /**
- * The prep camera this frame: the deploy zoom when `deployFold` (GitHub #602), else the shop fold's camera
- * (`foldCamera`). `releaseDeploy` skips the busy deferral for the one frame a deploy zoom is given back, so turning
- * the setting off mid-drag cannot leave the camera zoomed. A hand-made fold while the setting is off and no deploy
- * zoom is in effect still defers (`busy`).
- * @param {{ pub: any, myId: string|null, deployFold?: boolean, releaseDeploy?: boolean, folded: boolean,
+ * The prep camera this frame: the deploy zoom when `deployZoom` (设置「部署时镜头缩放」, GitHub #602's camera half),
+ * else the shop fold's camera (`foldCamera`). `releaseDeploy` skips the busy deferral for the one frame a deploy zoom
+ * is given back, so turning the setting off mid-drag cannot leave the camera zoomed. A hand-made fold while the
+ * setting is off and no deploy zoom is in effect still defers (`busy`).
+ *
+ * `deployZoom` is the camera preference alone: 设置「部署时收起商店」 (`deployFold`) folds the bar without asking for a
+ * camera here — the bar's own fold already reads `shopFolded` (`foldCamera`), so a fold-only player keeps the camera
+ * they had.
+ * @param {{ pub: any, myId: string|null, deployZoom?: boolean, releaseDeploy?: boolean, folded: boolean,
  *   ownPrep: boolean, pen?: boolean, busy?: boolean,
  *   current?: { kind: string, opts?: { shop?: boolean } }|null }|null|undefined} s
  * @returns {{ kind: 'prep'|'bossPrep', opts: object }|null}
  */
 export function prepDeployCamera(s) {
   if (!s) return null;
-  if (s.deployFold) {
+  if (s.deployZoom) {
     const want = prepCameraFor(s.pub, s.myId, true);
     const cur = s.current;
     if (cur && cur.kind === want.kind && cur.opts?.shop === false) return null;

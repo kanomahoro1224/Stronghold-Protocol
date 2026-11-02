@@ -45,9 +45,14 @@ export const UI_THEMES = Object.freeze(['default', 'glass']);
  *  bondTimers: selected-unit timed bond readouts (#746), off by default. [ASSUMED] Convenience HUD absent from
  *  the official game; maintainer approved 2026-10-18. Stored with the other preferences in sp.pref.settings.
  *  combatMetrics: 设置「作战统计」 (PR #618), off by default: the official HUD has no such panel.
- *  prepDeployFold: 设置「部署时收起商店」 — picking up a piece on the own prep board folds the shop and zooms
- *  (GitHub #602, PR #646). Default on (the 0.3.0 behaviour). Off: the pickup changes neither the shop's fold nor the
- *  camera. [ASSUMED] the label; only an explicit false turns it off (a missing or junk value stays on).
+ *  prepDeployFold: 设置「部署时收起商店」 — picking up a piece on the own prep board folds the shop
+ *  (GitHub #602, PR #646). Default off (the maintainer's decision of 2026-11-02: the fold changed the shop and the
+ *  camera under the player's hands, so it is opt-in). Only an explicit true turns it on.
+ *  deployZoom: 设置「部署时镜头缩放」 — the same interaction zooms the own prep board to the shop-collapsed framing
+ *  (the fork's own `deploymentZoom`, restored on 2026-11-02 as its own switch next to 部署时收起商店: folding the shop
+ *  bar and moving the camera are two different changes, and either can be wanted alone). Default off, only an explicit
+ *  true turns it on. `prepDeployFold` is the fold alone, this is the camera alone; with both off a pickup changes
+ *  neither.
  *  officialFx: 设置「官方特效」 (0.3.0, render/vfx): 'auto' (完整 on a desktop, 精简 on a touch device — render/vfx/tier.js),
  *  'off', 'lite' (精简), 'full' (完整); only shown when effects were extracted from the local client.
  *  otherSkins: 设置「显示其他玩家的皮肤」 (docs/SKINS.md), ON by default — draw the appearance another player chose instead
@@ -55,7 +60,7 @@ export const UI_THEMES = Object.freeze(['default', 'glass']);
  *  fpsLimit: normalizeFrameRate (frameRate.js) — the render loop's cap, 0 = uncapped. Shortcuts persist separately.
  *  preload / preloadOptional / preloadVoiceLang: the asset preload panel (docs/ASSETS.md「Preload」).
  */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: true, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: Object.freeze(['cn']), keys: DEFAULT_HOTKEYS });
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: false, deployZoom: false, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: Object.freeze(['cn']), keys: DEFAULT_HOTKEYS });
 const QUALITIES = ['high', 'medium', 'low'];
 /** The values of 设置「官方特效」 (render/vfx/tier.js OFFICIAL_FX). Display order in the dialog is low / medium / high. */
 export const OFFICIAL_FX_MODES = Object.freeze(['auto', 'off', 'lite', 'full']);
@@ -72,9 +77,10 @@ function ammoEnergyCountOf(r) {
 }
 
 /**
- * Sanitize persisted settings. Retired keys `ammoCount` and `mysticEnergy` are read here and never returned.
+ * Sanitize persisted settings. Retired keys `ammoCount`, `mysticEnergy` and `deploymentZoom` are read here and never
+ * returned under the old names.
  * @param {any} raw
- * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoEnergyCount: boolean, fullscreenWakeLock: boolean, bondTimers: boolean, combatMetrics: boolean, prepDeployFold: boolean, quality: 'high'|'medium'|'low', fpsLimit: number, preload: boolean, preloadOptional: boolean, preloadVoiceLang: string[], officialFx: 'auto'|'off'|'lite'|'full', otherSkins: boolean,
+ * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoEnergyCount: boolean, fullscreenWakeLock: boolean, bondTimers: boolean, combatMetrics: boolean, prepDeployFold: boolean, deployZoom: boolean, quality: 'high'|'medium'|'low', fpsLimit: number, preload: boolean, preloadOptional: boolean, preloadVoiceLang: string[], officialFx: 'auto'|'off'|'lite'|'full', otherSkins: boolean,
  *   textSize: 'sm'|'md'|'lg'|'xl', uiTheme: 'default'|'glass', keys: Record<'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
  */
 export function sanitizeSettings(raw) {
@@ -93,7 +99,10 @@ export function sanitizeSettings(raw) {
     ammoEnergyCount: ammoEnergyCountOf(r),
     bondTimers: r.bondTimers === true,
     combatMetrics: typeof r.combatMetrics === 'boolean' ? r.combatMetrics : DEFAULT_SETTINGS.combatMetrics,
-    prepDeployFold: typeof r.prepDeployFold === 'boolean' ? r.prepDeployFold : true,
+    prepDeployFold: typeof r.prepDeployFold === 'boolean' ? r.prepDeployFold : false,
+    // the fork's own 部署时镜头缩放: the retired `deploymentZoom` key is read here (a profile written before the merge
+    // keeps its choice) and never written back under the old name.
+    deployZoom: typeof r.deployZoom === 'boolean' ? r.deployZoom : r.deploymentZoom === true,
     fullscreenWakeLock: typeof r.fullscreenWakeLock === 'boolean' ? r.fullscreenWakeLock : DEFAULT_SETTINGS.fullscreenWakeLock,
     quality: QUALITIES.includes(r.quality) ? r.quality : DEFAULT_SETTINGS.quality,
     fpsLimit: normalizeFrameRate(r.fpsLimit),

@@ -241,6 +241,13 @@ export class PlayerState {
       bossDamage: 0, lpLost: 0, buys: 0, sells: 0, perfectRounds: 0, fundsGained: 0, healing: 0,
     };
     this.eliminatedRound = null;
+    /**
+     * The chess this player fielded when it was eliminated or left (results.js `lineupEntries`): `eliminate` clears the
+     * board, so the settlement lineup would otherwise be empty for every seat that did not play to the end — the result
+     * screen's ten slots read `NO INFO` and the team card loses its art. null = still in (read the board).
+     * @type {any[] | null}
+     */
+    this.lineupSnapshot = null;
     this.creditedKills = 0;
     this.lpAtFinal = null;
     /** last combat result for this player (unite carry state, bounties) */

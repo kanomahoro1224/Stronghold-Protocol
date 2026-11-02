@@ -84,6 +84,32 @@ function rewardFor(gd, roundsPassed) {
 }
 
 /**
+ * The chess a player fields, in board order — the settlement lineup (the result screen's ten slots and the team card's
+ * ace). Read from the board while the player is in.
+ *
+ * An eliminated or departed player's board is already gone by then: player/round.js `eliminate` returns every copy to
+ * the pool and clears the board (and the hand / temp / shop with it), so the lineup is read from the snapshot `eliminate`
+ * took first — without it every eliminated or disconnected seat settled as an empty lineup, which the result screen drew
+ * as ten `NO INFO` slots and a team card with no art (the maintainer's report of 2026-11-02).
+ * @param {any} ps @param {any} gd
+ * @returns {any[]}
+ */
+export function lineupEntries(ps, gd) {
+  if (!ps?.board || ps.board.size === 0) return Array.isArray(ps?.lineupSnapshot) ? ps.lineupSnapshot : [];
+  return boardOrder(ps.board).filter((x) => x.piece.kind === 'chess').map(({ r, c, piece }) => {
+    const e = { id: piece.id, golden: gd.isGolden(piece.id), tier: gd.tierOf(piece.id), row: r, col: c, items: (piece.items || []).map((i) => i.id) };
+    // 0.2.0 自选编队: a DIY slot's pick — the result screen names and draws the operator (shared/diy.js diyRecord)
+    const pick = typeof ps.diyPickOf === 'function' ? ps.diyPickOf(piece.id) : null;
+    if (pick) e.diy = { charId: pick.charId, skillIndex: pick.skillIndex, uniEquipId: pick.uniEquipId };
+    // 0.2.0 补位: a chess this player fielded as its stand-in — the result screen draws the stand-in (the owner's recall
+    // of the official mode, 2026-10-06); `standInFor` = the replaced operator's charId, like the sim's UnitInfo
+    const si = typeof ps.fieldsStandIn === 'function' && ps.fieldsStandIn(piece.id) ? gd.standIn(piece.id) : null;
+    if (si && si.standInFor) e.standInFor = si.standInFor;
+    return e;
+  });
+}
+
+/**
  * @param {import('./Match.js').Match} m
  * @param {{ victory: boolean, hiddenReached: boolean, hiddenCleared: boolean, reason: string }} outcome
  */
@@ -95,17 +121,7 @@ export function buildResult(m, outcome) {
   const teamRounds = victory ? gd.bossRound + (hiddenCleared ? 1 : 0) : Math.max(0, Math.min(m.round, gd.bossRound) - 1);
   const rows = players.map((ps) => {
     const roundsPassed = !ps.alive && ps.eliminatedRound != null ? Math.max(0, ps.eliminatedRound - 1) : teamRounds;
-    const lineup = boardOrder(ps.board).filter((x) => x.piece.kind === 'chess').map(({ r, c, piece }) => {
-      const e = { id: piece.id, golden: gd.isGolden(piece.id), tier: gd.tierOf(piece.id), row: r, col: c, items: (piece.items || []).map((i) => i.id) };
-      // 0.2.0 自选编队: a DIY slot's pick — the result screen names and draws the operator (shared/diy.js diyRecord)
-      const pick = typeof ps.diyPickOf === 'function' ? ps.diyPickOf(piece.id) : null;
-      if (pick) e.diy = { charId: pick.charId, skillIndex: pick.skillIndex, uniEquipId: pick.uniEquipId };
-      // 0.2.0 补位: a chess this player fielded as its stand-in — the result screen draws the stand-in (the owner's recall
-      // of the official mode, 2026-10-06); `standInFor` = the replaced operator's charId, like the sim's UnitInfo
-      const si = typeof ps.fieldsStandIn === 'function' && ps.fieldsStandIn(piece.id) ? gd.standIn(piece.id) : null;
-      if (si && si.standInFor) e.standInFor = si.standInFor;
-      return e;
-    });
+    const lineup = lineupEntries(ps, gd);
     // the team's clear counts for the players still in; an eliminated / departed teammate did not pass the boss round
     const cleared = victory && ps.alive;
     return {

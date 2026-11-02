@@ -749,7 +749,7 @@ describe('keyboard & settings', () => {
   test('sanitizeSettings', () => {
     assert.deepEqual(sanitizeSettings(null), { ...DEFAULT_SETTINGS });
     assert.deepEqual(sanitizeSettings({ bgm: 3, sfx: -1, voice: 2, muted: 'yes', damageNumbers: false, quality: 'ultra' }),
-      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, voiceOverrides: {}, muted: false, damageNumbers: false, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: true, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: ['cn'], keys: { ...DEFAULT_SETTINGS.keys } },
+      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, voiceOverrides: {}, muted: false, damageNumbers: false, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: false, deployZoom: false, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: ['cn'], keys: { ...DEFAULT_SETTINGS.keys } },
       'a saved profile without `keys` (before 0.2.0) gets the default key map (test/ui/feedback5-hotkeys.test.js)');
     // 显示其他玩家的皮肤 (docs/SKINS.md): on by default, and off only when the profile says so
     assert.equal(DEFAULT_SETTINGS.otherSkins, true);
@@ -772,12 +772,22 @@ describe('keyboard & settings', () => {
     assert.equal(sanitizeSettings({ bgm: 0.5 }).combatMetrics, false, 'a profile saved before 作战统计 stays off');
     assert.equal(sanitizeSettings({ combatMetrics: true }).combatMetrics, true);
     assert.equal(sanitizeSettings({ combatMetrics: 'yes' }).combatMetrics, false, 'a non-boolean stays off');
-    // the branch's opt-in 「部署时镜头缩放」 (deploymentZoom) is retired: upstream 0.3.3 replaced it with
-    // 「部署时收起商店」 (prepDeployFold), on by default, and the retired key is neither read nor written back.
+    // 部署时收起商店 (upstream 0.3.3) and 部署时镜头缩放 (the fork's own `deploymentZoom`, restored beside it as
+    // `deployZoom` on 2026-11-02) are two opt-in switches, both off by default: the pickup folds the bar, takes the
+    // camera, or neither. The retired `deploymentZoom` key is read into `deployZoom` and never written back.
+    assert.equal(DEFAULT_SETTINGS.prepDeployFold, false);
+    assert.equal(DEFAULT_SETTINGS.deployZoom, false);
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).prepDeployFold, false, 'a profile saved before 部署时收起商店 stays off');
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).deployZoom, false, 'a profile saved before 部署时镜头缩放 stays off');
+    assert.equal(sanitizeSettings({ prepDeployFold: true }).prepDeployFold, true);
+    assert.equal(sanitizeSettings({ prepDeployFold: 'yes' }).prepDeployFold, false, 'a non-boolean stays off');
+    assert.equal(sanitizeSettings({ deployZoom: true }).deployZoom, true);
+    assert.equal(sanitizeSettings({ deployZoom: 'yes' }).deployZoom, false, 'a non-boolean stays off');
     assert.equal(Object.hasOwn(DEFAULT_SETTINGS, 'deploymentZoom'), false);
-    assert.equal(Object.hasOwn(sanitizeSettings({ deploymentZoom: true }), 'deploymentZoom'), false);
-    assert.equal(DEFAULT_SETTINGS.prepDeployFold, true);
-    assert.equal(sanitizeSettings({ deploymentZoom: true }).prepDeployFold, true, 'the retired key never turns 部署时收起商店 off');
+    assert.equal(Object.hasOwn(sanitizeSettings({ deploymentZoom: true }), 'deploymentZoom'), false, 'never written back under the old name');
+    assert.equal(sanitizeSettings({ deploymentZoom: true }).deployZoom, true, 'a profile written before the merge keeps its 部署时镜头缩放');
+    assert.equal(sanitizeSettings({ deploymentZoom: true }).prepDeployFold, false, 'the retired key never turns 部署时收起商店 on');
+    assert.equal(sanitizeSettings({ deployZoom: false, deploymentZoom: true }).deployZoom, false, 'the new key wins over the retired one');
     assert.equal(sanitizeSettings({ voiceLang: 'jp' }).voiceLang, 'jp');
     assert.equal(sanitizeSettings({ voiceLang: 'en' }).voiceLang, 'en');
     assert.equal(sanitizeSettings({ voiceLang: 'kr' }).voiceLang, 'kr');

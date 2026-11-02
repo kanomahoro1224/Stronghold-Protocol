@@ -126,3 +126,62 @@ test('co-op trophies / victory follow each player\'s OWN rounds passed: a teamma
   assert.equal(res.victory, true, 'the team result is still a win');
   m.dispose();
 });
+
+// The settlement used to show nothing for a seat that left or was eliminated: `buildResult` read the lineup from
+// `ps.board`, and `eliminate` clears that board (player/round.js), so those rows arrived with `lineup: []` and the
+// client drew NO INFO / the initial instead of the operators. The seat now keeps `lineupSnapshot`, taken as the board
+// is cleared, and `lineupEntries` falls back to it. Both elimination paths are covered here: the LP settlement
+// (settle.js) and leaving the match (platform.js onLeave).
+test('a seat eliminated by LP loss still reports the lineup it had when it went out', () => {
+  const h = makeMatch({ mode: 'coop', difficulty: 'NORMAL', humans: 2, seed: 33, fake: true,
+    script: (b) => (b.kind === 'boss' ? { bossDps: b.sharedBoss.maxHp / 60 } : {}) }).start();
+  h.autoHumans();
+  // the autoplay buys and deploys on its own, so the board fills in the first prep (forcing `ready` would end prep
+  // before it deploys, leaving every board empty and the assertion below vacuous)
+  assert.ok(h.run(() => h.ps('p_1').board.size > 0), 'the autoplayed board grew before the elimination');
+  const before = h.ps('p_1').board.size;
+  h.ps('p_1').lp = 0;
+  const end = h.runToEnd();
+  const row = (pid) => end.players.find((p) => p.playerId === pid);
+  assert.equal(row('p_1').alive, false);
+  assert.equal(h.ps('p_1').board.size, 0, 'the live board is cleared on elimination');
+  assert.ok(Array.isArray(row('p_1').lineup), 'lineup is an array');
+  assert.ok(row('p_1').lineup.length >= before && row('p_1').lineup.length > 0,
+    `the pre-elimination lineup is reported (${row('p_1').lineup.length} ≥ ${before})`);
+  for (const u of row('p_1').lineup) assert.ok(u && typeof u.id === 'string' && u.id, `a real operator id (${JSON.stringify(u)})`);
+  assert.ok(row('p_0').lineup.length > 0, 'the survivor reads its board as before');
+  h.m.dispose();
+});
+
+test('a seat that leaves the match reports its lineup too (onLeave clears the board the same way)', () => {
+  const h = makeMatch({ mode: 'coop', difficulty: 'NORMAL', humans: 2, seed: 34, fake: true }).start();
+  h.autoHumans();
+  assert.ok(h.run(() => h.ps('p_1').board.size > 0), 'the autoplayed board grew before the leave');
+  const before = h.ps('p_1').board.size;
+  h.m.onLeave('p_1');
+  assert.equal(h.ended, null, 'a human is still there');
+  h.m.onLeave('p_0');
+  const end = h.ended;
+  assert.ok(end, 'the match ended when the last human left');
+  const row = (pid) => end.players.find((p) => p.playerId === pid);
+  assert.equal(h.ps('p_1').board.size, 0, 'the board of the seat that left is cleared');
+  assert.ok(row('p_1').lineup.length >= before && row('p_1').lineup.length > 0,
+    `the lineup it had when it left is reported (${row('p_1').lineup.length} ≥ ${before})`);
+  for (const u of row('p_1').lineup) assert.ok(u && typeof u.id === 'string' && u.id, `a real operator id (${JSON.stringify(u)})`);
+  h.m.dispose();
+});
+
+test('lineupEntries: a live board wins over a stale snapshot, an empty board without one stays empty', async () => {
+  const { lineupEntries } = await import('../../server/match/results.js');
+  const h = makeMatch({ mode: 'coop', difficulty: 'NORMAL', humans: 2, seed: 35, fake: true }).start();
+  h.autoHumans();
+  assert.ok(h.run(() => h.ps('p_1').board.size > 0));
+  const ps = h.ps('p_1');
+  const live = lineupEntries(ps, h.m.gd);
+  assert.ok(live.length > 0 && live.length <= ps.board.size, `the live board is read (${live.length} of ${ps.board.size} tiles)`);
+  for (const u of live) assert.equal(typeof u.id, 'string');
+  assert.deepEqual(lineupEntries({ board: new Map(), lineupSnapshot: live }, h.m.gd), live, 'the snapshot answers for a cleared board');
+  assert.deepEqual(lineupEntries({ board: new Map(), lineupSnapshot: null }, h.m.gd), [], 'no board and no snapshot: empty, not a crash');
+  assert.deepEqual(lineupEntries(null, h.m.gd), [], 'a missing seat is empty');
+  h.m.dispose();
+});
