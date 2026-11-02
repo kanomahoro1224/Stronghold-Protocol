@@ -293,7 +293,10 @@ export function installDeviceSupport(win = globalThis) {
     for (const [k, v] of Object.entries(cls)) root.classList.toggle(k, v);
   };
   apply();
-  for (const q of ['(any-pointer: coarse)', '(pointer: coarse)', '(any-hover: hover)', '(prefers-reduced-motion: reduce)', '(display-mode: standalone)']) {
+  // (orientation: portrait) is in this list on purpose: the rotate hint's class must follow the VIEWPORT, and some
+  // browsers (notably Android WebViews) fire neither orientationchange nor screen.orientation's change, which left
+  // sp-rotatable stuck on and the 请将设备横屏 cover up after the device had been turned.
+  for (const q of ['(any-pointer: coarse)', '(pointer: coarse)', '(any-hover: hover)', '(prefers-reduced-motion: reduce)', '(display-mode: standalone)', '(orientation: portrait)']) {
     let m = null;
     try { m = win.matchMedia?.(q); } catch { m = null; }
     if (!m) continue;

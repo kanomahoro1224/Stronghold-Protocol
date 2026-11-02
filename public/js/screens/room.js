@@ -487,6 +487,9 @@ function GoButton({ label, onClick, disabled, loading = false, ready = null, ico
 /** How long a version proposal refused as too frequent (RATE) waits before it is sent once more [ASSUMED]. */
 const PROPOSE_RETRY_MS = 1200;
 
+/** How long 启用控制台 counts down before 确定启用 unlocks (the branch's console guard, room.js ConsoleWarning). */
+const CONSOLE_ARM_MS = 5000;
+
 /** Room screen component. */
 export function RoomScreen() {
   const room = useStore((s) => s.room);
@@ -509,11 +512,23 @@ export function RoomScreen() {
   const localSkins = useStore((s) => s[SKINS_KEY], Object.is, skinsStore);
   const otherSkins = useStore((s) => s.otherSkins !== false, Object.is, settingsStore);
   const [matchTeammates, setMatchTeammates] = useState(false);
+  // 控制台: the host arms it with a 5 s countdown (ConsoleWarning), so a misclick cannot open a room's console
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  const [consoleReadyAt, setConsoleReadyAt] = useState(0);
+  const [consoleNow, setConsoleNow] = useState(() => Date.now());
   const [picking, setPicking] = useState(false);
   // 公共匹配（同盟匹配）只有第二期下半这一套内容：房间换成别的官方版本时，已经勾上的「匹配同盟队友」自动取消，
   // 勾选框也不再能被勾上（点了只提示怎么改回来；服务端 match.join 同样会拒绝）
   const versionRoom = roomVersion(room) !== DEFAULT_VERSION;
   useEffect(() => { if (versionRoom) setMatchTeammates(false); }, [versionRoom]);
+  // the countdown in 启用控制台 ticks while the warning is up (the confirm button unlocks at 0)
+  useEffect(() => {
+    if (!consoleOpen) return undefined;
+    const id = setInterval(() => setConsoleNow(Date.now()), 200);
+    return () => clearInterval(id);
+  }, [consoleOpen]);
+  // a console room cannot queue for the public match: the server refuses it (lobby.js matchJoin) — un-tick the box here
+  useEffect(() => { if (room?.consoleEnabled) setMatchTeammates(false); }, [room?.consoleEnabled]);
   // the room whose seats are on screen: a seat card that mounts after its first render is new (an AI teammate added)
   const shownRoom = useRef('');
   useEffect(() => { shownRoom.current = room?.code || ''; });
@@ -602,6 +617,22 @@ export function RoomScreen() {
     if (ok) run(`kick${seat}`, () => net.request('room.kick', { seat, playerId }));
   };
   const setDifficulty = (difficulty) => run('diff', () => net.request('room.setDifficulty', { difficulty }));
+  // 控制台 (room.console.enable / room.console.disable): the host only — a solo player is their own host. Opening it asks
+  // first (ConsoleWarning, 5 s), because a console room can no longer queue for the public match and the sim may be
+  // seriously unbalanced.
+  const openConsole = () => {
+    if (room.consoleEnabled || room.matching || !canManageConsole) return;
+    setConsoleReadyAt(Date.now() + CONSOLE_ARM_MS);
+    setConsoleNow(Date.now());
+    setConsoleOpen(true);
+  };
+  const disableConsole = () => run('console-disable', () => net.request('room.console.disable', {}));
+  const confirmConsole = () => run('console', async () => {
+    if (Date.now() < consoleReadyAt) return;
+    await net.request('room.console.enable', {});
+    setConsoleOpen(false);
+  });
+  const cancelConsole = () => setConsoleOpen(false);
   const setAiTakeover = (on) => run('aihandover', () => net.request('room.setAiTakeover', { on }));
   const setAiLast = (on) => run('ailast', () => net.request('room.setAiPicksLast', { on }));
   // the room is the authority; the lobby card reads the same pref the next time this browser creates a solo room
@@ -797,6 +828,11 @@ export function RoomScreen() {
             title=${facts.isHost ? t('更改模拟难度') : t('由创建者选择')}><${DifficultyIcon} difficulty=${room.difficulty} />${DIFFICULTY_NAMES[room.difficulty] ? t(DIFFICULTY_NAMES[room.difficulty]) : ''}<span class="num rs-pill__code">${info.code}</span></button>
           ${versionCtl ? html`<${Tooltip} text=${versionCtl.why} class="rs-pill__version"><button type="button" class=${`rs-pill__ver${versionCtl.editable ? '' : ' is-ro'}`} data-testid="room-version"
             disabled=${versionCtl.disabled} onClick=${versionCtl.onOpen} aria-label=${t('游戏版本：{name}', { name: versionLabel(curVersion) })}><${Icon} name="book" /><span class="rs-pill__vername">${versionLabel(curVersion)}</span></button><//>` : null}
+          ${canManageConsole ? html`<${Tooltip} text=${room.consoleEnabled ? t('关闭控制台') : room.matching ? t('匹配中不能启用控制台') : t('启用控制台')} class="rs-pill__console"><button type="button"
+            class=${`rs-pill__con${room.consoleEnabled ? ' is-on' : ''}`} data-testid="room-console" aria-pressed=${room.consoleEnabled ? 'true' : 'false'}
+            disabled=${(!room.consoleEnabled && !!room.matching) || !online || busy === 'console' || busy === 'console-disable'}
+            onClick=${room.consoleEnabled ? disableConsole : openConsole} aria-label=${room.consoleEnabled ? t('关闭控制台') : t('启用控制台')}><${Icon} name="terminal" /></button><//>`
+            : room.consoleEnabled ? html`<span class="rs-pill__con is-on is-ro" title=${t('控制台已启用')}><${Icon} name="terminal" /></span>` : null}
           ${aiLast || soloOpt ? html`<button type="button" class=${`rs-pill__gear${opts ? ' is-on' : ''}`} onClick=${() => setOpts((v) => !v)} title=${aiLast ? t('同盟设置') : t('模拟设置')} aria-label=${aiLast ? t('同盟设置') : t('模拟设置')}
             aria-expanded=${opts ? 'true' : 'false'}><${GearGlyph} /></button>` : null}
           ${opts && (aiLast || soloOpt) ? html`<${RoomOptions} takeoverOption=${aiTakeoverOption(room, me.playerId)} onAiTakeover=${setAiTakeover} option=${aiLast} soloOption=${soloOpt} room=${room} isHost=${facts.isHost} busy=${busy} onAiLast=${setAiLast}
@@ -829,6 +865,8 @@ export function RoomScreen() {
             <//>`}
       </div>
     </footer>
+    <${ConsoleWarning} open=${consoleOpen} remaining=${Math.max(0, Math.ceil((consoleReadyAt - consoleNow) / 1000))}
+      busy=${busy === 'console'} onCancel=${cancelConsole} onConfirm=${confirmConsole} />
     ${picking ? html`<${CardPicker} current=${myCard} list=${cardList} m=${data.get('assets')} localSkins=${localSkins} onPick=${pickCard} onClose=${() => setPicking(false)} />` : null}
     ${protoOpen ? facts.isHost
       ? html`<${ProtocolSelect} roomMode=${room.mode} difficulty=${protoPick || room.difficulty} onDifficulty=${setProtoPick} onClose=${closeProto}

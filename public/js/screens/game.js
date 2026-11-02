@@ -105,7 +105,7 @@ import { EmoteWheel } from '../ui/emotes.js';
 import { EffectsList } from '../ui/effectsList.js';
 import { CombatHud } from '../ui/combatHud.js';
 import { CombatMetricsPanel } from '../ui/combatMetrics.js';
-import { SettingsModal, shortcutsStore, useSettings } from '../ui/settings.js';
+import { SettingsModal, settingsStore, shortcutsStore, useSettings } from '../ui/settings.js';
 import { ConsoleModal } from '../ui/console.js';
 import { ExitModal, AwayOverlay, awayStore } from '../ui/matchChrome.js';
 import { RoundPopup, PhasePopup, phasePopupOf, roundsToBoss, preloadPopupArt } from '../ui/matchPopups.js';
@@ -154,6 +154,14 @@ import { contentSet } from '../content.js';
 import { DEFAULT_VERSION, shownVersion } from '../versions.js';
 import { VersionVote } from '../ui/versionVote.js';
 import { TestConsole } from '../ui/testConsole.js';
+
+// 作战统计 is opt-in (settings `combatMetrics`, default off). The runner does not import the settings store; this screen
+// pushes the switch. Outside a browser battleRunner is null, so this is a no-op.
+if (battleRunner) {
+  const applyCombatMetrics = (s) => battleRunner.setCombatMetrics(s?.combatMetrics === true);
+  applyCombatMetrics(settingsStore.get());
+  settingsStore.subscribe(applyCombatMetrics);
+}
 
 
 /**

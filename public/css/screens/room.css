@@ -575,6 +575,26 @@
 }
 .rs-pill__gear svg { width: 62%; height: 62%; fill: currentColor; }
 .rs-pill__gear.is-on, .rs-pill__gear:hover, .rs-pill__gear:focus-visible { background: #fff; }
+/* 控制台 (room.console.enable): a small terminal key in the pill; red once the room's console is on. The read-only form
+   (another doctor's page) is a plain span, no hover */
+.rs-pill__con {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: max(.44rem, 28px);
+  height: max(.44rem, 28px);
+  padding: 0;
+  color: #cfd6d3;
+  background: rgba(255, 255, 255, .08);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.rs-pill__con .icon { width: 62%; height: 62%; }
+.rs-pill__con:hover:not(:disabled), .rs-pill__con:focus-visible { background: rgba(255, 255, 255, .18); }
+.rs-pill__con:disabled { cursor: default; opacity: .45; }
+.rs-pill__con.is-on { color: #0e0f0f; background: var(--red-premium); }
+.rs-pill__con.is-ro { cursor: help; }
 .rs-opts {
   position: absolute;
   left: 50%;
