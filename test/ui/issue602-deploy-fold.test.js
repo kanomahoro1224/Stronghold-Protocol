@@ -24,7 +24,7 @@ const { FOLD_CAMERA_MS, CAMERA_MS } = await import('../../public/js/render/app/t
 // ---- the choice (gameLogic deployFoldsShop) -----------------------------------------------------------------------
 
 describe('deployFoldsShop: the deploy interaction temporarily folds the shop', () => {
-  const own = { ownPrep: true, editable: true, pen: false };
+  const own = { ownPrep: true, editable: true, pen: false, enabled: true };
 
   test('a dragged piece or the open direction wheel on the editable own prep board folds it', () => {
     assert.equal(deployFoldsShop({ ...own, drag: true }), true, 'piece picked up (operator / equipment / summon)');

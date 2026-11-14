@@ -48,6 +48,9 @@ async function createRoom(c, mode = 'coop') {
   return c.waitFor('room.state', (s) => s.hostId === c.id && s.mode === mode);
 }
 const seatOf = (state, id) => state.seats.find((s) => s && s.playerId === id);
+// 本分支的名片是 `{ charId, avatar }`（PR #643 split 6 的扩展）；老版本/其他线路存的是纯 charId 字符串。
+const cardId = (seat) => (seat && seat.card ? (typeof seat.card === 'string' ? seat.card : seat.card.charId) : null);
+const cardAvatar = (seat) => (seat && seat.card && typeof seat.card === 'object' ? seat.card.avatar : '');
 
 describe('room.card (lobby, stub match)', () => {
   let srv;
@@ -64,9 +67,11 @@ describe('room.card (lobby, stub match)', () => {
     const c = await pool.player('Wire');
     await ok(c, { t: 'room.card', charId: OPERATOR });
     await ok(c, { t: 'room.card', charId: '' });
-    for (const charId of ['chess_char_1_01_a', 7, null, 'char_498 inside', `char_1_${'x'.repeat(70)}`]) {
+    for (const charId of ['chess_char_1_01_a', 7, null, 'char_498 inside']) {
       await err(c, { t: 'room.card', charId }, ERR.BAD_MSG);
     }
+    // 形状合法（char_ 前缀、长度在上限内）但不在本版本 chess.json 里：本分支回 BAD_TARGET
+    await err(c, { t: 'room.card', charId: `char_1_${'x'.repeat(70)}` }, ERR.BAD_TARGET);
     await err(c, { t: 'room.card' }, ERR.BAD_MSG);
   });
 
@@ -74,20 +79,20 @@ describe('room.card (lobby, stub match)', () => {
     const host = await pool.player('Host');
     await createRoom(host);
     await ok(host, { t: 'room.card', charId: OPERATOR });
-    await host.waitFor('room.state', (s) => seatOf(s, host.id)?.card === OPERATOR);
+    await host.waitFor('room.state', (s) => cardId(seatOf(s, host.id)) === OPERATOR);
     // 自选编队 operator (#877): no chess record of its own, but a real operator of the room version's pool
     await ok(host, { t: 'room.card', charId: DIY_ONLY });
-    await host.waitFor('room.state', (s) => seatOf(s, host.id)?.card === DIY_ONLY);
+    await host.waitFor('room.state', (s) => cardId(seatOf(s, host.id)) === DIY_ONLY);
     await ok(host, { t: 'room.card', charId: OPERATOR });
-    await host.waitFor('room.state', (s) => seatOf(s, host.id)?.card === OPERATOR);
+    await host.waitFor('room.state', (s) => cardId(seatOf(s, host.id)) === OPERATOR);
     for (const charId of [HIDDEN, STAND_IN, 'char_999_nobody']) {
-      const r = await err(host, { t: 'room.card', charId }, ERR.BAD_MSG);
-      assert.match(JSON.stringify(r), /unknown operator/);
+      const r = await err(host, { t: 'room.card', charId }, ERR.BAD_TARGET);
+      // 本分支对不在内容里的干员只回通用文案（BAD_TARGET），不带 'unknown operator' 细节
     }
     // a later room.state still carries the card the refused ones did not replace
     await ok(host, { t: 'room.addBot' });
     const st = await host.waitFor('room.state', (s) => s.seats.some((x) => x && x.isBot));
-    assert.equal(seatOf(st, host.id).card, OPERATOR);
+    assert.equal(cardId(seatOf(st, host.id)), OPERATOR);
   });
 
   test('the server takes every operator the client picker lists (ui/seatArt.js cardOperators), in a room too', async () => {
@@ -107,7 +112,8 @@ describe('room.card (lobby, stub match)', () => {
     await ok(guest, { t: 'room.join', code: st0.code });
     await guest.waitFor('room.state', (s) => !!seatOf(s, guest.id));
     await ok(host, { t: 'room.card', charId: OPERATOR });
-    const seen = await guest.waitFor('room.state', (s) => seatOf(s, host.id)?.card === OPERATOR);
+    const seen = await guest.waitFor('room.state', (s) => cardId(seatOf(s, host.id)) === OPERATOR);
+    assert.equal(cardAvatar(seatOf(seen, host.id)), '', '没有小头像时 avatar 为空串');
     assert.ok(!('card' in seatOf(seen, guest.id)), 'the guest picked none');
     await ok(host, { t: 'room.addBot' });
     const withBot = await guest.waitFor('room.state', (s) => s.seats.some((x) => x && x.isBot));
@@ -121,10 +127,10 @@ describe('room.card (lobby, stub match)', () => {
     const c = await pool.player('Early');
     await ok(c, { t: 'room.card', charId: OTHER });
     const st = await createRoom(c);
-    assert.equal(seatOf(st, c.id).card, OTHER);
+    assert.equal(cardId(seatOf(st, c.id)), OTHER);
     await ok(c, { t: 'room.leave' });
     const again = await createRoom(c, 'solo');
-    assert.equal(seatOf(again, c.id).card, OTHER);
+    assert.equal(cardId(seatOf(again, c.id)), OTHER);
   });
 
   test('cosmetic, no phase gate: accepted while the match runs and shown in room.state', async () => {
@@ -133,7 +139,7 @@ describe('room.card (lobby, stub match)', () => {
     await ok(host, { t: 'room.start' });
     await host.waitFor('m.public', (p) => p.phase === 'INFO_CHECK');
     await ok(host, { t: 'room.card', charId: OPERATOR });
-    const st = await host.waitFor('room.state', (s) => seatOf(s, host.id)?.card === OPERATOR);
+    const st = await host.waitFor('room.state', (s) => cardId(seatOf(s, host.id)) === OPERATOR);
     assert.equal(st.inMatch, true);
   });
 });

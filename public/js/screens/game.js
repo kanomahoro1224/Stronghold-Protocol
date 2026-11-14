@@ -579,7 +579,7 @@ function MatchScreen() {
   // Only an explicit true enables it. [ASSUMED] the label 「部署时收起商店」.
   const deployFold = deployFoldsShop({
     ownPrep: !!view && viewModeRef.current === 'prep' && showPrep, editable, pen, drag: !!drag, facing: !!facing,
-    enabled: playerSettings.prepDeployFold === true,
+    enabled: playerSettings.prepDeployFold === true || playerSettings.prepDeployFold === 'partial',
   });
   // 设置「部署时镜头缩放」 (the fork's own `deploymentZoom`, restored 2026-11-02 next to 部署时收起商店): the same pickup
   // takes the shop-collapsed camera, without touching the shop's fold — a player who wants the aiming zoom but not a
@@ -876,7 +876,7 @@ function MatchScreen() {
   useEffect(() => {
     const step = deployZoomStep(deployZoomedRef.current, deployZoom);
     const next = prepDeployCamera({
-pub, myId, deployZoom, releaseDeploy: step.release, folded: shopFolded,
+pub, myId, deployZoom, partial: deployPartial, releaseDeploy: step.release, folded: shopFolded,
       ownPrep: !!view && viewModeRef.current === 'prep' && showPrep,
       pen, busy: !!drag || !!facing, current: camRef.current,
     });

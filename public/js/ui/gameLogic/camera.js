@@ -180,6 +180,14 @@ export function prepDeployCamera(s) {
     if (cur && cur.kind === want.kind && cur.opts?.shop === want.opts.shop) return null;
     return want;
   }
+  // 处置「适度缩小」(#692): the shop stays open but the camera sits halfway between the open and folded official
+  // offsets (render/projection.js averages the two camera params for opts.shop === 'partial').
+  if (s.partial) {
+    const full = prepCameraFor(s.pub, s.myId, true);
+    const want = { ...full, opts: { ...full.opts, shop: 'partial' } };
+    const cur = s.current;
+    return cur && cur.kind === want.kind && cur.opts?.shop === 'partial' ? null : want;
+  }
   return foldCamera({
     pub: s.pub, myId: s.myId, folded: s.folded, ownPrep: s.ownPrep, pen: s.pen,
     busy: !!s.busy && !s.releaseDeploy, current: s.current,

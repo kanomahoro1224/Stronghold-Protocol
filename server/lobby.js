@@ -2616,7 +2616,7 @@ export class Lobby {
     // a present one must be a bounded cosmetic id.
     if (!isCardPortraitId(msg?.charId) || (msg?.avatar != null && !isCardAvatarId(msg.avatar))) return fail(ERR.BAD_MSG);
     const room = this.roomOf(session);
-    const ids = chessCharIds(this.dataFor(room));
+    const ids = cardCharIds(this.dataFor(room));
     if ((msg.charId && !ids.has(cardPortraitOperatorId(msg.charId))) || (msg.avatar && !ids.has(cardAvatarOperatorId(msg.avatar)))) return fail(ERR.BAD_TARGET);
     const clean = cleanPlayerCard(msg, (id) => ids.has(id));
     const previous = session.card;
@@ -3604,7 +3604,7 @@ export class Lobby {
     // 名片干员 (room.card): a card the room's content does not have is left off this seat — the session keeps it, so it
     // follows the player into the next room (docs/design/network.md). `room` is absent for a matchmaking queue seat.
     const cardId = cardOperatorOf(session.card);
-    const card = session.card && (!room || !cardId || chessCharIds(this.dataFor(room)).has(cardId)) ? session.card : null;
+    const card = session.card && (!room || !cardId || cardCharIds(this.dataFor(room)).has(cardId)) ? session.card : null;
     return {
       seat: idx, playerId: session.playerId, name: session.name, isBot: false, ready: false, connected: session.connected, left: false,
       // 干员皮肤 (docs/SKINS.md): the appearances this player wears, keyed by operator charId (PUBLIC: the match
