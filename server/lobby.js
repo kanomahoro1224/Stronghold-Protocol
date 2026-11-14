@@ -3452,7 +3452,8 @@ export class Lobby {
     if (msg.t !== 'g.watch' && !(room?.test && msg.t === 'g.test') && room?.spectatorOf(session.playerId)) return fail(ERR.SPECTATOR);
     let res;
     try {
-      res = room.match.handle(session.playerId, msg);
+      // 本分支：独立队列局没有 room（或房间已随最后一名成员离开而释放），match 来自 active?.match || room?.match
+      res = match.handle(session.playerId, msg);
       afterReconcile(this, room, reconcileAiTakeover(this, room));
     } catch (e) {
       this.log.error(`[lobby] ${(room?.code || active?.match?.roomCode || 'queue')} match.handle(${msg.t}) threw`, e);
