@@ -10,6 +10,28 @@ import { pieceDir, parseDir, mergeTile } from '../board.js';
 import { MAX_OFFER_SLOTS } from './common.js';
 import { onMerge } from '../botEmotes.js';
 
+/**
+ * 精英化 keeps the sale price (the owner, 2026-11-14: 「精英化应该继承售价的」, DESIGN §37.209): the elite takes the highest
+ * effect-resolved price among the merged copies (meta.sellPrice, with that copy's sellBonus / sellFixed), when it is
+ * above the elite's own table price. A 规程 海沫 that has grown to 4 is a 4 elite and grows on from there (+2, at most 8);
+ * an elite whose own 获得时 特质 fixes a price (温蒂 6) still sets it in the gain that follows the merge. [ASSUMED] the
+ * highest copy, not the deployed one or a sum: the typical merge has only one grown copy.
+ * @param {any} elite the new elite piece
+ * @param {any[]} copies the consumed normal copies
+ * @param {number} table the elite's catalogue price (gd.sellPrice)
+ */
+export function carrySellPrice(elite, copies, table) {
+  let best = null;
+  for (const p of copies) {
+    const n = p?.meta?.sellPrice;
+    if (typeof n === 'number' && Number.isFinite(n) && (!best || n > best.meta.sellPrice)) best = p;
+  }
+  if (!best || !(best.meta.sellPrice > table)) return;
+  elite.meta.sellPrice = Math.trunc(best.meta.sellPrice);
+  if (Number.isFinite(best.meta.sellBonus)) elite.meta.sellBonus = best.meta.sellBonus;
+  if (best.meta.sellFixed) elite.meta.sellFixed = true;
+}
+
 export class PlayerAcquire {
   /** Normal copies of a base chess currently owned (board/hand/temp). */
   countCopies(baseId) {
@@ -40,7 +62,7 @@ export class PlayerAcquire {
   acquireChess(chessId, { source = 'grant', toTemp = false, fromPool = true, silent = false } = {}) {
     const rec = this.gd.chess(chessId);
     // a DIY slot is only ever this player's own 自选 piece: a slot it has not filled has no body (甄选干员) to gain
-    if (!rec || (rec.isDiy && !rec.diyFor)) return null;
+    if (!rec || (rec.isDiy && !rec.diyFor) || this.m.bondChoice?.picked === null || this.m.chessExcluded(rec)) return null;
     const base = this.gd.baseIdOf(chessId);
     const need = rec.isGolden ? this.gd.goldenCopies : 1;
     // the shared pool, or this player's stock of a slotted 自选 piece (player/diy.js poolOf)
@@ -99,10 +121,11 @@ export class PlayerAcquire {
     }
     // a new piece: this round's per-piece counters start at 0, none is carried over from the copies — a newly merged
     // elite 拉普兰德 is a new 拉普兰德 and fires +8 on its own first manual refresh this round (GitHub #169; the owner's
-    // decision of 2026-10-06; pieceRoundCount)
-    // Authorized console grants do not reserve shared/private stock, including a merge they complete.
+    // decision of 2026-10-06; pieceRoundCount). Only the sale price carries over (carrySellPrice).
+    // 本分支：受权控制台发放不占共享/私有库存，包括它补成的这次合并。
     if (fromPool) copies += this.poolOf(baseId).take(baseId, Math.max(0, this.gd.goldenCopies - copies), { overdraw: true });
     const elite = this.newPiece('chess', goldenId, { poolCopies: copies });
+    carrySellPrice(elite, consumed.map((l) => l.piece), this.gd.sellPrice(goldenId));
     // the copies are gone; a refresh dispatch that saw them still runs their 刷新时 特质 (effectsMeta.js _garrisons, #627)
     for (const l of consumed) if (l.area !== 'new') l.piece.mergedInto = elite.uid;
     const deployed = consumed.filter((l) => l.key && !this.board.has(l.key)).map((l) => ({ key: l.key, dir: pieceDir(l.piece) }));
@@ -159,7 +182,7 @@ export class PlayerAcquire {
    */
   transformChess(piece, newId) {
     const loc = this.find(piece.uid);
-    if (!loc || loc.piece.kind !== 'chess' || !this.gd.chess(newId)) return null;
+    if (!loc || loc.piece.kind !== 'chess' || !this.gd.chess(newId) || this.m.chessExcluded(this.gd.chess(newId))) return null;
     // Remove the original carrier, its summons, and its pool occupation.
     this._detach(loc);
     this.removeTokensOf(piece.uid);
@@ -203,11 +226,11 @@ export class PlayerAcquire {
    * reached tier. 0.2.0 had [ASSUMED] the shop-level gate on this refresh too (DESIGN §25); §30.23 reverses that.
    * An offer built from explicit `ids` does not roll.
    */
-  pushRewardOffer(source = 'merge', { tier = null, ids = null, label = null } = {}) {
+  pushRewardOffer(source = 'merge', { tier = null, ids = null, label = null, picks = null } = {}) {
     const ro = this.gd.rewardOffer();
     const t = Number.isInteger(tier) ? tier : Math.min(this.shop.level + ro.tierOffset, ro.maxTier);
     // an offer never shows one operator twice, whoever built the list (user playtest #6 item 19)
-    let list = Array.isArray(ids) ? [...new Set(ids)].filter((id) => this.gd.chess(id)) : null;
+    let list = Array.isArray(ids) ? [...new Set(ids)].filter((id) => this.gd.chess(id) && !this.m.chessExcluded(this.gd.chess(id))) : null;
     if (!list) {
       list = [];
       const fresh = (id) => !list.includes(id);
@@ -219,6 +242,7 @@ export class PlayerAcquire {
     }
     if (!list.length) return null;
     const offer = { tier: t, source, label: typeof label === 'string' && label ? label : null, slots: list.slice(0, MAX_OFFER_SLOTS).map((id) => ({ kind: 'chess', id, price: ro.price, sold: false })) };
+    if (Number.isInteger(picks) && picks > 1) offer.picks = Math.min(picks, offer.slots.length);
     this.offers.push(offer);
     this.dirty();
     return offer;
@@ -228,10 +252,11 @@ export class PlayerAcquire {
    * Queue a free pick-one offer of items (凯瑟琳 定向投放, 娜仁图亚 见者有份); shown as shop.rewardOffer with slots of kind
    * 'item' under its `label` (the effect's name; player report #6 after 0.1.0).
    */
-  pushItemOffer(ids, { source = 'effect', tier = null, label = null } = {}) {
+  pushItemOffer(ids, { source = 'effect', tier = null, label = null, picks = null } = {}) {
     const list = [...new Set(Array.isArray(ids) ? ids : [])].filter((id) => this.gd.item(id) && this.m.itemPool.canGain(id)).slice(0, MAX_OFFER_SLOTS);
     if (!list.length) return null;
     const offer = { tier: Number.isInteger(tier) ? tier : null, source, label: typeof label === 'string' && label ? label : null, slots: list.map((id) => ({ kind: 'item', id, price: 0, sold: false })) };
+    if (Number.isInteger(picks) && picks > 1) offer.picks = Math.min(picks, offer.slots.length);
     this.offers.push(offer);
     this.dirty();
     return offer;

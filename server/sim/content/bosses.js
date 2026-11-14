@@ -79,6 +79,7 @@ import {
   remainingRoute, stayRoute, stepToward, setHits, hitCount, lpLoss, blinkForward, canCast, unbalancedNow, nthOf,
   castSlot, attackTurnSkill,
 } from './enemies.js';
+import { REGULATION_BOSS_KITS } from './regulation-bosses.js';
 import { hypot, powi } from '../detmath.js';
 import { damageAttackType, isHpLoss } from '../attack.js';
 
@@ -156,6 +157,11 @@ export const SELF_BOUND = Object.freeze([
   'enemy_9013_acstmk', 'enemy_9013_acstmk_2', 'enemy_9021_acduml', 'enemy_9021_acduml_2', 'enemy_1521_dslily',
   'enemy_9032_aclionk', 'enemy_9033_acdeer',
 ]);
+/**
+ * Self-bound leaders whose area strike hits a random operator within the leader's rangeRadius and the four tiles beside
+ * it — 阿利斯泰尔's 【王权号令】 (kitLion decree). The bots space their units against it (server/match/bot.js, DESIGN §37.64).
+ */
+export const PLUS_STRIKE = Object.freeze(['enemy_9032_aclionk']);
 /** 阿利斯泰尔: enemy SP per second [ASSUMED] and 莫非王土 delay after each 王权号令 [ASSUMED]. */
 const ENEMY_SP_PER_SEC = 1, ANIMATE_DELAY = 2;
 const EQUIP_KEYS = Object.freeze(['enemy_10028_vtswd', 'enemy_10029_vtshld', 'enemy_10030_vtwand']);
@@ -306,7 +312,8 @@ export function install(battle) {
 export function registerMeta() {}
 
 function onSpawn(b, e) {
-  const kit = BOSS_KITS[e.defId];
+  // Same split as enemies.js: regulation leaders are not spread into BOSS_KITS (they are absent from the default table).
+  const kit = BOSS_KITS[e.defId] || REGULATION_BOSS_KITS[e.defId];
   if (typeof kit !== 'function') return;
   if (SELF_BOUND.includes(e.defId)) b.addBuff(e, { key: 'boss:selfBound', persist: true, flags: { noMove: true, selfBound: true, unblockable: true } });
   const tpl = templateOf(b);
@@ -491,11 +498,27 @@ function fireShell(b, boss, target) {
   return sh;
 }
 
+/**
+ * The hit count of a leader token (刺胄之弹 enemy_9016_acstmr, the 余音 enemy_9023_acdums): the data's × the round's HP
+ * multiplier, without its 补给线 / 补给线II share (`supplyHpMul`, co-op 终极 from round 5) when the season's own 补给线
+ * effects leave the key out — 规程's aceffect_enemy_2 / 2_2 `enemy_exclude` lists both tokens (11-05 data), 下半's lists only
+ * 炎佑 and the 器物 hit-count keys (archetypes.js `times`), so 下半's tokens keep the whole multiplier.
+ */
+const SUPPLY_EFFECTS = ['aceffect_enemy_2', 'aceffect_enemy_2_2'];
+const supplyExempt = (b, key) => SUPPLY_EFFECTS.some((id) => {
+  const rec = b.data?.rawEffect?.(id);
+  return (Array.isArray(rec?.buffs) ? rec.buffs : []).some((x) => String(x?.bbStr?.enemy_exclude || '').split('|').includes(key));
+});
+const tokenHits = (b, e2) => {
+  const s = Number(e2.mods && e2.mods.supplyHpMul);
+  return Number.isFinite(s) && s > 0 && s !== 1 && supplyExempt(b, e2.defId) ? e2.base.maxHp / s : e2.base.maxHp;
+};
+
 function kitShell(ab, e) {
   const stun = T(ab, 'killed.duration') ?? 0, dot = T(ab, 'killed.value') ?? 0;
   return [{
     spawn(b, e2) {
-      setHits(e2, e2.base.maxHp); hitCount(b, e2, true);                      // 需要数次攻击击倒 (× the round's HP: summonMods)
+      setHits(e2, tokenHits(b, e2)); hitCount(b, e2, true);                   // 需要数次攻击击倒 (× the round's HP: summonMods, tokenHits)
       b.addBuff(e2, { key: 'boss:shellGuard', persist: true, flags: { noDisplace: true } }); // 失衡免疫 (PRTS 天赋; also 静态刚体)
     },
     tick(b, e2, a, dt) {
@@ -858,7 +881,7 @@ function kitEcho(ab, e) {
   const s = ab.sk.Skill;
   return [
     {
-      spawn(b, e2) { setHits(e2, e2.base.maxHp); hitCount(b, e2, true); e2.blockWeight = ECHO_BLOCK_WEIGHT; setEchoForm(b, e2, 'dark'); }, // hits × the round's HP (summonMods)
+      spawn(b, e2) { setHits(e2, tokenHits(b, e2)); hitCount(b, e2, true); e2.blockWeight = ECHO_BLOCK_WEIGHT; setEchoForm(b, e2, 'dark'); }, // hits × the round's HP (summonMods, tokenHits)
       taken(c, b, e2) { const s = c.source || c.credit; if (s && s.side === 'ally') echoHit(b, e2); }, // 受到伤害时以自身为中心造成一次范围伤害 (a 无来源 burst too)
     },
     s && {
