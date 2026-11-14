@@ -312,10 +312,10 @@ export function bannedPerBond(bonds, bannedChess) {
  * @returns {{ drawn: Set<string>, off: Set<string> }}
  */
 export function disabledBondSets(pub, staticInactive = []) {
-  const staticBans = Array.isArray(staticInactive) ? staticInactive : [];
+  const off = new Set(Array.isArray(staticInactive) ? staticInactive : []);
   const src = Array.isArray(pub?.drawnDisabledBonds) ? pub.drawnDisabledBonds : Array.isArray(pub?.disabledBonds) ? pub.disabledBonds : [];
-  const drawn = new Set([...src, ...staticBans].filter((b) => typeof b === 'string'));
-  return { drawn, off: new Set() };
+  const drawn = new Set(src.filter((b) => typeof b === 'string' && !off.has(b)));
+  return { drawn, off };
 }
 
 // the official briefing's line under 核心盟约 (2026-11 规程 recordings: 规程等级1, 极速模拟, 规程等级20)
