@@ -1230,8 +1230,11 @@ describe('multi-device & browser compatibility (static)', () => {
     const vp = index.match(/<meta name="viewport" content="([^"]+)"/)?.[1] || '';
     for (const k of ['width=device-width', 'initial-scale=1', 'maximum-scale=1', 'user-scalable=no', 'viewport-fit=cover']) assert.ok(vp.includes(k), `viewport has ${k}`);
     const sheets = [...index.matchAll(/<link rel="stylesheet" href="(\/css\/[^"]+)"/g)].map((x) => x[1]);
-    assert.equal(sheets[sheets.length - 2], '/css/devices.css', 'devices.css stays the last layout sheet');
-    assert.equal(sheets[sheets.length - 1], '/css/ui-theme.css', 'a local interface theme paints after the device sheet');
+    // 本分支在设备表之后再加 utility-mobile.css，然后是 ui-theme.css 与 glass.css（液态玻璃主题最后，覆盖优先）
+    assert.equal(sheets[sheets.length - 4], '/css/devices.css', 'devices.css stays the last layout sheet');
+    assert.equal(sheets[sheets.length - 3], '/css/utility-mobile.css', '本分支的移动端工具层');
+    assert.equal(sheets[sheets.length - 2], '/css/ui-theme.css', 'a local interface theme paints after the device sheet');
+    assert.equal(sheets[sheets.length - 1], '/css/glass.css', '液态玻璃主题最后');
     assert.match(index, /<script nomodule src="\/js\/bootLegacy\.js">/, 'a browser without ES modules gets the external fallback');
     const boot = readFileSync(path.join(PUBLIC, 'js/boot.js'), 'utf8');
     const legacy = readFileSync(path.join(PUBLIC, 'js/bootLegacy.js'), 'utf8');
@@ -1455,8 +1458,8 @@ describe('explicit local match recovery (#431)', () => {
 test('the hud slot stays above the hand, plugin frames declare a dark scheme, and the test-console command row wraps', () => {
   const css = readFileSync(path.join(PUBLIC, 'css/components.css'), 'utf8');
   assert.match(css, /\.ui-slot__frame \{[^}]*color-scheme: dark/);
-  assert.match(css, /\.gm__ui-slot \{[^}]*right: \.92rem; bottom: calc\(4\.76rem \+ \.12rem\)/);
-  assert.match(css, /\.gm__ui-slot \{[^}]*max-height: calc\(100% - 4\.88rem - 1\.7rem\)/);
+  assert.match(css, /\.gm__ui-slot \{[^}]*right: calc\(\.92 \* var\(--ui-unit, 1rem\)\); bottom: calc\(4\.76 \* var\(--ui-unit, 1rem\) \+ \.12 \* var\(--ui-unit, 1rem\)\)/);
+  assert.match(css, /\.gm__ui-slot \{[^}]*max-height: calc\(100% - 4\.88 \* var\(--ui-unit, 1rem\) - 1\.7 \* var\(--ui-unit, 1rem\)\)/);
   assert.match(css, /\.ui-slot__tabs \{[^}]*flex-wrap: wrap/);
   const game = readFileSync(path.join(PUBLIC, 'css/screens/game.css'), 'utf8');
   assert.match(game, /\.testconsole__run \{ flex: 0 0 auto; \}/);

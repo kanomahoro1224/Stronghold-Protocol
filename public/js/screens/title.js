@@ -37,6 +37,22 @@ import { RegulationBackdrop, RegulationStill, useRegulationPack, REGULATION, REG
 import { REGULATION_ENTRY } from '../ui/regulationFilm.js';
 import { seasonOf, startupVersion } from '../versions.js';
 import { uiUrl } from '../ui/assetUrls.js';
+// 合并时丢掉的导入（分支原版 fee500c2 与上游都有，正文仍在用这些标识符）
+import { useEffect, useMemo, useState } from '../../vendor/hooks.module.js';
+import { NAME_MAX_LEN, APP_VERSION, DEV_BUILD } from '../../../shared/constants.js';
+import { html, Button, Icon, MicroLabel, TextField, PingPill, Modal } from '../ui/components.js';
+import { AnnouncementButton } from '../ui/announcement.js';
+import { GuideButton } from '../ui/guide.js';
+import { openStats } from './stats.js';
+import { toast } from '../ui/toasts.js';
+import { net, identity } from '../net.js';
+import { store, useStore, shallowEqual } from '../store.js';
+import { data, useData } from '../data.js';
+import { FullscreenButton, PwaInstallButton, detectFeatures } from '../ui/device.js';
+import { updateSettings, useSettings } from '../ui/settings.js';
+import { LangToggle, useLang } from '../ui/lang.js';
+import { t, N_ } from '../../../shared/i18n.js';
+import { scriptOf } from '../../../shared/i18nPacks.js';
 
 export { stripLoneSurrogates, sanitizeName, isValidName } from '../ui/playerName.js';
 
