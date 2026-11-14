@@ -86,11 +86,14 @@ test('the report is read-only and a full-screen Modal; the lobby opens it (sourc
   const src = read('public/js/screens/sweep.js');
   assert.match(src, /<\$\{Modal\} open=\$\{true\} onClose=\$\{onClose\} class="sw"/);
   assert.match(src, /<\$\{Modal\} open=\$\{true\} onClose=\$\{onClose\} class="sw-codex"/);
-  assert.doesNotMatch(src, /openLoadout|savePref\((?!TAB_PREF)|net\.|room\./, 'nothing but the remembered tab is written');
+  // 本分支保留「前往干员调配」入口（用户 2026-11-14 拍板）：报告仍只写记住的 tab，但允许打开干员调配。
+  assert.doesNotMatch(src, /savePref\((?!TAB_PREF)|net\.|room\./, 'nothing but the remembered tab is written');
+  assert.match(src, /openLoadout\(/, 'the branch keeps the 前往干员调配 entry');
   assert.doesNotMatch(src, /name="box"|name="dice"/, 'only icons of the project\'s set');
   const lobby = read('public/js/screens/lobby.js');
-  assert.match(lobby, /import \{ SweepReport \} from '\.\/sweep\.js';/);
-  assert.match(lobby, /\$\{sweepOpen \? html`<\$\{SweepReport\} onClose=\$\{\(\) => setSweepOpen\(false\)\} \/>` : null\}/);
+  // 本分支按需加载（AGENTS.md：点开才拉 screens/sweep.js）
+  assert.match(lobby, /import\('\.\/sweep\.js'\)/);
+  assert.match(lobby, /<\$\{sweepModule\.SweepReport\} onClose=/);
   assert.match(read('public/index.html'), /<link rel="stylesheet" href="\/css\/screens\/sweep\.css" \/>/);
 });
 
