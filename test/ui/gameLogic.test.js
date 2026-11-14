@@ -778,7 +778,8 @@ describe('keyboard & settings', () => {
   test('sanitizeSettings', () => {
     assert.deepEqual(sanitizeSettings(null), { ...DEFAULT_SETTINGS });
     assert.deepEqual(sanitizeSettings({ bgm: 3, sfx: -1, voice: 2, muted: 'yes', damageNumbers: false, quality: 'ultra' }),
-      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, voiceOverrides: {}, muted: false, damageNumbers: false, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: true, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: '', themeMotion: true, keys: { ...DEFAULT_SETTINGS.keys } },
+      // 本分支的默认值带着 deployZoom / preload / fpsLimit / uiTheme('default') 等自有字段，直接以 DEFAULT_SETTINGS 为基准
+      { ...DEFAULT_SETTINGS, bgm: 1, sfx: 0, voice: 1, damageNumbers: false },
       'a saved profile without `keys` (before 0.2.0) gets the default key map (test/ui/feedback5-hotkeys.test.js)');
     // 主题动画 (§37.144): on by default; only `false` turns the official packs' tweens still
     assert.equal(DEFAULT_SETTINGS.themeMotion, true);
@@ -810,10 +811,10 @@ describe('keyboard & settings', () => {
     assert.equal(sanitizeSettings({ voiceLang: 'kr' }).voiceLang, 'kr');
     assert.equal(sanitizeSettings({ voiceNative: true }).voiceNative, true);
     for (const bad of ['native', 'JP', 'ja', 1, null]) assert.equal(sanitizeSettings({ voiceLang: bad }).voiceLang, 'cn', String(bad));
-    assert.equal(sanitizeSettings(null).uiTheme, '');
+    assert.equal(sanitizeSettings(null).uiTheme, 'default');
     assert.equal(sanitizeSettings({ uiTheme: 'iron-fan' }).uiTheme, 'iron-fan');
-    assert.equal(sanitizeSettings({ uiTheme: 'terminal' }).uiTheme, '', 'the built-in id is stored as empty');
-    assert.equal(sanitizeSettings({ uiTheme: '../x' }).uiTheme, '');
+    assert.equal(sanitizeSettings({ uiTheme: 'terminal' }).uiTheme, 'terminal', '本分支的内置 id 是 default，terminal 是合法皮肤');
+    assert.equal(sanitizeSettings({ uiTheme: '../x' }).uiTheme, 'default');
     assert.equal(sanitizeSettings({ bgm: 0.333 }).bgm, 0.33);
     assert.equal(sanitizeSettings({ quality: 'low' }).quality, 'low');
   });

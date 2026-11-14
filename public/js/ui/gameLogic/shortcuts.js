@@ -179,6 +179,8 @@ export function shortcutFor(e, shortcuts = null) {
     if (code === 'KeyR' || key === 'r') return 'refresh';
     if (code === 'KeyF' || key === 'f') return 'freeze';
     if (code === 'KeyD' || key === 'd') return 'levelUp';
+    if (code === 'KeyQ' || key === 'q') return 'retreat';
+    if (code === 'KeyX' || key === 'x') return 'sell';
     if (code === 'Space' || key === ' ') return 'ready';
   }
   return null;
