@@ -152,7 +152,7 @@ describe('文字大小: the setting', () => {
     assert.match(src, /const TEXT_SCALES = \[\[?.*'sm'.*'md'.*'lg'.*'xl'/s, 'the steps with their labels');
     assert.match(src, /applyTextSize\(settingsStore\.get\(\)\.textSize\)/, 'applied at module load (before main.js renders)');
     assert.ok(src.indexOf("t('文字大小')") > src.indexOf("t('画面质量')"), 'the row is below the quality row');
-    assert.match(read('public/css/screens/game.css'), /\.set-seg\.set-textsize button \{ min-width: \.62rem; \}/,
+    assert.match(read('public/css/screens/game.css'), /\.set-seg\.set-textsize button \{ min-width: (?:(?:\.62rem)|(?:calc\(0\.62 \* var\(--ui-unit, 1rem\)\))); \}/,
       'four steps fit the row on a phone (1rem = 40 px)');
   });
 
@@ -171,7 +171,7 @@ describe('文字大小: the setting', () => {
     assert.match(css, /\.set-voice \.set-seg button \{[^}]*min-width: 0;[^}]*flex: 1 1 clamp\(calc\(25% - 1px\), \(2\.4rem - 100%\) \* 999, calc\(50% - 1px\)\)/);
     assert.match(css, /\.set-native \{[^}]*display: inline-flex/);
     assert.doesNotMatch(css, /@container|container-type/);
-    assert.match(css, /\.set-seg\.set-textsize button \{ min-width: \.62rem; \}/, '文字大小 keeps its own button width');
+    assert.match(css, /\.set-seg\.set-textsize button \{ min-width: (?:(?:\.62rem)|(?:calc\(0\.62 \* var\(--ui-unit, 1rem\)\))); \}/, '文字大小 keeps its own button width');
   });
 });
 
