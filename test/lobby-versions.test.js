@@ -567,7 +567,7 @@ test('a switch: others un-readied, settings cleared, a card the version lacks dr
   assert.equal(seat.notOwned, null);
   assert.equal(seat.loadoutCs, null);
   assert.equal(seat.card, null, '本 version has no 温蒂 (char_494_vendla)');
-  assert.equal(room.seatOf(a.playerId).card, 'char_102_texas');
+  assert.deepEqual(room.seatOf(a.playerId).card, { charId: 'char_102_texas', avatar: '' });
   assert.equal(b.loadout?.chess_char_1_02_a?.skill, 0, 'the session keeps its own copy (the page sends again)');
   assert.deepEqual(h.last(a).seats.filter(Boolean).map((s) => s.content), ['loading', 'loading']);
   assert.equal(room.replay, null, 'the replay is gone');
@@ -665,7 +665,7 @@ test('startMatch: a version room plays in its version host (version + requireCs)
   ok(h.lobby.start(q));
   assert.equal(hosted.length, 1);
   const keys = Object.keys(Rec.last).sort();
-  assert.deepEqual(keys, ['aiPicksLast', 'broadcast', 'cs', 'data', 'difficulty', 'hostId', 'log', 'matchNo', 'mode', 'modeId', 'now', 'onEnd', 'roomCode', 'seats', 'seed', 'send', 'spectators']);
+  assert.deepEqual(keys, ['aiPicksLast', 'broadcast', 'consoleEnabled', 'cs', 'data', 'difficulty', 'hostId', 'log', 'matchNo', 'mode', 'modeId', 'now', 'onEnd', 'roomCode', 'seats', 'seed', 'send', 'spectators', 'workerPool']);
   // a version room without a version host, and the real Match class: never in this process
   const lone = new Lobby({ registry: new SessionRegistry(), log: quiet, content: { cs: VANILLA }, getData, versions: versionStub() });
   const s = lone.registry.create('C');
