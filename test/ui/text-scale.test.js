@@ -168,7 +168,7 @@ describe('文字大小: the setting', () => {
     const css = read('public/css/screens/game.css');
     assert.match(css, /\.set-voice \{[^}]*display: flex; flex-wrap: nowrap;/);
     assert.match(css, /\.set-voice \.set-seg \{[^}]*display: flex; flex-wrap: wrap; gap: 1px;/);
-    assert.match(css, /\.set-voice \.set-seg button \{[^}]*min-width: 0;[^}]*flex: 1 1 clamp\(calc\(25% - 1px\), \(2\.4rem - 100%\) \* 999, calc\(50% - 1px\)\)/);
+    assert.match(css, /\.set-voice \.set-seg button \{[^}]*min-width: 0;[^}]*flex: 1 1 clamp\(calc\(25% - 1px\), \(calc\(2\.4 \* var\(--ui-unit, 1rem\)\) - 100%\) \* 999, calc\(50% - 1px\)\)/);
     assert.match(css, /\.set-native \{[^}]*display: inline-flex/);
     assert.doesNotMatch(css, /@container|container-type/);
     assert.match(css, /\.set-seg\.set-textsize button \{ min-width: (?:(?:\.62rem)|(?:calc\(0\.62 \* var\(--ui-unit, 1rem\)\))); \}/, '文字大小 keeps its own button width');
@@ -208,16 +208,16 @@ describe('文字大小: the CSS text root', () => {
   test('readable text reads --t (body, .micro, buttons, modals, panels, settings)', () => {
     const want = [
       [theme, /body \{[^}]*font-size: calc\(\.18 \* var\(--t\)\)/s, 'theme.css body (the 7.2 px text)'],
-      [theme, /\.micro \{[^}]*font-size: calc\(\.11 \* var\(--t\)\)/s, 'theme.css .micro (92 render sites)'],
+      [theme, /\.micro \{[^}]*font-size: calc\(\.11 \* var\(--utility-text, var\(--t\)\)\)/s, 'theme.css .micro (读 --t / 工具文本档)'],
       [theme, /:root\[data-text="md"\]/, 'the steps'],
     ];
     for (const [src, re, what] of want) assert.match(src, re, what);
     const byRel = new Map(sheets.map((s) => [s.rel, s.src]));
     const samples = [
-      ['components.css', /\.btn \{[^}]*font-size: calc\(\.18 \* var\(--t\)\)/s],
-      ['screens/game.css', /\.set-row__label \{[^}]*font-size: calc\(\.18 \* var\(--t\)\)/s],
+      ['components.css', /\.btn \{[^}]*font-size: calc\(\.18 \* var\(--utility-text, var\(--t\)\)\)/s],
+      ['screens/game.css', /\.set-row__label \{[^}]*font-size: calc\(\.18 \* var\(--utility-text, var\(--t\)\)\)/s],
       ['screens/game-panels.css', /\.dtext \{ font-size: max\(calc\(\.15 \* var\(--t\)\), 12px\); line-height: 1\.65;/],
-      ['screens/guide.css', /\.guide__tips li \{ font-size: calc\(\.18 \* var\(--t\)\)/],
+      ['screens/guide.css', /\.guide__tips li \{ font-size: calc\(\.18 \* var\(--utility-text, var\(--t\)\)\)/],
       ['screens/lobby.css', /\.pcard__desc \{[^}]*font-size: calc\(\.16 \* var\(--t\)\)/],
     ];
     for (const [file, re] of samples) assert.match(byRel.get(`${CSS}/${file}`), re, file);
