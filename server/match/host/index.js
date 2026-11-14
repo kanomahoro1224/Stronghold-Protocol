@@ -59,6 +59,9 @@ export const HOST_DEFAULTS = Object.freeze({
   maxWorkers: 4,
   heartbeatMs: 1000,
   watchdogMs: 10_000,
+  // boot 期单独放宽：合并上游 270 个 kits/ops 模块后，Match.js 首次 import 约 14–17 s，
+  // 用 hang 的 10 s 判会把正常启动误杀（ready 之后仍按 watchdogMs 判）。
+  bootMs: 30_000,
   idleMs: 10 * 60_000,
   resourceLimits: Object.freeze({ maxOldGenerationSizeMb: 768, maxYoungGenerationSizeMb: 64, stackSizeMb: 4 }),
 });
@@ -221,7 +224,7 @@ export function createMatchHosts({ contents, log = noopLog, options = {} }) {
   // the watchdog: a worker whose heartbeats stopped is terminated (its matches end)
   const watchdog = setInterval(() => {
     const now = Date.now();
-    for (const h of [...hosts.values()]) if (!h.dead && now - h.lastBeat > o.watchdogMs) h.stop(R.hang, `no heartbeat for ${Math.round((now - h.lastBeat) / 1000)} s`);
+    for (const h of [...hosts.values()]) if (!h.dead && now - h.lastBeat > (h.ready ? o.watchdogMs : o.bootMs)) h.stop(R.hang, `no heartbeat for ${Math.round((now - h.lastBeat) / 1000)} s`);
   }, Math.max(100, Math.min(1000, Math.floor(o.watchdogMs / 4))));
   watchdog.unref?.();
 
