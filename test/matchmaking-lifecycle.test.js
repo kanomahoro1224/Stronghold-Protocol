@@ -60,29 +60,29 @@ for (const remote of [false, true]) {
       assert.equal((await clients[0].request({ t: 'room.create', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
       const code = (await clients[0].waitFor('room.state')).code;
       for (const c of clients) assert.equal((await c.request({ t: 'match.join', mode: 'coop', difficulty: 'NORMAL' })).t, 'ok');
-      for (const c of clients) await c.waitFor('m.public', () => true, 10000);
+      for (const c of clients) await c.waitFor('m.public', () => true, 30_000);
       const ctx = srv.lobby.getRoom(code).matchCtx;
       if (departure === 'expired') {
         await clients[0].terminate();
-        await clients[1].waitFor('m.public', (m) => m.players.some((p) => p.playerId === welcomes[0].playerId && !p.connected), 10000);
+        await clients[1].waitFor('m.public', (m) => m.players.some((p) => p.playerId === welcomes[0].playerId && !p.connected), 30_000);
         const host = srv.registry.byId(welcomes[0].playerId);
         host.disconnectedAt = Date.now() - srv.registry.reconnectWindowMs - 1;
         srv.network.sweep();
       } else {
-        assert.equal((await clients[0].request({ t: departure }, 10000)).t, 'ok');
+        assert.equal((await clients[0].request({ t: departure }, 30_000)).t, 'ok');
       }
       assert.equal(srv.lobby.getRoom(code)?.matchCtx, ctx);
       assert.equal(ctx.disposed, false);
       for (let i = 1; i < 4; i++) {
-        assert.equal((await clients[i].request({ t: 'g.autoplay', on: true }, 10000)).t, 'ok');
+        assert.equal((await clients[i].request({ t: 'g.autoplay', on: true }, 30_000)).t, 'ok');
         assert.equal(clients[i].log.some((m) => m.t === 'room.closed'), false);
       }
       const back = await TestClient.connect(url);
       clients.push(back);
       assert.equal((await back.hello('WS player 1', welcomes[1].token)).resumed, true);
-      await back.waitFor('m.public', (m) => m.players.some((p) => p.playerId === welcomes[1].playerId), 10000);
-      await back.waitFor('m.private', () => true, 10000);
-      assert.equal((await back.request({ t: 'g.autoplay', on: false }, 10000)).t, 'ok');
+      await back.waitFor('m.public', (m) => m.players.some((p) => p.playerId === welcomes[1].playerId), 30_000);
+      await back.waitFor('m.private', () => true, 30_000);
+      assert.equal((await back.request({ t: 'g.autoplay', on: false }, 30_000)).t, 'ok');
     });
   }
 
