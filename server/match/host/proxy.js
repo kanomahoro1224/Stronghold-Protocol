@@ -29,7 +29,8 @@ import { msg, wireMessage } from '../../../shared/i18n.js';
 import { validHostMessage } from './ipc.js';
 
 /** A request the worker has not answered after this long is answered INTERNAL. [ASSUMED] */
-export const REQUEST_TIMEOUT_MS = 15_000;
+// 本机实测版本 host 首次 boot 14.7 s（kits/ops 270 模块编译），15 s 会在 boot 期把第一个请求判成「did not answer」
+export const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * What the room is told when its match ends because of its plugins, or of its official version's host (a message id,
