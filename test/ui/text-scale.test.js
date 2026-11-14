@@ -24,7 +24,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const read = (p) => readFileSync(path.join(ROOT, p), 'utf8');
 const CSS = 'public/css';
 
-/** Every stylesheet under public/css (index.html loads all, utility-mobile.css after devices.css), as { rel, src }. */
+/** Every stylesheet under public/css (index.html loads all of them, devices.css last), as { rel, src }. */
 function stylesheets() {
   const out = [];
   const visit = (rel) => {
@@ -152,8 +152,8 @@ describe('文字大小: the setting', () => {
     assert.match(src, /const TEXT_SCALES = \[\[?.*'sm'.*'md'.*'lg'.*'xl'/s, 'the steps with their labels');
     assert.match(src, /applyTextSize\(settingsStore\.get\(\)\.textSize\)/, 'applied at module load (before main.js renders)');
     assert.ok(src.indexOf("t('文字大小')") > src.indexOf("t('画面质量')"), 'the row is below the quality row');
-    assert.match(read('public/css/screens/game.css'), /\.set-seg\.set-textsize button \{ min-width: calc\(0\.62 \* var\(--ui-unit, 1rem\)\); \}/,
-      'four steps use the management unit and retain the ordinary rem fallback');
+    assert.match(read('public/css/screens/game.css'), /\.set-seg\.set-textsize button \{ min-width: \.62rem; \}/,
+      'four steps fit the row on a phone (1rem = 40 px)');
   });
 
   test('画面质量 is listed 低 / 中 / 高, the same direction as 官方特效 关 / 精简 / 完整', () => {
@@ -168,10 +168,10 @@ describe('文字大小: the setting', () => {
     const css = read('public/css/screens/game.css');
     assert.match(css, /\.set-voice \{[^}]*display: flex; flex-wrap: nowrap;/);
     assert.match(css, /\.set-voice \.set-seg \{[^}]*display: flex; flex-wrap: wrap; gap: 1px;/);
-    assert.match(css, /\.set-voice \.set-seg button \{[^}]*min-width: 0;[^}]*flex: 1 1 clamp\(calc\(25% - 1px\), \(calc\(2\.4 \* var\(--ui-unit, 1rem\)\) - 100%\) \* 999, calc\(50% - 1px\)\)/);
+    assert.match(css, /\.set-voice \.set-seg button \{[^}]*min-width: 0;[^}]*flex: 1 1 clamp\(calc\(25% - 1px\), \(2\.4rem - 100%\) \* 999, calc\(50% - 1px\)\)/);
     assert.match(css, /\.set-native \{[^}]*display: inline-flex/);
     assert.doesNotMatch(css, /@container|container-type/);
-    assert.match(css, /\.set-seg\.set-textsize button \{ min-width: calc\(0\.62 \* var\(--ui-unit, 1rem\)\); \}/, '文字大小 keeps its own button width');
+    assert.match(css, /\.set-seg\.set-textsize button \{ min-width: \.62rem; \}/, '文字大小 keeps its own button width');
   });
 });
 
@@ -208,16 +208,16 @@ describe('文字大小: the CSS text root', () => {
   test('readable text reads --t (body, .micro, buttons, modals, panels, settings)', () => {
     const want = [
       [theme, /body \{[^}]*font-size: calc\(\.18 \* var\(--t\)\)/s, 'theme.css body (the 7.2 px text)'],
-      [theme, /\.micro \{[^}]*font-size: calc\(\.11 \* var\(--utility-text, var\(--t\)\)\)/s, 'theme.css .micro (management text or original battle text)'],
+      [theme, /\.micro \{[^}]*font-size: calc\(\.11 \* var\(--t\)\)/s, 'theme.css .micro (92 render sites)'],
       [theme, /:root\[data-text="md"\]/, 'the steps'],
     ];
     for (const [src, re, what] of want) assert.match(src, re, what);
     const byRel = new Map(sheets.map((s) => [s.rel, s.src]));
     const samples = [
-      ['components.css', /\.btn \{[^}]*font-size: calc\(\.18 \* (?:var\(--t\)|var\(--utility-text, var\(--t\)\))\)/s],
-      ['screens/game.css', /\.set-row__label \{[^}]*font-size: calc\(\.18 \* var\(--utility-text, var\(--t\)\)\)/s],
-      ['screens/game-panels.css', /\.dtext \{ font-size: calc\(\.15 \* var\(--t\)\); line-height: 1\.65;/],
-      ['screens/guide.css', /\.guide__tips li \{ font-size: calc\(\.18 \* var\(--utility-text, var\(--t\)\)\)/],
+      ['components.css', /\.btn \{[^}]*font-size: calc\(\.18 \* var\(--t\)\)/s],
+      ['screens/game.css', /\.set-row__label \{[^}]*font-size: calc\(\.18 \* var\(--t\)\)/s],
+      ['screens/game-panels.css', /\.dtext \{ font-size: max\(calc\(\.15 \* var\(--t\)\), 12px\); line-height: 1\.65;/],
+      ['screens/guide.css', /\.guide__tips li \{ font-size: calc\(\.18 \* var\(--t\)\)/],
       ['screens/lobby.css', /\.pcard__desc \{[^}]*font-size: calc\(\.16 \* var\(--t\)\)/],
     ];
     for (const [file, re] of samples) assert.match(byRel.get(`${CSS}/${file}`), re, file);

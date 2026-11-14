@@ -193,7 +193,6 @@ describe('HTML pages reference existing files', () => {
     const src = readFileSync(path.join(PUBLIC, 'index.html'), 'utf8');
     assert.match(src, /<script type="module" src="\/js\/main\.js"[^>]*><\/script>/);
     assert.match(src, /class="rotate-hint"/);
-    assert.match(src, /class="btn btn--primary btn--sm rotate-hint__fullscreen" id="rotate-hint-fullscreen">点击进入横屏/);
     assert.match(src, /fonts\.googleapis\.com\/css2\?family=Noto\+Sans\+SC/);
     assert.match(src, /href="\/fonts\/fonts\.css"/);
   });
@@ -419,6 +418,10 @@ describe('net.js', () => {
     assert.equal(e.code, 'NO_FUNDS');
     assert.equal(e.message, '资金不足');
     assert.match(new NetError('BAD_MSG', 'x', 'version mismatch: server 2').message, /版本/);
+    // a refusal that only names an official version is not the protocol check: its own text, no 刷新页面
+    assert.equal(new NetError('VERSION_UNSUPPORTED', 'x', 'act3autochess@V3_1 has no coop rooms').message, '该版本不能用于当前房间，请检查模拟方式与插件支持的版本');
+    assert.equal(new NetError('BAD_TARGET', 'x', 'not a mode of this version').message, errorText('BAD_TARGET'));
+    assert.notEqual(new NetError('PLUGIN_BLOCKED', 'x', 'training does not support version act3autochess@V3_1').message, '客户端版本与服务器不一致，请刷新页面');
   });
 
   test('defaultWsUrl', async () => {
@@ -555,21 +558,6 @@ describe('net.js', () => {
     ws().recv({ t: 'pong', c: 'garbage', s: 1 });
     ws().recv({ t: 'pong', c: timers.now() + 99999, s: 1 }); // negative rtt ignored
     assert.equal(net.ping, 40);
-  });
-
-  test('site announcement bootstraps server time before hello without overriding a measured clock', async () => {
-    const { net, ws, timers } = await makeNet();
-    net.connect();
-    ws().open();
-    ws().recv({ t: 'site.announcement', serverNow: timers.now() + 5000, announcement: null });
-    assert.equal(net.clockOffset, 5000);
-    net.probe();
-    const ping = ws().last('ping');
-    timers.advance(40);
-    ws().recv({ t: 'pong', c: ping.c, s: ping.c + 20 + 6000 });
-    assert.equal(net.clockOffset, 6000);
-    ws().recv({ t: 'site.announcement', serverNow: timers.now() + 9000, announcement: null });
-    assert.equal(net.clockOffset, 6000);
   });
 
   test('silent socket is detected and replaced', async () => {
@@ -1238,17 +1226,19 @@ function cssRules(src) {
 describe('multi-device & browser compatibility (static)', () => {
   const index = readFileSync(path.join(PUBLIC, 'index.html'), 'utf8');
 
-  test('index.html: landscape viewport without page zoom, notch-aware, utility overrides follow devices, boot diagnostics', () => {
+  test('index.html: landscape viewport without page zoom, notch-aware, devices.css then the theme sheet, boot diagnostics', () => {
     const vp = index.match(/<meta name="viewport" content="([^"]+)"/)?.[1] || '';
     for (const k of ['width=device-width', 'initial-scale=1', 'maximum-scale=1', 'user-scalable=no', 'viewport-fit=cover']) assert.ok(vp.includes(k), `viewport has ${k}`);
     const sheets = [...index.matchAll(/<link rel="stylesheet" href="(\/css\/[^"]+)"/g)].map((x) => x[1]);
-    // after devices.css: the scoped management density layer, then the 界面主题 skin (glass.css overrides both,
-    // so it must load last) — nothing else may slip in behind them
-    assert.deepEqual(sheets.slice(-3), ['/css/devices.css', '/css/utility-mobile.css', '/css/glass.css'],
-      'only the scoped management density layer and the theme skin follow devices.css');
-    assert.match(index, /<script nomodule(?:\s[^>]*)?>/, 'a browser without ES modules gets a message');
-    assert.match(index, /src="\/js\/boot\.js"/, 'external diagnostics run before the module');
-    assert.match(readFileSync(path.join(PUBLIC, 'js/boot.js'), 'utf8'), /__spBootFail\('load'\)/, 'a module graph that cannot load gets a message');
+    assert.equal(sheets[sheets.length - 2], '/css/devices.css', 'devices.css stays the last layout sheet');
+    assert.equal(sheets[sheets.length - 1], '/css/ui-theme.css', 'a local interface theme paints after the device sheet');
+    assert.match(index, /<script nomodule src="\/js\/bootLegacy\.js">/, 'a browser without ES modules gets the external fallback');
+    const boot = readFileSync(path.join(PUBLIC, 'js/boot.js'), 'utf8');
+    const legacy = readFileSync(path.join(PUBLIC, 'js/bootLegacy.js'), 'utf8');
+    assert.match(legacy, /__spBootFail\('old'\)/);
+    assert.match(boot, /addEventListener\('error'/, 'module loading errors are caught under CSP');
+    assert.match(boot, /__spBootFail\('load'\)/);
+    assert.ok(!/\sonerror=/.test(index), 'no inline event handler under CSP');
     assert.match(index, /apple-mobile-web-app-capable/);
     assert.match(index, /class="rotate-hint"/);
   });
@@ -1465,8 +1455,8 @@ describe('explicit local match recovery (#431)', () => {
 test('the hud slot stays above the hand, plugin frames declare a dark scheme, and the test-console command row wraps', () => {
   const css = readFileSync(path.join(PUBLIC, 'css/components.css'), 'utf8');
   assert.match(css, /\.ui-slot__frame \{[^}]*color-scheme: dark/);
-  assert.match(css, /\.gm__ui-slot \{[^}]*right: calc\(\.92 \* var\(--ui-unit, 1rem\)\); bottom: calc\(4\.76 \* var\(--ui-unit, 1rem\) \+ \.12 \* var\(--ui-unit, 1rem\)\)/);
-  assert.match(css, /\.gm__ui-slot \{[^}]*max-height: calc\(100% - 4\.88 \* var\(--ui-unit, 1rem\) - 1\.7 \* var\(--ui-unit, 1rem\)\)/);
+  assert.match(css, /\.gm__ui-slot \{[^}]*right: \.92rem; bottom: calc\(4\.76rem \+ \.12rem\)/);
+  assert.match(css, /\.gm__ui-slot \{[^}]*max-height: calc\(100% - 4\.88rem - 1\.7rem\)/);
   assert.match(css, /\.ui-slot__tabs \{[^}]*flex-wrap: wrap/);
   const game = readFileSync(path.join(PUBLIC, 'css/screens/game.css'), 'utf8');
   assert.match(game, /\.testconsole__run \{ flex: 0 0 auto; \}/);

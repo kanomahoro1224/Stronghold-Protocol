@@ -8,11 +8,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  phaseMode, phaseBanner, isCombatPhase, isBossPhase, countdownState, phaseTotalSeconds, sortBonds, bondTier, nextThreshold,
+  phaseMode, phaseBanner, isCombatPhase, isBossPhase, countdownState, phaseTotalSeconds, pregameStepCount, pregameStepIndex, sortBonds, bondTier, nextThreshold,
   battleOverSfx, ownRoundLoss, uniteResultBox, battleResultBox, roundResultBox, RESULT_BOX_MS,
   bondMembers, memberHeadCount, bannedPerBond, priceTone, mergeProgress, shopBlockReason, deploySets, indexPieces, placementContext, canPlace,
   boardTargets, dropIntent, normalizeDraft, heldDraftPub, normalizeSp, normalizePersonalChoice, groupEnemies, factionTypes, snapHud, bossFrac, attackInterval, fmtNum,
-  rangeGridBox, shortcutFor, sanitizeSettings, DEFAULT_SETTINGS, DEFAULT_HOTKEYS, DEFAULT_SHORTCUTS, sanitizeShortcuts, normalizeResult, cycleField, fieldLabel, homeFieldId,
+  rangeGridBox, shortcutFor, sanitizeSettings, DEFAULT_SETTINGS, normalizeResult, cycleField, fieldLabel, homeFieldId,
   activeBubbles, sortedPlayers, tileKey, prepCapsuleLabel, prepCamera, dropFailureReason, terrainInfo,
 } from '../../public/js/ui/gameLogic.js';
 import { PHASE, GEO } from '../../shared/constants.js';
@@ -55,12 +55,27 @@ describe('phases', () => {
     assert.equal(phaseMode(null), 'loading');
     assert.equal(phaseMode(PHASE.INFO_CHECK), 'briefing');
     assert.equal(phaseMode(PHASE.BAND_DRAFT), 'draft');
+    assert.equal(phaseMode(PHASE.CUSTOM_CHECK), 'diy');
     assert.equal(phaseMode(PHASE.BATTLE_CHECK), 'boot');
     for (const p of [PHASE.PREP, PHASE.SP_DRAFT, PHASE.ROUND_START]) assert.equal(phaseMode(p), 'prep');
     for (const p of [PHASE.COMBAT, PHASE.UNITE, PHASE.FINAL_ASSAULT, PHASE.HIDDEN_CORE]) assert.equal(phaseMode(p), 'combat');
     assert.equal(phaseMode(PHASE.SETTLE), 'settle');
     assert.equal(phaseMode(PHASE.RESULT), 'result');
     assert.equal(phaseMode('SOMETHING_NEW'), 'prep');
+  });
+  test('pregame step headers follow enterSteps, and 选择自编 is 30s', () => {
+    const reg = { timers: { enterSteps: [
+      { step: 'INFO_CHECK', time: 50 }, { step: 'BAND_CHECK', time: 15 },
+      { step: 'CUSTOM_CHECK', time: 30 }, { step: 'BATTLE_CHECK', time: 5 },
+    ] } };
+    assert.equal(pregameStepCount(reg), 3);
+    assert.equal(pregameStepIndex(reg, 'INFO_CHECK'), 1);
+    assert.equal(pregameStepIndex(reg, 'BAND_DRAFT'), 2);
+    assert.equal(pregameStepIndex(reg, 'CUSTOM_CHECK'), 3);
+    assert.equal(phaseTotalSeconds({ phase: 'CUSTOM_CHECK' }, reg), 30);
+    assert.equal(pregameStepCount({}), 2);
+    assert.equal(pregameStepIndex({}, 'INFO_CHECK'), 1);
+    assert.equal(pregameStepIndex({}, 'BAND_CHECK'), 2);
   });
   test('combat / boss predicates and banners', () => {
     assert.ok(isCombatPhase(PHASE.UNITE) && !isCombatPhase(PHASE.PREP));
@@ -357,6 +372,14 @@ describe('placement mirror (canPlace)', () => {
     const r = piece(RANGED);
     const ctx = ctxFor(privWith({ hand: [m, r] }));
     assert.equal(canPlace(ctx, m.uid, { area: 'board', row: 9, col: 3 }).ok, true);
+    const chest = privWith({ hand: [piece(MELEE)] });
+    chest.prepMapChars = [{ uid: -20, defId: 'enemy_9038_achest', x: 3, y: 9, kind: 'enemy' }];
+    const blocked = ctxFor(chest);
+    assert.equal(canPlace(blocked, chest.hand[0].uid, { area: 'board', row: 9, col: 3 }).ok, false, '模拟宝藏 occupies the tile');
+    assert.equal(canPlace(blocked, chest.hand[0].uid, { area: 'board', row: 9, col: 5 }).ok, true);
+    const medic = privWith({ hand: [piece(MELEE)] });
+    medic.prepMapChars = [{ uid: -1, defId: 'char_605_cmedic', x: 3, y: 9, kind: 'token' }];
+    assert.equal(canPlace(ctxFor(medic), medic.hand[0].uid, { area: 'board', row: 9, col: 3 }).ok, true, 'the reserve medic does not block deploy');
     assert.equal(canPlace(ctx, m.uid, { area: 'board', row: 10, col: 4 }).ok, false, 'melee on high ground');
     assert.equal(canPlace(ctx, r.uid, { area: 'board', row: 10, col: 4 }).ok, true);
     assert.equal(canPlace(ctx, r.uid, { area: 'board', row: 9, col: 3 }).ok, true, 'ranged may use melee tiles');
@@ -508,6 +531,21 @@ describe('placement mirror (canPlace)', () => {
     assert.deepEqual(canPlace(ctx, art.uid, { area: 'board', row: 11, col: 6 }), { ok: true, action: 'art' });
     assert.equal(canPlace(ctx, art.uid, { area: 'hand', idx: 0 }).ok, false, 'arts are not equipped');
     assert.deepEqual(canPlace(ctx, art.uid, { area: 'hand', idx: 1 }), { ok: true, action: 'swap' }, 'item ↔ item swap in the hand');
+  });
+  test('信标 is not a legal drop on a 自选 operator; a hammer still is (GitHub #913)', () => {
+    const diy = { ...piece('chess_char_5_diy1_a'), row: 9, col: 3 };
+    const normal = { ...piece(MELEE), row: 9, col: 4 };
+    const beacon = item('chess_item_5_04_e_a');
+    const hammer = item(EQUIP);
+    const ctx = ctxFor(privWith({ board: [diy, normal], hand: [beacon, hammer] }));
+    assert.deepEqual(canPlace(ctx, beacon.uid, { area: 'board', row: 9, col: 3 }), { ok: false, code: 'BAD_TARGET', reason: '无法装备给自选干员' });
+    assert.equal(dropIntent(ctx, beacon.uid, { area: 'board', row: 9, col: 3 }), null);
+    assert.deepEqual(canPlace(ctx, beacon.uid, { area: 'board', row: 9, col: 4 }), { ok: true, action: 'equip' });
+    assert.deepEqual(canPlace(ctx, hammer.uid, { area: 'board', row: 9, col: 3 }), { ok: true, action: 'equip' });
+    const tiles = boardTargets(ctx, beacon.uid);
+    assert.ok(!tiles.legal.some(([r, c]) => r === 9 && c === 3), 'the drag highlight does not offer the 自选 tile');
+    assert.ok(tiles.illegal.some(([r, c]) => r === 9 && c === 3));
+    assert.ok(tiles.legal.some(([r, c]) => r === 9 && c === 4));
   });
   test('boardTargets lists legal tiles for highlighting', () => {
     const m = piece(MELEE);
@@ -708,49 +746,45 @@ describe('enemies, HUD, stats', () => {
 
 describe('keyboard & settings', () => {
   test('shortcutFor', () => {
-    // The default map is the upstream v0.3.3 key map (buy W / refresh R / freeze F / levelUp D / retreat Q / sell X /
-    // ready Space). GameScreen always passes the persisted map (`shortcutFor(e, shortcutsStore.get())`), so the
-    // rebindable actions are asserted through it instead of the legacy no-map fallback (r / f / d / Space only).
-    const keys = DEFAULT_SETTINGS.keys;
-    assert.deepEqual(keys, { ...DEFAULT_HOTKEYS }, 'the persisted default map is the upstream v0.3.3 key map');
-    assert.equal(shortcutFor({ key: 'r', code: 'KeyR' }, keys), 'refresh');
-    assert.equal(shortcutFor({ key: 'F', code: 'KeyF' }, keys), 'freeze');
-    assert.equal(shortcutFor({ key: 'd' }, keys), 'levelUp');
-    assert.equal(shortcutFor({ key: 'q', code: 'KeyQ' }, keys), 'retreat');
-    assert.equal(shortcutFor({ key: 'Q' }, keys), 'retreat');
-    assert.equal(shortcutFor({ code: 'KeyX' }, keys), 'sell');
-    assert.equal(shortcutFor({ key: 'X' }, keys), 'sell');
-    for (const key of ['q', 'x']) {
-      assert.equal(shortcutFor({ key, repeat: true }, keys), null);
-      assert.equal(shortcutFor({ key, ctrlKey: true }, keys), null);
-      assert.equal(shortcutFor({ key, metaKey: true }, keys), null);
-      assert.equal(shortcutFor({ key, altKey: true }, keys), null);
-      for (const tagName of ['INPUT', 'TEXTAREA', 'SELECT']) {
-        assert.equal(shortcutFor({ key, target: { tagName } }, keys), null);
-      }
-      assert.equal(shortcutFor({ key, target: { isContentEditable: true } }, keys), null);
-    }
-    assert.equal(shortcutFor({ key: ' ', code: 'Space' }, keys), 'ready');
-    assert.equal(shortcutFor({ key: 'Escape' }, keys), 'escape');
-    assert.equal(shortcutFor({ key: 'r', ctrlKey: true }, keys), null);
-    assert.equal(shortcutFor({ key: 'r', repeat: true }, keys), null);
-    assert.equal(shortcutFor({ key: 'Escape', repeat: true }, keys), 'escape');
-    assert.equal(shortcutFor({ key: 'r', target: { tagName: 'input' } }, keys), null);
-    assert.equal(shortcutFor({ key: ' ', code: 'Space', target: { tagName: 'BUTTON' } }, keys), 'ready', 'space readies even with a HUD button focused');
-    assert.equal(shortcutFor({ key: ' ', code: 'Space', target: { tagName: 'TEXTAREA' } }, keys), null);
-    assert.equal(shortcutFor({ key: 'd', target: { tagName: 'DIV', isContentEditable: true } }, keys), null);
-    assert.equal(shortcutFor({ key: 'z' }, keys), null, 'z is bound to nothing');
-    assert.equal(shortcutFor({ key: 'x' }, keys), 'sell', 'x sells (the branch map bound x the same way)');
-    assert.equal(shortcutFor(null), null);
-    // the legacy no-map fallback kept for pure helper callers from older clients (r / f / d / Space)
     assert.equal(shortcutFor({ key: 'r', code: 'KeyR' }), 'refresh');
+    assert.equal(shortcutFor({ key: 'F', code: 'KeyF' }), 'freeze');
+    assert.equal(shortcutFor({ key: 'd' }), 'levelUp');
+    assert.equal(shortcutFor({ key: 'q', code: 'KeyQ' }), 'retreat');
+    assert.equal(shortcutFor({ key: 'Q' }), 'retreat');
+    assert.equal(shortcutFor({ code: 'KeyX' }), 'sell');
+    assert.equal(shortcutFor({ key: 'X' }), 'sell');
+    for (const key of ['q', 'x']) {
+      assert.equal(shortcutFor({ key, repeat: true }), null);
+      assert.equal(shortcutFor({ key, ctrlKey: true }), null);
+      assert.equal(shortcutFor({ key, metaKey: true }), null);
+      assert.equal(shortcutFor({ key, altKey: true }), null);
+      for (const tagName of ['INPUT', 'TEXTAREA', 'SELECT']) {
+        assert.equal(shortcutFor({ key, target: { tagName } }), null);
+      }
+      assert.equal(shortcutFor({ key, target: { isContentEditable: true } }), null);
+    }
     assert.equal(shortcutFor({ key: ' ', code: 'Space' }), 'ready');
+    assert.equal(shortcutFor({ key: 'Escape' }), 'escape');
+    assert.equal(shortcutFor({ key: 'r', ctrlKey: true }), null);
+    assert.equal(shortcutFor({ key: 'r', repeat: true }), null);
+    assert.equal(shortcutFor({ key: 'Escape', repeat: true }), 'escape');
+    assert.equal(shortcutFor({ key: 'r', target: { tagName: 'input' } }), null);
+    assert.equal(shortcutFor({ key: ' ', code: 'Space', target: { tagName: 'BUTTON' } }), 'ready', 'space readies even with a HUD button focused');
+    assert.equal(shortcutFor({ key: ' ', code: 'Space', target: { tagName: 'TEXTAREA' } }), null);
+    assert.equal(shortcutFor({ key: 'd', target: { tagName: 'DIV', isContentEditable: true } }), null);
+    assert.equal(shortcutFor({ key: 'z' }), null);
+    assert.equal(shortcutFor(null), null);
   });
   test('sanitizeSettings', () => {
     assert.deepEqual(sanitizeSettings(null), { ...DEFAULT_SETTINGS });
     assert.deepEqual(sanitizeSettings({ bgm: 3, sfx: -1, voice: 2, muted: 'yes', damageNumbers: false, quality: 'ultra' }),
-      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, voiceOverrides: {}, muted: false, damageNumbers: false, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: false, deployZoom: false, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: ['cn'], keys: { ...DEFAULT_SETTINGS.keys } },
+      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, voiceOverrides: {}, muted: false, damageNumbers: false, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: true, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: '', themeMotion: true, keys: { ...DEFAULT_SETTINGS.keys } },
       'a saved profile without `keys` (before 0.2.0) gets the default key map (test/ui/feedback5-hotkeys.test.js)');
+    // 主题动画 (§37.144): on by default; only `false` turns the official packs' tweens still
+    assert.equal(DEFAULT_SETTINGS.themeMotion, true);
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).themeMotion, true, 'a profile saved before the switch keeps the animations');
+    assert.equal(sanitizeSettings({ themeMotion: false }).themeMotion, false);
+    assert.equal(sanitizeSettings({ themeMotion: 0 }).themeMotion, true);
     // 显示其他玩家的皮肤 (docs/SKINS.md): on by default, and off only when the profile says so
     assert.equal(DEFAULT_SETTINGS.otherSkins, true);
     assert.equal(sanitizeSettings({ bgm: 0.5 }).otherSkins, true, 'a profile saved before the switch draws other players\' skins');
@@ -762,57 +796,26 @@ describe('keyboard & settings', () => {
     assert.equal(DEFAULT_SETTINGS.voiceNative, false);
     assert.equal(sanitizeSettings({ bgm: 0.5 }).voiceLang, 'cn');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).voiceNative, false, 'a profile saved before the switch stays off');
+    assert.equal(DEFAULT_SETTINGS.combatMetrics, false);
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).combatMetrics, false, 'a profile saved before 作战统计 stays off');
+    assert.equal(sanitizeSettings({ combatMetrics: true }).combatMetrics, true);
     // 官方特效 (0.3.0): 'auto' by default (完整 on a desktop, 精简 on a touch device); unknown values fall back to it
     assert.equal(DEFAULT_SETTINGS.officialFx, 'auto');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).officialFx, 'auto', 'a profile saved before 官方特效 gets the default');
     for (const v of ['off', 'lite', 'full', 'auto']) assert.equal(sanitizeSettings({ officialFx: v }).officialFx, v);
     assert.equal(sanitizeSettings({ officialFx: 'ultra' }).officialFx, 'auto');
-    // 作战统计 (PR #618): off by default (the official HUD has no such panel), a stored boolean is kept
-    assert.equal(DEFAULT_SETTINGS.combatMetrics, false);
-    assert.equal(sanitizeSettings({ bgm: 0.5 }).combatMetrics, false, 'a profile saved before 作战统计 stays off');
-    assert.equal(sanitizeSettings({ combatMetrics: true }).combatMetrics, true);
     assert.equal(sanitizeSettings({ combatMetrics: 'yes' }).combatMetrics, false, 'a non-boolean stays off');
-    // 部署时收起商店 (upstream 0.3.3) and 部署时镜头缩放 (the fork's own `deploymentZoom`, restored beside it as
-    // `deployZoom` on 2026-11-02) are two opt-in switches, both off by default: the pickup folds the bar, takes the
-    // camera, or neither. The retired `deploymentZoom` key is read into `deployZoom` and never written back.
-    assert.equal(DEFAULT_SETTINGS.prepDeployFold, false);
-    assert.equal(DEFAULT_SETTINGS.deployZoom, false);
-    assert.equal(sanitizeSettings({ bgm: 0.5 }).prepDeployFold, false, 'a profile saved before 部署时收起商店 stays off');
-    assert.equal(sanitizeSettings({ bgm: 0.5 }).deployZoom, false, 'a profile saved before 部署时镜头缩放 stays off');
-    assert.equal(sanitizeSettings({ prepDeployFold: true }).prepDeployFold, true);
-    assert.equal(sanitizeSettings({ prepDeployFold: 'yes' }).prepDeployFold, false, 'a non-boolean stays off');
-    assert.equal(sanitizeSettings({ deployZoom: true }).deployZoom, true);
-    assert.equal(sanitizeSettings({ deployZoom: 'yes' }).deployZoom, false, 'a non-boolean stays off');
-    assert.equal(Object.hasOwn(DEFAULT_SETTINGS, 'deploymentZoom'), false);
-    assert.equal(Object.hasOwn(sanitizeSettings({ deploymentZoom: true }), 'deploymentZoom'), false, 'never written back under the old name');
-    assert.equal(sanitizeSettings({ deploymentZoom: true }).deployZoom, true, 'a profile written before the merge keeps its 部署时镜头缩放');
-    assert.equal(sanitizeSettings({ deploymentZoom: true }).prepDeployFold, false, 'the retired key never turns 部署时收起商店 on');
-    assert.equal(sanitizeSettings({ deployZoom: false, deploymentZoom: true }).deployZoom, false, 'the new key wins over the retired one');
     assert.equal(sanitizeSettings({ voiceLang: 'jp' }).voiceLang, 'jp');
     assert.equal(sanitizeSettings({ voiceLang: 'en' }).voiceLang, 'en');
     assert.equal(sanitizeSettings({ voiceLang: 'kr' }).voiceLang, 'kr');
     assert.equal(sanitizeSettings({ voiceNative: true }).voiceNative, true);
     for (const bad of ['native', 'JP', 'ja', 1, null]) assert.equal(sanitizeSettings({ voiceLang: bad }).voiceLang, 'cn', String(bad));
+    assert.equal(sanitizeSettings(null).uiTheme, '');
+    assert.equal(sanitizeSettings({ uiTheme: 'iron-fan' }).uiTheme, 'iron-fan');
+    assert.equal(sanitizeSettings({ uiTheme: 'terminal' }).uiTheme, '', 'the built-in id is stored as empty');
+    assert.equal(sanitizeSettings({ uiTheme: '../x' }).uiTheme, '');
     assert.equal(sanitizeSettings({ bgm: 0.333 }).bgm, 0.33);
     assert.equal(sanitizeSettings({ quality: 'low' }).quality, 'low');
-    assert.equal(sanitizeSettings(null).preload, false, 'the offline-resource preload is off unless the player turned it on');
-    assert.equal(sanitizeSettings({ preload: true }).preload, true);
-    assert.equal(sanitizeSettings({ preload: 'yes' }).preload, false);
-    assert.equal(sanitizeSettings({ preload: true }).preloadOptional, false);
-    assert.equal(sanitizeSettings({ preloadOptional: true }).preloadOptional, true);
-    assert.equal(sanitizeSettings({ preloadOptional: 'yes' }).preloadOptional, false);
-    assert.equal(sanitizeSettings({ quality: 'low' }).fpsLimit, 0, 'older saved settings remain uncapped');
-    for (const limit of [0, 30, 60, 120]) assert.equal(sanitizeSettings({ fpsLimit: limit }).fpsLimit, limit);
-    for (const limit of [-30, 1, 45, 240, Infinity, NaN, '30', null]) assert.equal(sanitizeSettings({ fpsLimit: limit }).fpsLimit, 0);
-  });
-  test('editable shortcut defaults and sanitization', () => {
-    assert.deepEqual(DEFAULT_SHORTCUTS, { viewEnemies: 'KeyW', freeze: 'KeyS', refresh: 'KeyR', ready: 'KeyC', sell: 'KeyX', retreat: 'KeyQ', levelUp: 'KeyG', pause: 'Space' });
-    assert.equal(shortcutFor({ key: 'w', code: 'KeyW' }, DEFAULT_SHORTCUTS), 'viewEnemies');
-    assert.equal(shortcutFor({ key: 'c', code: 'KeyC' }, DEFAULT_SHORTCUTS), 'ready');
-    assert.equal(shortcutFor({ key: 'x', code: 'KeyX' }, DEFAULT_SHORTCUTS), 'sell');
-    assert.deepEqual(sanitizeShortcuts({ refresh: 'KeyT', ready: 'bad value', levelUp: 3 }), {
-      ...DEFAULT_SHORTCUTS, refresh: 'KeyT',
-    });
   });
   test('fullscreen wake lock is opt-in and accepts only boolean saved values', () => {
     assert.equal(DEFAULT_SETTINGS.fullscreenWakeLock, false);
