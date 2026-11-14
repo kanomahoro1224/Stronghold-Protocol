@@ -174,7 +174,9 @@ export function deployZoomRemember(step, frame) {
  */
 export function prepDeployCamera(s) {
   if (!s) return null;
-  if (s.deployZoom) {
+  // 上游把镜头的这一半叫 deployFold；本分支拆成 deployZoom（镜头）+ prepDeployFold（折店），两个名字都认。
+  const deployZoom = s.deployZoom ?? s.deployFold;
+  if (deployZoom) {
     const want = prepCameraFor(s.pub, s.myId, true);
     const cur = s.current;
     if (cur && cur.kind === want.kind && cur.opts?.shop === want.opts.shop) return null;

@@ -876,7 +876,7 @@ function MatchScreen() {
   useEffect(() => {
     const step = deployZoomStep(deployZoomedRef.current, deployZoom);
     const next = prepDeployCamera({
-pub, myId, deployZoom, partial: deployPartial, releaseDeploy: step.release, folded: shopFolded,
+      pub, myId, deployZoom, partial: deployPartial, releaseDeploy: step.release, folded: shopFolded,
       ownPrep: !!view && viewModeRef.current === 'prep' && showPrep,
       pen, busy: !!drag || !!facing, current: camRef.current,
     });
