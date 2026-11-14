@@ -132,6 +132,11 @@
   -webkit-appearance: none; appearance: none;
 }
 .lo-select select option { background: var(--bg-2); color: var(--text-hi); }
+.lo-select .combo { flex: 1 1 auto; width: 100%; min-width: 0; height: 100%; }
+.lo-select .combo__btn {
+  min-height: 0; height: 100%; border: 0; background: transparent; color: inherit;
+  padding: 0 max(.2rem, calc(14px * var(--sp-ui, 1))) 0 .06rem; font-size: max(.15rem, 11px);
+}
 .lo-select:focus-within { border-color: var(--mint-700); }
 
 .lo-toggle {

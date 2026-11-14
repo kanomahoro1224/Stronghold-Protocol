@@ -46,7 +46,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from '../../ven
 import { DIFFICULTIES, DIFFICULTY_NAMES, DIFFICULTY_COLORS, ROOM_CODE_LEN, MAX_SEATS, MAX_SPECTATORS, modeIdFor, ERR } from '../../../shared/constants.js';
 import { html, confirmDialog, Button, Icon, MicroLabel, Modal, PingPill, OnlineCount, Spinner, DifficultyIcon, TextField } from '../ui/components.js';
 import { Sprite, Img } from '../ui/gameComponents.js';
-import { uiUrl } from '../ui/assetUrls.js';
+import { uiUrl, medalIconUrl } from '../ui/assetUrls.js';
 import { peekStatsRecords, trophyMedalOf, aggregateStats, recordsOfSeason } from '../ui/stats.js';
 import { levelProgress, levelOf } from './settle.js';
 import { LobbyMediaButton } from '../ui/lobbyMedia.js';
@@ -59,6 +59,8 @@ import { RadarScene, CreateArt, JoinArt } from '../ui/allyArt.js';
 import { ProtocolScene } from '../ui/protocolScene.js';
 import { useStatsOpen, openStats } from './stats.js';
 import { Emblem } from './title.js';
+import { AllianceBackdrop, useLobbyArt } from '../ui/allianceScene.js';
+import { RegulationBackdrop, REGULATION, REGULATION_ART } from '../ui/regulationBackdrop.js';
 import { SettingsButton } from '../ui/settings.js';
 import { PwaInstallButton, detectFeatures, useMediaQuery, SHORT_SCREEN_QUERY } from '../ui/device.js';
 import { UiThemeButton } from '../ui/theme.js';
@@ -70,12 +72,12 @@ import { useMyCard } from '../ui/playerCard.js';
 import { cardAvatarUrl } from '../ui/seatArt.js';
 import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual, loadPref, savePref } from '../store.js';
-import { data, getConfig, getMode, getStage, useData } from '../data.js';
+import { data, getConfig, getMode, getStage, localAsset, useData } from '../data.js';
 import { t, tc, N_ } from '../../../shared/i18n.js';
 import { scriptOf } from '../../../shared/i18nPacks.js';
 import { VersionSwitch } from '../ui/versionPicker.js';
 import { contentSet, retryContentSet } from '../content.js';
-import { DEFAULT_VERSION, lobbyVersion, offeredDifficulties, fallbackDifficulty, seasonOf, soloTimedOf, soloTimeMsgid, versionLabel } from '../versions.js';
+import { DEFAULT_VERSION, lobbyVersion, offeredDifficulties, fallbackDifficulty, ladderModes, ladderPick, seasonOf, soloTimedOf, soloTimeMsgid, versionLabel } from '../versions.js';
 
 /** Official mode texts (activity_table act2autochess.modeDataDict), fallback when config.json is absent. */
 export const MODE_TEXT = {
@@ -167,6 +169,36 @@ export function difficultyInfo(roomMode, difficulty) {
     rounds,
     hidden: difficulty !== 'FUNNY',
     stageNote: stageNote(Array.isArray(m?.stages) && m.stages.length ? m.stages : STAGE_POOL[difficulty]),
+  };
+}
+
+/**
+ * Text for one official mode of a laddered room mode (规程's 极速模拟 / 规程等级 n: data/config.json `modes[modeId]`), in
+ * difficultyInfo's shape plus its own name, colour and difficulty (FAST, 极速模拟's, shows as 标准 where a difficulty is needed).
+ * @param {string} modeId
+ * @returns {{ name: string, color: string, difficulty: string, code: string, desc: string, effects: string[], rounds: number, hidden: boolean, stageNote: string, offBonds: string[] }}
+ */
+export function modeInfo(modeId) {
+  const m = getMode(modeId) || {};
+  const difficulty = DIFFICULTIES.includes(m.difficulty) ? m.difficulty : 'FUNNY';
+  // the rounds / battlefield fallbacks of the difficulty (its desc and effects are the mode's own below: a laddered solo's
+  // mode_single_funny is 极速模拟, whose 「时长较短的模拟训练」 is no 规程等级's)
+  const base = difficultyInfo('coop', difficulty);
+  const off = Array.isArray(m.inactiveBondIds) ? m.inactiveBondIds : [];
+  return {
+    ...base,
+    name: typeof m.name === 'string' ? m.name : modeId,
+    color: typeof m.color === 'string' && /^#?[0-9a-f]{6}$/i.test(m.color) ? (m.color.startsWith('#') ? m.color : `#${m.color}`) : DIFFICULTY_COLORS[difficulty],
+    difficulty,
+    code: typeof m.code === 'string' ? m.code : '',
+    // its own text (规程等级5 追加更多盟约, 9 追加更多敌人 …), else the difficulty's general one — never another mode's own,
+    // which names that mode's unlocks (险境模拟: 「解锁时可开放至【规程等级3】」)
+    desc: typeof m.desc === 'string' && m.desc ? m.desc : t(MODE_TEXT.multi[difficulty]?.desc || ''),
+    effects: Array.isArray(m.effectDescList) ? m.effectDescList.map((e) => String(e).replace(/^[·•・･\s]+/, '')).filter(Boolean) : [],
+    rounds: Number.isFinite(m.lastRound) ? m.lastRound : base.rounds,
+    hidden: Number.isFinite(m.hiddenRound),
+    stageNote: stageNote(Array.isArray(m.stages) ? m.stages : []),
+    offBonds: off.map((id) => data.lookup('bonds', id)?.name || id),
   };
 }
 
@@ -335,6 +367,34 @@ function DifficultyCard({ roomMode, difficulty, selected, onSelect, disabled = f
 }
 
 /**
+ * A laddered room mode's choice (规程's solo, instead of the four difficulty cards): 极速模拟 — its modes outside the ladder —
+ * as a card, then 规程等级 1–20 as numbered cells in rows by difficulty, each row named and coloured by its difficulty.
+ * `disabled`: shown, not chosen (a room's other doctors).
+ */
+function LadderList({ ladder, modeId, onMode, disabled = false }) {
+  const side = ladder.filter((m) => !DIFFICULTIES.includes(m.difficulty));
+  const rows = DIFFICULTIES.map((d) => ({ d, modes: ladder.filter((m) => m.difficulty === d) })).filter((r) => r.modes.length);
+  const num = (m) => /(\d+)$/.exec(m.name)?.[1] ?? m.code;
+  return html`<div class="ladder" data-testid="proto-ladder">
+    ${side.map((m) => { const info = modeInfo(m.id); return html`<button key=${m.id} type="button" class=${`pcard diff-card ladder__side${m.id === modeId ? ' is-on is-selected' : ''}`}
+        style=${`--d-color:${info.color}`} disabled=${disabled} onClick=${() => onMode(m.id)} aria-pressed=${m.id === modeId ? 'true' : 'false'} data-mode=${m.id}>
+      <span class="pcard__glow" aria-hidden="true"></span>
+      <span class="pcard__head"><span class="pcard__name">${info.name}</span></span>
+      <span class="pcard__desc">${info.desc}</span>
+      <span class="pcard__meta">${info.code ? html`<span class="num">${info.code}</span>` : null}<${DifficultyRounds} info=${info} /></span>
+      <span class="pcard__stamp" aria-hidden="true"><${StampRing} /><span class="pcard__tick"><${Icon} name="check" /></span><span class="pcard__ok">${t('已选定')}</span></span>
+    </button>`; })}
+    <div class="ladder__grid" role="group" aria-label=${t('规程等级')}>
+      ${rows.map(({ d, modes }) => html`<div key=${d} class="ladder__row" style=${`--d-color:${DIFFICULTY_COLORS[d]}`}>
+        <span class="ladder__tier"><${DifficultyIcon} difficulty=${d} />${t(DIFFICULTY_NAMES[d])}</span>
+        <span class="ladder__cells">${modes.map((m) => html`<button key=${m.id} type="button" class=${`ladder__cell num${m.id === modeId ? ' is-on' : ''}`}
+            disabled=${disabled} onClick=${() => onMode(m.id)} aria-pressed=${m.id === modeId ? 'true' : 'false'} title=${`${m.name} · ${m.code}`} data-mode=${m.id}>${num(m)}</button>`)}</span>
+      </div>`)}
+    </div>
+  </div>`;
+}
+
+/**
  * How much 选择模拟协议's cards show on a screen taller than 520 px (§35.18's leftover there: at 大 / 特大, in a small
  * window or a long language the four cards ran under 开始独立模拟, 终极模拟 out of view, even at 小 in 16:9 by a few px):
  * the first level at which they fit their column — 'full' (the name, the description, the effects, the rounds), 'brief'
@@ -434,7 +494,7 @@ function AchievementCard({ onOpen }) {
       </svg>
       <span class="hub-ach__mark"><${Emblem} /></span>
       <span class="hub-ach__rank">
-        <${Img} src=${medal ? uiUrl(data.get('assets'), `medalIcon/${medal.iconId}`) : null} class="hub-ach__medal" fallback=${html`<${Icon} name="rook" />`} />
+        <${Img} src=${medal ? medalIconUrl(data.get('assets'), medal.iconId) : null} class="hub-ach__medal" fallback=${html`<${Icon} name="rook" />`} />
         <small><${Icon} name="crown" /><b class="num">${trophies}</b></small>
       </span>
     </span>
@@ -490,18 +550,23 @@ function SweepPlate({ onClick }) {
 
 /**
  * The event entry's backdrop: the official glow (`entry/entry_bkg_01`) and Rhodes Island hologram (`entry/entry_bkg_02`)
- * over a dark field with a faint grid; without the art pack only the field and the grid. `bg` is the hub appearance
- * (ui/hubAppearance.js useHubBackdrop): its scene / 鹿乃 photo / this browser's picture or video is the ground layer
- * (ui/hubBackdrop.js HubBackdrop) and the only backdrop source — v0.3.3's own 大厅背景与音乐 layers (ui/lobbyMedia.js
- * LobbyScene / OwnBackdrop, PR #643 split 8) drew a second, redundant copy of the same scene and file and are gone.
+ * over a dark field with a faint grid. `bg` is the hub appearance (ui/hubAppearance.js useHubBackdrop): its scene /
+ * 鹿乃 photo / this browser's picture or video is the ground layer (ui/hubBackdrop.js HubBackdrop) and the only backdrop
+ * source — v0.3.3's own 大厅背景与音乐 layers (LobbyScene / OwnBackdrop, PR #643 split 8) drew a second, redundant copy
+ * of the same scene and file and are gone. Where the hub appearance asks for no picture, the season's own scenery paints:
+ * 规程's night map / 盟约's dusk dunes (ui/allianceScene.js, ui/regulationBackdrop.js; still under reduced motion), else
+ * the two entry sprites.
  */
-function HubBackdrop({ bg }) {
+function HubBackdrop({ bg, season = null }) {
   const scene = backdropScene(bg);
-  // 自定义背景（photo 场景：内置鹿乃图、玩家导入的图片或视频）下不画正中间那两张精灵。它们是画在场景上的装饰，
+  const alliance = useLobbyArt();
+  // 自定义背景（photo 场景：内置鹿乃图、玩家导入的图片或视频）下不画正中间那些精灵。它们是画在场景上的装饰，
   // 叠在玩家自己的图上就是「中间多出来的特效」；整屏的网格、点阵与暗角保留（maintainer 2026-11-02）。
   return html`<div class="hub-bg" data-scene=${scene} aria-hidden="true">
     <${HubThemeBackdrop} bg=${bg} />
-    ${scene === 'photo' ? null : html`<${Sprite} k="entry/entry_bkg_01" class="hub-bg__glow" />
+    ${scene === 'photo' ? null : season === REGULATION ? html`<${RegulationBackdrop} />`
+      : alliance ? html`<${AllianceBackdrop} />`
+      : html`<${Sprite} k="entry/entry_bkg_01" class="hub-bg__glow" />
       <${Sprite} k="entry/entry_bkg_02" class="hub-bg__ship" />`}
     <span class="hub-bg__grid"></span>
   </div>`;
@@ -518,8 +583,28 @@ function HubRadar() {
   </div>`;
 }
 
+/**
+ * 规程's emblem and title: the official raised-fist season logo in the radar (recoloured red), the glowing РЕГЛАМЕНТ
+ * wordmark above and the official 「卫戍协议【规程】」 title lockup — in a Chinese script; elsewhere the title as text in the
+ * same frame. Without the local-client art: the dot emblem and text.
+ */
+function RegulationTitle() {
+  const version = useStore(lobbyVersion);
+  const art = (name) => localAsset(REGULATION_ART, name);
+  const chinese = scriptOf(t('卫戍协议')) !== 'alphabetic' && /^zh/i.test(document.documentElement.lang || 'zh');
+  const [logo, word, lockup] = [art('entry_anim_season_logo') || art('entry_anim_season_logo_2'), art('entry_anim_season_logo_text_2'), art('common_title')];
+  return html`<div class="hub-center hub-center--reg">
+    <div class="hub-center__mark"><${HubRadar} />${logo ? html`<img class="hub-center__logo hub-center__fist" src=${logo} alt="" />` : html`<${Emblem} />`}</div>
+    ${word ? html`<img class="hub-reg__word" src=${word} alt="РЕГЛАМЕНТ · STRONGHOLD PROTOCOL REGULATION" />` : html`<div class="hub-reg__wordtext" lang="ru">РЕГЛАМЕНТ</div>`}
+    ${chinese && lockup ? html`<h1 class="hub-reg__lockup"><img src=${lockup} alt=${t('卫戍协议·规程')} /></h1>`
+      : html`<h1 class="hub-center__title hub-reg__title"><span class="hub-reg__brk">[</span>${t('卫戍协议·规程')}<span class="hub-reg__brk">]</span></h1>`}
+    <div class="hub-center__ver" data-testid="hub-version">· ${versionLabel(version)}</div>
+  </div>`;
+}
+
 /** The emblem (official `entry/season_logo`, the title's dot emblem without the art pack) in its radar, and the title. */
-function HubTitle() {
+function HubTitle({ season = null }) {
+  if (season === REGULATION) return html`<${RegulationTitle} />`;
   // a title in an alphabetic script (English …) is set like the title screen's: no wordmark above it, ": " between
   const alphabetic = scriptOf(t('卫戍协议')) === 'alphabetic';
   // another official version (DESIGN §35.23): its name under the title
@@ -536,8 +621,11 @@ function HubTitle() {
 const PROTOCOL_ART = { FUNNY: 'funny', NORMAL: 'normal', HARD: 'hard', ABYSS: 'abyss' };
 
 /** The selected difficulty's scene (ui/protocolScene.js): the official picture on the drawn grid, squares and cable. */
-function ProtocolArt({ difficulty }) {
-  useData('assets');
+function ProtocolArt({ difficulty, season = null }) {
+  useData('assets', 'local');
+  // 规程: its season key art (the 乌萨斯 monument) where 盟约 shows Rhodes Island's 选择模拟协议 picture, when extracted
+  const reg = season === REGULATION ? localAsset(REGULATION_ART, 'bg_season_on') : null;
+  if (reg) return html`<div class="proto-reg-art" data-difficulty=${difficulty}><img src=${reg} alt="" /></div>`;
   return html`<${ProtocolScene} difficulty=${difficulty} art=${uiUrl(data.get('assets'), `modeChoice/${PROTOCOL_ART[difficulty]}_rhodes_island`)} />`;
 }
 
@@ -558,12 +646,16 @@ function BackPlate({ onClick, class: cls = '' }) {
  * button (the other doctors: the host chooses).
  */
 export function ProtocolSelect({ roomMode, difficulty, onDifficulty, onClose, onCreate, busy, online, testMode, asTest, onTest, action = null, hint = null, readOnly = false,
-  difficulties = DIFFICULTIES, loading = false, failed = false, soloTime = null, queue = null, onCancel = () => {} }) {
+  difficulties = DIFFICULTIES, loading = false, failed = false, soloTime = null, ladder = null, modeId = null, onMode = null, season = null,
+  queue = null, onCancel = () => {} }) {
   const card = MODE_CARDS.find((c) => c.id === roomMode) || MODE_CARDS[0];
-  const info = difficultyInfo(roomMode, difficulty);
+  // a laddered room mode (规程's solo): the chosen official mode names, colours and describes the brief
+  const mode = ladder && modeId ? modeInfo(modeId) : null;
+  const info = mode || difficultyInfo(roomMode, difficulty);
+  if (mode) difficulty = mode.difficulty;
   const label = action || (roomMode === 'solo' ? t('开始独立模拟') : roomMode === 'match' ? t('开始同盟匹配') : t('创建同盟'));
   return html`<${Modal} open=${true} onClose=${onClose} class="proto" veilClass="proto-veil">
-    <div class="proto__body" style=${`--d-color:${DIFFICULTY_COLORS[difficulty]}`} data-difficulty=${difficulty} data-mode=${roomMode}>
+    <div class="proto__body" style=${`--d-color:${mode ? mode.color : DIFFICULTY_COLORS[difficulty]}`} data-difficulty=${difficulty} data-mode=${roomMode} data-season=${season}>
       <div class="proto__bg" aria-hidden="true"></div>
       <${ProtoFit} />
       <header class="proto-top">
@@ -575,11 +667,12 @@ export function ProtocolSelect({ roomMode, difficulty, onDifficulty, onClose, on
       </header>
       <div class="proto-body">
         <section class="proto-stage">
-          <div key=${difficulty} class="proto__pic"><${ProtocolArt} difficulty=${difficulty} /></div>
+          <div key=${difficulty} class="proto__pic"><${ProtocolArt} difficulty=${difficulty} season=${season} /></div>
           <div class="proto-brief">
             <span class="proto-brief__code num">${info.code}</span>
-            <b class="proto-brief__name">${t(DIFFICULTY_NAMES[difficulty])}</b>
+            <b class="proto-brief__name">${mode ? mode.name : t(DIFFICULTY_NAMES[difficulty])}</b>
             <p>${info.desc}</p>
+            ${mode?.offBonds.length ? html`<p class="proto-brief__off" data-testid="proto-off-bonds">${t('本模式未载入的盟约：{names}', { names: mode.offBonds.join('、') })}</p>` : null}
             <div class="proto-brief__more" data-testid="proto-brief-more">
               <span class="proto-brief__effects">${info.effects.map((e) => html`<span key=${e}>${e}</span>`)}</span>
               <span class="proto-brief__meta"><${DifficultyRounds} info=${info} /></span>
@@ -591,7 +684,8 @@ export function ProtocolSelect({ roomMode, difficulty, onDifficulty, onClose, on
             ${failed ? html`<p class="proto-list__wait is-failed" data-testid="proto-failed"><${Icon} name="warn" />${t('版本数据校验失败')}
                 <${Button} size="sm" variant="secondary" data-testid="proto-retry" onClick=${retryContentSet}>${t('重试')}<//></p>`
               : loading ? html`<p class="proto-list__wait" data-testid="proto-loading"><${Spinner} size="sm" />${t('正在载入版本数据…')}</p>` : null}
-            ${difficulties.map((d) => html`<${DifficultyCard} key=${d} roomMode=${roomMode} difficulty=${d} selected=${difficulty === d} onSelect=${onDifficulty} disabled=${readOnly || loading} />`)}
+            ${ladder ? html`<${LadderList} ladder=${ladder} modeId=${modeId} onMode=${onMode || (() => {})} disabled=${readOnly || loading} />`
+              : difficulties.map((d) => html`<${DifficultyCard} key=${d} roomMode=${roomMode} difficulty=${d} selected=${difficulty === d} onSelect=${onDifficulty} disabled=${readOnly || loading} />`)}
           </div>
           ${readOnly ? html`<div class="proto-foot proto-foot--ro">
             <p class="proto-hint proto-hint--ro"><${Icon} name="info" />${hint || t('由创建者选择')}</p>
@@ -700,7 +794,7 @@ export function LobbyScreen() {
   // 2026-10-29 按用户要求补回（成就统计/统计数据的合并现状不变）。
   const presence = useStore((s) => s.presence, shallowEqual);
   const myCard = useMyCard();
-  useData('config', 'assets');
+  useData('config', 'assets', 'local');
   const [difficulty, setDifficulty] = useState(() => {
     const d = loadPref('lobby.difficulty', 'FUNNY');
     return DIFFICULTIES.includes(d) ? d : 'FUNNY';
@@ -709,6 +803,8 @@ export function LobbyScreen() {
   // room exists; this pref is what the lobby card and the create message say before that.
   const [soloFree, setSoloFree] = useState(() => loadPref('lobby.soloUnlimited', false) === true);
   // the open dialogs: 选择同盟方式 (同盟模拟 / 密钥加入), 选择模拟协议 (独立模拟) and 同盟匹配's queue
+  // a laddered version's solo mode (规程: 极速模拟 / 规程等级 n), remembered; the version's data decides what is shown
+  const [ladderMode, setLadderMode] = useState(() => { const v = loadPref('lobby.ladderMode', null); return typeof v === 'string' ? v : null; });
   const [allyOpen, setAllyOpen] = useState(false);
   const [soloOpen, setSoloOpen] = useState(false);
   const [matchOpen, setMatchOpen] = useState(false);
@@ -756,6 +852,8 @@ export function LobbyScreen() {
   const coop = offeredDifficulties(versionLoading ? null : cfg, 'coop');
   const shownSolo = fallbackDifficulty(solo, difficulty);
   const shownCoop = fallbackDifficulty(coop, difficulty);
+  const ladder = ladderModes(versionLoading ? null : cfg, 'solo');
+  const shownMode = ladder ? ladderPick(ladder, ladderMode, shownSolo) : null;
 
   const openMode = (m) => {
     if (m === 'solo') setSoloOpen(true);
@@ -763,6 +861,7 @@ export function LobbyScreen() {
     else setAllyOpen(true);
   };
   const pickDifficulty = (d) => { setDifficulty(d); savePref('lobby.difficulty', d); };
+  const pickMode = (id) => { setLadderMode(id); savePref('lobby.ladderMode', id); };
   const setSoloFreePref = (on) => { const next = on === true; setSoloFree(next); savePref('lobby.soloUnlimited', next); };
 
   const run = async (kind, fn) => {
@@ -780,6 +879,7 @@ export function LobbyScreen() {
   const create = (mode) => run('create', () => net.request('room.create', {
     mode, difficulty: mode === 'solo' ? shownSolo : shownCoop, ...(testMode && asTest ? { test: true } : {}), ...(versions ? { version } : {}),
     ...(mode === 'solo' && soloFree && soloTimed === true ? { soloUnlimited: true } : {}),
+    ...(mode === 'solo' && shownMode ? { modeId: shownMode } : {}),
   }));
   /** Lobby-level public queue (同盟匹配): real players only — the server starts a full human team, never bots. */
   const matchmaking = () => run('match', () => net.request('match.join', { mode: 'coop', difficulty: shownCoop }));
@@ -827,9 +927,11 @@ export function LobbyScreen() {
       </div>
     </main>`;
 
-  return html`<div class="screen lobby-screen lobby-hub" data-hub-theme=${backdropTheme(bg)} data-hub-scene=${backdropScene(bg)}>
-    <${HubBackdrop} bg=${bg} />
+  return html`<div class="screen lobby-screen lobby-hub" data-hub-theme=${backdropTheme(bg)} data-hub-scene=${backdropScene(bg)} data-season=${season}>
+    <${HubBackdrop} bg=${bg} season=${season} />
     <header class="topbar hub-topbar">
+  // the lobby wears the look of its version's season (规程: data-season="act3autochess", lobby.css)
+  const season = seasonOf(version);
       <div class="topbar__left">
         <${Button} variant="ghost" size="sm" icon="chevronLeft" onClick=${backToTitle} title=${t('返回标题')}>${t('返回')}<//>
         <div class="connection-status">
@@ -854,7 +956,7 @@ export function LobbyScreen() {
     </header>
 
     <main class="hub-stage">
-      <${HubTitle} />
+      <${HubTitle} season=${season} />
       <aside class="hub-side">
         <${AchievementCard} onOpen=${() => setAchPanel(true)} />
         <${HubTile} icon="key" label=${t('密钥加入')} en="JOIN WITH KEY" class="hub-tile--key" onClick=${() => setAllyOpen(true)} />
@@ -883,7 +985,7 @@ export function LobbyScreen() {
     ${soloOpen ? html`<${ProtocolSelect} roomMode="solo" difficulty=${shownSolo} onDifficulty=${pickDifficulty}
       onClose=${() => setSoloOpen(false)} onCreate=${() => create('solo')} busy=${busy} online=${online}
       testMode=${testMode} asTest=${asTest} onTest=${setAsTest} difficulties=${solo} loading=${versionLoading} failed=${versionFailed}
-      soloTime=${soloTimed === true ? { on: soloFree, onToggle: setSoloFreePref } : null} />` : null}
+      soloTime=${soloTimed === true ? { on: soloFree, onToggle: setSoloFreePref } : null} ladder=${ladder} modeId=${shownMode} onMode=${pickMode} season=${season} />` : null}
     ${matchOpen ? html`<${ProtocolSelect} roomMode="match" difficulty=${shownCoop} onDifficulty=${pickDifficulty}
       onClose=${() => setMatchOpen(false)} onCreate=${matchmaking} busy=${busy} online=${online}
       difficulties=${coop} loading=${versionLoading} failed=${versionFailed}

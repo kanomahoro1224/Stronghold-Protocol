@@ -5,6 +5,7 @@ import { normalizeFrameRate } from '../../frameRate.js';
 import { VOICE_LANGS, sanitizeVoiceOverrides } from '../../voicePrefs.js';
 export { VOICE_LANGS } from '../../voicePrefs.js';
 
+import { BUILTIN_ID } from '../../../../shared/uiTheme.js';
 import { clamp, isObj } from './shared.js';
 import { DEFAULT_HOTKEYS, sanitizeHotkeys } from './shortcuts.js';
 
@@ -47,7 +48,8 @@ export const UI_THEMES = Object.freeze(['default', 'glass']);
  *  combatMetrics: 设置「作战统计」 (PR #618), off by default: the official HUD has no such panel.
  *  prepDeployFold: 设置「部署时收起商店」 — picking up a piece on the own prep board folds the shop
  *  (GitHub #602, PR #646). Default off (the maintainer's decision of 2026-11-02: the fold changed the shop and the
- *  camera under the player's hands, so it is opt-in). Only an explicit true turns it on.
+ *  camera under the player's hands, so it is opt-in). Only an explicit true turns it on. 'partial' (#692): keep the
+ *  shop at 70%, with halfway camera offsets — an explicit middle level.
  *  deployZoom: 设置「部署时镜头缩放」 — the same interaction zooms the own prep board to the shop-collapsed framing
  *  (the fork's own `deploymentZoom`, restored on 2026-11-02 as its own switch next to 部署时收起商店: folding the shop
  *  bar and moving the camera are two different changes, and either can be wanted alone). Default off, only an explicit
@@ -59,8 +61,10 @@ export const UI_THEMES = Object.freeze(['default', 'glass']);
  *  of the operator's own model. A pure client preference (never sent): off, only this player's own pieces wear a skin.
  *  fpsLimit: normalizeFrameRate (frameRate.js) — the render loop's cap, 0 = uncapped. Shortcuts persist separately.
  *  preload / preloadOptional / preloadVoiceLang: the asset preload panel (docs/ASSETS.md「Preload」).
+ *  uiTheme: 设置「界面主题」 (docs/THEMES.md): 'default' is the built-in 卫戍协议终端, 'glass' the 液态玻璃 skin
+ *  (css/glass.css), or a theme pack id. Stored in this browser only — never sent, and it does not change a match.
  */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: false, deployZoom: false, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: Object.freeze(['cn']), keys: DEFAULT_HOTKEYS });
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: false, deployZoom: false, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', themeMotion: true, fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: Object.freeze(['cn']), keys: DEFAULT_HOTKEYS });
 const QUALITIES = ['high', 'medium', 'low'];
 /** The values of 设置「官方特效」 (render/vfx/tier.js OFFICIAL_FX). Display order in the dialog is low / medium / high. */
 export const OFFICIAL_FX_MODES = Object.freeze(['auto', 'off', 'lite', 'full']);
@@ -80,9 +84,17 @@ function ammoEnergyCountOf(r) {
  * Sanitize persisted settings. Retired keys `ammoCount`, `mysticEnergy` and `deploymentZoom` are read here and never
  * returned under the old names.
  * @param {any} raw
- * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoEnergyCount: boolean, fullscreenWakeLock: boolean, bondTimers: boolean, combatMetrics: boolean, prepDeployFold: boolean, deployZoom: boolean, quality: 'high'|'medium'|'low', fpsLimit: number, preload: boolean, preloadOptional: boolean, preloadVoiceLang: string[], officialFx: 'auto'|'off'|'lite'|'full', otherSkins: boolean,
- *   textSize: 'sm'|'md'|'lg'|'xl', uiTheme: 'default'|'glass', keys: Record<'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
+ * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoEnergyCount: boolean, fullscreenWakeLock: boolean, bondTimers: boolean, combatMetrics: boolean, prepDeployFold: boolean|'partial', deployZoom: boolean, quality: 'high'|'medium'|'low', fpsLimit: number, preload: boolean, preloadOptional: boolean, preloadVoiceLang: string[], officialFx: 'auto'|'off'|'lite'|'full', otherSkins: boolean,
+ *   textSize: 'sm'|'md'|'lg'|'xl', uiTheme: string, themeMotion: boolean, keys: Record<'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
  */
+const THEME_ID = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+
+/** Empty, the built-in id, or a pack id. Anything else is the built-in look. */
+function uiThemeOf(raw) {
+  if (raw == null || raw === '' || raw === BUILTIN_ID) return '';
+  return typeof raw === 'string' && THEME_ID.test(raw) ? raw : '';
+}
+
 export function sanitizeSettings(raw) {
   const r = isObj(raw) ? raw : {};
   const vol = (v, d) => (Number.isFinite(v) ? clamp(Math.round(v * 100) / 100, 0, 1) : d);
@@ -99,7 +111,7 @@ export function sanitizeSettings(raw) {
     ammoEnergyCount: ammoEnergyCountOf(r),
     bondTimers: r.bondTimers === true,
     combatMetrics: typeof r.combatMetrics === 'boolean' ? r.combatMetrics : DEFAULT_SETTINGS.combatMetrics,
-    prepDeployFold: typeof r.prepDeployFold === 'boolean' ? r.prepDeployFold : false,
+    prepDeployFold: r.prepDeployFold === 'partial' ? 'partial' : typeof r.prepDeployFold === 'boolean' ? r.prepDeployFold : false,
     // the fork's own 部署时镜头缩放: the retired `deploymentZoom` key is read here (a profile written before the merge
     // keeps its choice) and never written back under the old name.
     deployZoom: typeof r.deployZoom === 'boolean' ? r.deployZoom : r.deploymentZoom === true,
@@ -113,7 +125,9 @@ export function sanitizeSettings(raw) {
     officialFx: OFFICIAL_FX_MODES.includes(r.officialFx) ? r.officialFx : DEFAULT_SETTINGS.officialFx,
     otherSkins: r.otherSkins !== false,
     textSize: TEXT_SIZES.includes(r.textSize) ? r.textSize : DEFAULT_SETTINGS.textSize,
-    uiTheme: UI_THEMES.includes(r.uiTheme) ? r.uiTheme : DEFAULT_SETTINGS.uiTheme,
+    uiTheme: r.uiTheme === 'default' || r.uiTheme === 'glass' || (typeof r.uiTheme === 'string' && THEME_ID.test(r.uiTheme)) ? r.uiTheme : DEFAULT_SETTINGS.uiTheme,
+    // 主题动画: the official packs' looping tweens and clips (ui/prefab); off draws them still
+    themeMotion: r.themeMotion !== false,
     keys: sanitizeHotkeys(r.keys),
   };
 }

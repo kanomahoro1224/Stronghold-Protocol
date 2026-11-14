@@ -230,12 +230,15 @@ export async function chooseMusic(file) {
   } finally { mediaStore.set({ busy: null }); }
 }
 
-/** Delete the player's track (back to the official one). */
-export async function removeMusic() {
-  try { await writeRecord(null); } catch { /* the record goes with the storage anyway */ }
-  revision++;
-  keepMusic(null);
-  savePrefs({ music: false });
+/** Delete the player's file of a slot (back to the official one). */
+export async function removeMedia(slot) {
+  try { await writeRecord(slot, null); } catch (err) {
+    toast(storageError(err), 'warn');
+    return;
+  }
+  revision[slot]++;
+  if (slot === 'backdrop') showBackdrop(null); else keepMusic(null);
+  savePrefs({ [slot]: false });
 }
 
 /** Switch the player's track on or off (kept either way). */
