@@ -268,6 +268,8 @@ export function startDemoRecorder() {
       const st = battleRunner.state();
       return !!st && st.fieldId === msg?.fieldId && st.authoritative === true;
     };
+    // 自己的战场 meta 也由 runner 本地发布（服务器不推 m.field 给本地模拟的本人）；缺了它回放只有棋盘、没有单位
+    battleRunner.on('field', (msg) => { if (ownSim(msg)) pushWire('m.field', msg, true); });
     battleRunner.on('snap', (msg) => {
       if (!ownSim(msg)) return;
       const now = Date.now();

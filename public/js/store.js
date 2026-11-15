@@ -161,7 +161,10 @@ export function sessionResetNotice(prev, playerId) {
  * @returns {number}
  */
 export function serverNow() {
-  const off = store.get().clock?.offset;
+  const clock = store.get().clock;
+  // Demo 回放暂停时固定在这一帧（普通对局没有 hold，仍走服务器校准时钟）。
+  if (Number.isFinite(clock?.hold)) return clock.hold;
+  const off = clock?.offset;
   return Date.now() + (Number.isFinite(off) ? off : 0);
 }
 

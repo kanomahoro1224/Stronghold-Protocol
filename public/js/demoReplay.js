@@ -66,7 +66,10 @@ function syncReplayClock(s, force = false) {
   if (!force && now - (s.clockAt || 0) < 200) return;
   s.clockAt = now;
   const off = startedAt + s.cursor - Date.now();
-  if (force || Math.abs((store.get().clock?.offset || 0) - off) > 100) store.patch('clock', { offset: off, synced: true });
+  const hold = (!s.playing || s.paused) ? startedAt + s.cursor : null;
+  if (force || Math.abs((store.get().clock?.offset || 0) - off) > 100 || store.get().clock?.hold !== hold) {
+    store.patch('clock', { offset: off, synced: true, hold });
+  }
 }
 const speedLabel = (v) => (v === 0.25 ? '¼×' : v === 0.5 ? '½×' : `${v}×`);
 
@@ -193,6 +196,24 @@ function dispatch(frame) {
   try { net._emit(frame.t, frame.m); } catch (e) { console.warn('[demo] frame failed', frame.t, e); }
 }
 
+/**
+ * Game 的 b.snap/b.ev 订阅在 view 挂载后才建立（真实 Chromium 验证：刚进 DEMO 的 300ms 内可能还没好）。
+ * 等订阅出现再喂战斗帧；否则 m.field 已进 store，但 spawn / snapshot 全丢，画面只剩棋盘。
+ */
+function afterFramesReady(s, fn) {
+  clearTimeout(s.readyTimer);
+  const seq = (s.readySeq || 0) + 1;
+  s.readySeq = seq;
+  const began = Date.now();
+  const poll = () => {
+    if (session !== s || s.readySeq !== seq) return;
+    const listeners = net._listeners?.get('b.snap')?.size || 0;
+    if (listeners > 0 || Date.now() - began > 10_000) { fn(); return; }
+    s.readyTimer = setTimeout(poll, 40);
+  };
+  poll();
+}
+
 /** 记录一条已派发的战斗开始/结束帧（用于倍速对齐与跳转）。 */
 function noteBattle(s, frame) {
   if (frame.t === 'b.start' && frame.m?.fieldId) s.active.set(frame.m.fieldId, frame);
@@ -295,7 +316,7 @@ function play(s) {
   if (s.playing) return;
   s.paused = false;
   clearInterval(s.clockTimer);
-  if (s.idx >= (s.doc.wire || []).length) { seek(s, 0); return; }
+  if (s.idx >= (s.doc.wire || []).length) { seek(s, 0, true); return; }
   battleRunner?.setPaused?.(false);
   s.playing = true;
   s.base = Date.now() - s.cursor / s.speed;
@@ -311,7 +332,7 @@ function play(s) {
  *   3) 游标从目标时刻之后继续播放。
  * 这样拖到某一回合中间，单位位置、战斗进度与进度条一致，而不是每次从头打。
  */
-function seek(s, ms) {
+function seek(s, ms, autoplay = s.playing) {
   clearInterval(s.clockTimer);
   s.paused = false;
   s.waiting = false;
@@ -345,24 +366,35 @@ function seek(s, ms) {
       else dispatch(f);
     } else if (f.t !== 'b.start' && f.t !== 'b.snap' && f.t !== 'b.ev' && f.t !== 'b.end' && f.t !== 'b.pool') dispatch(f);
   }
-  for (const f of stateEvents) dispatch(f);
-  for (const f of latestSnap.values()) dispatch(f);
-  const catchTargets = new Map();
-  for (const f of s.snapshotMode ? [] : active.values()) {
-    const elapsed = (Number(f.m.elapsed) || 0) + (target - (f.at || 0)) / 1000;
-    dispatch({ t: 'b.start', m: { ...f.m, elapsed: Math.max(0, elapsed), replaySeek: true } });
-    if (f.m.battleId) catchTargets.set(f.m.battleId, { battleId: f.m.battleId, elapsed: Math.max(0, elapsed) });
-  }
-  s.catchTargets = catchTargets;
-  s.catchingUp = catchTargets.size > 0;
-  s.catchSince = Date.now();
   s.active = active;
   s.idx = idx;
   s.cursor = target;
-  syncReplayClock(s);
+  s.catchingUp = true; // 等 Game 订阅就绪（条上显示「战斗快进中…」）
+  syncReplayClock(s, true);
   s.onTick?.();
-  s.base = Date.now() - s.cursor / s.speed;
-  if (s.cursor < s.duration) play(s);
+  afterFramesReady(s, () => {
+    for (const f of stateEvents) dispatch(f);
+    for (const f of latestSnap.values()) dispatch(f);
+    const catchTargets = new Map();
+    for (const f of s.snapshotMode ? [] : active.values()) {
+      const elapsed = (Number(f.m.elapsed) || 0) + (target - (f.at || 0)) / 1000;
+      dispatch({ t: 'b.start', m: { ...f.m, elapsed: Math.max(0, elapsed), replaySeek: true } });
+      if (f.m.battleId) catchTargets.set(f.m.battleId, { battleId: f.m.battleId, elapsed: Math.max(0, elapsed) });
+    }
+    s.catchTargets = catchTargets;
+    s.catchingUp = catchTargets.size > 0;
+    s.catchSince = Date.now();
+    s.base = Date.now() - s.cursor / s.speed;
+    s.onTick?.();
+    if (autoplay && s.cursor < s.duration) play(s);
+    else {
+      s.paused = true;
+      s.playing = false;
+      syncReplayClock(s, true);
+      holdClock(s); // 暂停中拖动：停在目标帧，不擅自恢复播放
+      s.onTick?.();
+    }
+  });
 }
 
 export function canReplayVisual(doc) { return Array.isArray(doc?.wire) && doc.wire.length > 0; }
@@ -407,7 +439,7 @@ export function startDemoReplay(doc) {
   session = s;
 
   s.exit = () => stopDemoReplay();
-  s.toggle = () => (s.playing ? pause(s) : (s.idx >= (s.doc.wire || []).length ? seek(s, 0) : play(s)));
+  s.toggle = () => (s.playing ? pause(s) : (s.idx >= (s.doc.wire || []).length ? seek(s, 0, true) : play(s)));
   s.preview = (ms) => { s.cursor = Math.max(0, Math.min(s.duration, ms)); s.onTick?.(); };
   s.setSpeed = (v) => { s.speed = v; if (s.playing) s.base = Date.now() - s.cursor / s.speed; s.onTick?.(); };
   s.seek = (ms) => seek(s, ms);
@@ -454,7 +486,7 @@ export function startDemoReplay(doc) {
   });
 
   render(html`<${Bar} s=${s} />`, uiHost);
-  tick();
+  afterFramesReady(s, () => { if (s.playing) { s.base = Date.now() - s.cursor / s.speed; tick(); } });
   return true;
 }
 
@@ -464,6 +496,8 @@ export function stopDemoReplay() {
   const s = session;
   session = null;
   clearTimeout(s.timer);
+  clearTimeout(s.readyTimer);
+  s.readySeq = (s.readySeq || 0) + 1;
   clearInterval(s.clockTimer);
   try { s.unsub?.(); } catch { /* ignore */ }
   try { s.restoreRequest?.(); } catch { /* ignore */ }
