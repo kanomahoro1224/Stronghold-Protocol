@@ -79,5 +79,6 @@
 ## 状态
 
 - 已提交 `b7a5cdec` 并推送；界面修复另提交 `0dbccf2a` 并推送。
-- 严格对齐上游的代码、配置、测试和 golden 变更为新的本地提交，推送后以远端 HEAD 为准。
+- 严格对齐上游的代码、配置、测试和 golden 已提交为 `fab733e5` 并推送到 `sync/upstream-dev-20261114`。
+- 远端 HEAD：`fab733e530f3cb34a5673b21bbcb1767e6873db3`。
 - `config/announcements.json` 保持受保护内容不变（sha256 前缀 `eb9a1dfd382a1c96f05e`）。
