@@ -102,10 +102,12 @@ CREATE TABLE IF NOT EXISTS account_demos (
   players     jsonb NOT NULL DEFAULT '[]'::jsonb,
   events      jsonb NOT NULL DEFAULT '[]'::jsonb,
   snapshots   jsonb NOT NULL DEFAULT '[]'::jsonb,
+  wire        jsonb NOT NULL DEFAULT '[]'::jsonb,
   bytes       integer NOT NULL DEFAULT 0,
   created_at  timestamptz NOT NULL DEFAULT now(),
   UNIQUE (account_id, demo_key)
 );
+ALTER TABLE account_demos ADD COLUMN IF NOT EXISTS wire jsonb NOT NULL DEFAULT '[]'::jsonb;
 CREATE INDEX IF NOT EXISTS account_demos_account_idx ON account_demos (account_id, started_at DESC);
 
 CREATE TABLE IF NOT EXISTS player_links (

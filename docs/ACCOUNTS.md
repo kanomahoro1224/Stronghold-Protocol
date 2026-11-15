@@ -100,9 +100,10 @@ SP_ACCOUNTS_DEV=1 npm start
 
 Demo **不存服务器**（用户 2026-11-15 决定：播放不能在服务端重跑，性能会爆炸）。全部在玩家浏览器完成：
 
-- `public/js/demoRecorder.js`：对局中记录自己的每个 `g.*` 操作（`net.send` 包装）与收到的 `m.public` 棋盘帧，局末写入 IndexedDB（每局 400 帧 / 20000 动作）；登录后在后台再上传一份到云端。
+- `public/js/demoRecorder.js`：对局中记录自己的每个 `g.*` 操作（`net.send` 包装）、`m.public` 棋盘帧，以及整条 S2C 消息流 `wire`（`net._emit` 包装，最多 20000 帧 / 4 MB）；局末写入 IndexedDB；登录后后台再上传一份到云端。
 - **收尾规则**（用户 2026-11-15「不管是模拟中断，还是中途退出啥的，通通记录」）：`m.result` 结算 → 存；放弃模拟 / 房间散去 → 存；掉线（`net` status 变 `reconnecting` / `closed`）与页面隐藏 / `pagehide` → **先落盘再继续录**（同一 `id`，玩家回得来就用完整版覆盖，回不来也不会丢这一局）；另一标签页顶掉会话 → 存。唯一的例外是**没清完第一个回合就退出**的对局：不写 Demo（已落盘的副本会删掉），与统计的 `countsTowardStats` 同一条规则（`clearedRounds`）。
 - `public/js/demoStore.js`：IndexedDB `sp-demos` 库，按 `id` 存 `{ startedAt, endedAt, end, rounds, mode, difficulty, players, events, snapshots }`；**本机不限局数**（用户 2026-11-15）。另有一份 `sp.pref.demoIndex` 摘要（id / 开始时间 / 模式 / 步数 / 结局），供统计数据页判断哪一行有 Demo，不必把整份文档读出来。
+- `public/js/demoReplay.js`：游戏内可视化回放（类 CS Demo）。录制文档里的 `wire`（原始 S2C 帧 `m.*` / `b.*`，含 `b.start` 战斗 spec）按录制时间原样喂回 `net._emit`，由现有 Game 画面、战斗 runner 自行渲染；回放期间把 store 切到合成的 `DEMO` 房间，退出时还原。**播放全程在客户端，服务器不参与运算。**
 - `public/js/ui/cloud.js`：历史面板列出本机 Demo（播放 / 删除）与云端 Demo（最新 10 局，下载到本机后播放），播放器按动作时间轴推进并用最近的棋盘帧还原局面（回合、阶段、每人 LP / 商店等级 / 场上数 / 状态）。播放纯客户端渲染，不请求服务器运算。
 - **从战绩点开**：统计数据页「对局记录」每行有一个 `播放` 按钮（`Demo` 列）；统计记录带上录制时的 `demoId`（`ui/stats.js` 的 `buildRecord` / `buildQuitRecord` ← `demoRecorder.currentDemoId()`），老记录没有链接时按「结束时间 − 时长」与模式在目录里就近匹配（`demoIdFor`）。同一页顶栏的 `Demo 库` 直接打开上面的历史面板。
 
@@ -119,6 +120,6 @@ DATABASE_URL=postgresql://stronghold:stronghold@127.0.0.1:55432/stronghold \
 
 ## 已知边界
 
-- Demo 本机不限局数，播放为客户端按录制帧还原（不做服务端重跑）。云端只备份最新 10 局，换设备可下载后播放；更早的 Demo 仅存在于原设备。
+- Demo 本机不限局数；有 `wire` 的文档走游戏内可视化回放，旧文档退回文字时间轴。播放为客户端帧回放（不做服务端重跑、也不做客户端重模拟）。云端只备份最新 10 局，换设备可下载后播放；更早的 Demo 仅存在于原设备。
 - 邮箱验证码限流在进程内存，多实例部署需换成共享存储。
 - `player_links` 是一次绑定；同一浏览器换玩家（新 playerId）需重新 `/api/link`。

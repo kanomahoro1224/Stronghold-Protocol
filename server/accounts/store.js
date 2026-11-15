@@ -144,20 +144,23 @@ export async function putAccountDemo(db, accountId, doc = {}) {
   const players = Array.isArray(doc.players) ? doc.players.slice(0, 8) : [];
   const events = Array.isArray(doc.events) ? doc.events.slice(0, MAX_DEMO_EVENTS) : [];
   const snapshots = Array.isArray(doc.snapshots) ? doc.snapshots.slice(-400) : [];
-  const body = JSON.stringify({ players, events, snapshots });
+  // 可视化回放的原始 S2C 帧（m.* / b.*）；旧文档没有这个字段时为空
+  const wire = Array.isArray(doc.wire) ? doc.wire.slice(0, 20_000) : [];
+  const body = JSON.stringify({ players, events, snapshots, wire });
   if (Buffer.byteLength(body) > MAX_CLOUD_DEMO_BYTES) return { ok: false, code: 'TOO_LARGE' };
   if (!doc.demoKey && !doc.id) return { ok: false, code: 'NO_KEY' };
   const demoKey = String(doc.demoKey || doc.id).slice(0, 64);
   const startedAt = Number.isFinite(Number(doc.startedAt)) ? new Date(Number(doc.startedAt)) : null;
   const res = await db.query(
-    `INSERT INTO account_demos (account_id, demo_key, started_at, mode, difficulty, players, events, snapshots, bytes)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9)
+    `INSERT INTO account_demos (account_id, demo_key, started_at, mode, difficulty, players, events, snapshots, wire, bytes)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10)
      ON CONFLICT (account_id, demo_key) DO UPDATE SET
        started_at = EXCLUDED.started_at, mode = EXCLUDED.mode, difficulty = EXCLUDED.difficulty,
-       players = EXCLUDED.players, events = EXCLUDED.events, snapshots = EXCLUDED.snapshots, bytes = EXCLUDED.bytes
+       players = EXCLUDED.players, events = EXCLUDED.events, snapshots = EXCLUDED.snapshots,
+       wire = EXCLUDED.wire, bytes = EXCLUDED.bytes
      RETURNING id`,
     [String(accountId), demoKey, startedAt, doc.mode || null, doc.difficulty || null,
-      JSON.stringify(players), JSON.stringify(events), JSON.stringify(snapshots), Buffer.byteLength(body)]);
+      JSON.stringify(players), JSON.stringify(events), JSON.stringify(snapshots), JSON.stringify(wire), Buffer.byteLength(body)]);
   // 只保留最新 CLOUD_DEMOS 局（按开局时间，其次上传时间）
   await db.query(
     `DELETE FROM account_demos WHERE account_id = $1 AND id NOT IN (
@@ -184,7 +187,7 @@ export async function listAccountDemos(db, accountId, { limit = CLOUD_DEMOS } = 
 /** 取回一局云端 Demo 的完整文档（仅本人）。 */
 export async function getAccountDemo(db, accountId, id) {
   const res = await db.query(
-    `SELECT id, demo_key, started_at, mode, difficulty, players, events, snapshots
+    `SELECT id, demo_key, started_at, mode, difficulty, players, events, snapshots, wire
        FROM account_demos WHERE account_id = $1 AND id = $2`, [String(accountId), String(id)]);
   const row = res.rows[0];
   if (!row) return null;
@@ -192,6 +195,6 @@ export async function getAccountDemo(db, accountId, id) {
     id: `cloud_${row.id}`, demoKey: row.demo_key,
     startedAt: row.started_at ? new Date(row.started_at).getTime() : Date.now(),
     mode: row.mode, difficulty: row.difficulty,
-    players: row.players || [], events: row.events || [], snapshots: row.snapshots || [],
+    players: row.players || [], events: row.events || [], snapshots: row.snapshots || [], wire: row.wire || [],
   };
 }

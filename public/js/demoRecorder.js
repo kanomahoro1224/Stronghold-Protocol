@@ -31,6 +31,11 @@ import { PHASE } from '../../shared/constants.js';
 const MAX_EVENTS = 20_000;
 const MAX_FRAMES = 400;
 const EVENT_BYTES_CAP = 2 * 1024 * 1024;
+// 可视化回放：录下服务器推给这个玩家的整条消息流（m.* / b.*），回放时原样喂回客户端，
+// 由现有 Game 画面自行渲染——不做服务端重跑，也不做客户端重模拟。
+const MAX_WIRE = 20_000;
+const MAX_WIRE_BYTES = 4 * 1024 * 1024;
+const WIRE_TYPES = new Set(['m.public', 'm.private', 'm.field', 'm.result', 'm.ticker', 'b.start', 'b.snap', 'b.ev', 'b.end', 'b.pool']);
 /** A hidden tab / a reconnect flushes at most this often (each flush rewrites the whole document). */
 const FLUSH_GAP_MS = 8_000;
 /** How long a just-finished id stays available to the record builder (listener order is not fixed). */
@@ -69,7 +74,8 @@ function begin(frame) {
     rounds: 0,
     settled: false,
     mode: frame.modeId ?? null, difficulty: frame.difficulty ?? null,
-    players: frame.players || [], events: [], snapshots: [], bytes: 0, closed: false,
+    players: frame.players || [], events: [], snapshots: [], wire: [], wireBytes: 0, bytes: 0, closed: false,
+    owner: { playerId: store.get().me?.playerId || null, name: store.get().me?.name || null },
   };
   active.players = (frame.players || []).map((p) => ({ playerId: p.playerId, seat: p.seat, name: p.name, isBot: !!p.isBot }));
   pushFrame(frame);
@@ -95,6 +101,17 @@ function recordAction(t, fields) {
   active.events.push({ at: Date.now() - active.startedAt, a });
 }
 
+/** One S2C frame of the replay stream (kept verbatim: b.start specs and m.* are what the UI renders). */
+function pushWire(t, msg) {
+  if (!active || active.closed) return;
+  if (active.wire.length >= MAX_WIRE) return;
+  let size;
+  try { size = JSON.stringify(msg).length; } catch { return; }
+  if (active.wireBytes + size > MAX_WIRE_BYTES) return;
+  active.wireBytes += size;
+  active.wire.push({ at: Date.now() - active.startedAt, t, m: msg });
+}
+
 /**
  * Whether a document is worth keeping: a settled match always is, otherwise the player must have cleared one round
  * (owner's rule, 2026-11-15: 「如果没有清完第一个回合就退出，不记录demo」).
@@ -107,7 +124,8 @@ export function keepsDemo(doc) {
 
 /** The snapshot written to IndexedDB (a copy: recording goes on for a flush). */
 const copyOf = (doc, end) => ({
-  ...doc, snapshots: doc.snapshots.slice(), events: doc.events.slice(), endedAt: Date.now(), end: doc.end || end,
+  ...doc, snapshots: doc.snapshots.slice(), events: doc.events.slice(), wire: doc.wire.slice(),
+  endedAt: Date.now(), end: doc.end || end,
 });
 
 /**
@@ -181,6 +199,13 @@ export function startDemoRecorder() {
       if (me?.playerId && !isSpectator()) recordAction(t, fields);
     }
     return origSend(t, fields);
+  };
+
+  // 1b) the S2C stream itself, for the in-game visual replay (game screen renders from these frames)
+  const origEmit = net._emit.bind(net);
+  net._emit = (t, payload) => {
+    if (typeof t === 'string' && WIRE_TYPES.has(t)) pushWire(t, payload);
+    return origEmit(t, payload);
   };
 
   // 2) board frames: the first frame of a new match opens the document. A result replay's final frame (phase RESULT)

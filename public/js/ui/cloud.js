@@ -349,7 +349,6 @@ function HistoryPanel({ onClose }) {
   const [local, setLocal] = useState(null);
   const [cloud, setCloud] = useState(null);
   const [cloudDemos, setCloudDemos] = useState(null);
-  const [open, setOpen] = useState(null);
   useEffect(() => {
     listDemos().then(setLocal, () => setLocal([]));
     api('/api/history?limit=50').then((r) => setCloud(r.ok ? (r.data.matches || []) : []), () => setCloud([]));
@@ -365,17 +364,16 @@ function HistoryPanel({ onClose }) {
           : html`<ul class="cloud__list">${local.map((d) => html`<li key=${d.id}>
               <span class="cloud__when">${dateOf(d.startedAt)}</span>
               <span>${t('{mode} · {diff} · {n} 步', { mode: d.mode || '', diff: d.difficulty || '', n: (d.events || []).length })}</span>
-              <${Button} size="sm" variant="primary" onClick=${() => setOpen(d)}>${t('播放')}<//>
+              <${Button} size="sm" variant="primary" onClick=${() => openDemo(d)}>${t('播放')}<//>
               <${Button} size="sm" variant="ghost" onClick=${() => remove(d.id)}>${t('删除')}<//>
             </li>`)}</ul>`}
-      ${open ? html`<${DemoPlayer} doc=${open} onClose=${() => setOpen(null)} />` : null}
       <h4 class="cloud__h">${t('云端 Demo（最新 10 局）')}</h4>
       ${cloudDemos == null ? html`<p class="cloud__note">${t('读取中…')}</p>`
         : cloudDemos.length === 0 ? html`<p class="cloud__note">${t('云端还没有 Demo。')}</p>`
           : html`<ul class="cloud__list">${cloudDemos.map((d) => html`<li key=${d.id}>
               <span class="cloud__when">${dateOf(d.startedAt)}</span>
               <span>${t('{mode} · {diff} · {n} 步', { mode: d.mode || '', diff: d.difficulty || '', n: d.events })}</span>
-              <${Button} size="sm" variant="ghost" onClick=${async () => { const doc = await downloadDemo(d.id); if (doc) setOpen(doc); }}>${t('下载并播放')}<//>
+              <${Button} size="sm" variant="ghost" onClick=${async () => { const doc = await downloadDemo(d.id); if (doc) openDemo(doc); }}>${t('下载并播放')}<//>
             </li>`)}</ul>`}
       <h4 class="cloud__h">${t('云端战绩（账号）')}</h4>
       ${cloud == null ? html`<p class="cloud__note">${t('读取中…')}</p>`
@@ -504,6 +502,9 @@ export async function openCloudAccount() {
  */
 export async function openDemo(doc) {
   if (!doc) return;
+  // 有 wire 流（m.* / b.* 原始帧）→ 游戏内可视化回放；旧文档退回文字时间轴
+  const replay = await import('../demoReplay.js').catch(() => null);
+  if (replay?.canReplayVisual?.(doc) && replay.startDemoReplay(doc)) return;
   const { host: h, close } = mount();
   render(html`<${DemoPlayer} doc=${doc} onClose=${() => close()} />`, h);
 }
