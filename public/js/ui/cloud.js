@@ -96,12 +96,17 @@ export async function uploadCurrentSave() {
 /** 上传一局本机 Demo 到账号（云端只保留最新 10 局；本机不受限）。未登录返回 401，调用方静默忽略。 */
 export async function uploadDemo(doc) {
   if (!doc) return { ok: false, error: 'NO_DOC' };
+  // 四人局：上传自己的一份 part，服务端按 matchId 归组并只合并 JSON；单人局继续走旧接口
+  if (doc.isTeam && doc.matchId && doc.playerId) {
+    return api(`/api/team-demos/${encodeURIComponent(doc.matchId)}/parts`, { method: 'POST', body: { playerId: doc.playerId, doc } });
+  }
   return api('/api/cloud/demos', { method: 'POST', body: doc });
 }
 
 /** 云端 Demo 完整文档下载；成功后写入本机 IndexedDB 再播放（播放仍在客户端）。 */
 async function downloadDemo(id) {
-  const r = await api(`/api/cloud/demos/${id}`);
+  const team = String(id).match(/^team_(\d+)$/);
+  const r = team ? await api(`/api/team-demos/${team[1]}`) : await api(`/api/cloud/demos/${id}`);
   if (!r.ok) return null;
   await putDemo(r.data.demo).catch(() => {});
   return r.data.demo;
@@ -349,10 +354,12 @@ function HistoryPanel({ onClose }) {
   const [local, setLocal] = useState(null);
   const [cloud, setCloud] = useState(null);
   const [cloudDemos, setCloudDemos] = useState(null);
+  const [teamDemos, setTeamDemos] = useState(null);
   useEffect(() => {
     listDemos().then(setLocal, () => setLocal([]));
     api('/api/history?limit=50').then((r) => setCloud(r.ok ? (r.data.matches || []) : []), () => setCloud([]));
     api('/api/cloud/demos').then((r) => setCloudDemos(r.ok ? (r.data.demos || []) : []), () => setCloudDemos([]));
+    api('/api/team-demos').then((r) => setTeamDemos(r.ok ? (r.data.demos || []) : []), () => setTeamDemos([]));
   }, []);
   const remove = async (id) => { await deleteDemo(id); setLocal((rows) => (rows || []).filter((d) => d.id !== id)); };
   return html`<${Modal} open=${true} title=${t('历史战绩 / Demo')} micro="LOCAL DEMOS" onClose=${onClose}>
@@ -366,6 +373,14 @@ function HistoryPanel({ onClose }) {
               <span>${t('{mode} · {diff} · {n} 步', { mode: d.mode || '', diff: d.difficulty || '', n: (d.events || []).length })}</span>
               <${Button} size="sm" variant="primary" onClick=${() => openDemo(d)}>${t('播放')}<//>
               <${Button} size="sm" variant="ghost" onClick=${() => remove(d.id)}>${t('删除')}<//>
+            </li>`)}</ul>`}
+      <h4 class="cloud__h">${t('联机合并 Demo')}</h4>
+      ${teamDemos == null ? html`<p class="cloud__note">${t('读取中…')}</p>`
+        : teamDemos.length === 0 ? html`<p class="cloud__note">${t('还没有联机合并 Demo：四人局结算后每人自动上传自己的视角，服务端按 matchId 合并。')}</p>`
+          : html`<ul class="cloud__list">${teamDemos.map((d) => html`<li key=${`team_${d.id}`}>
+              <span class="cloud__when">${dateOf(d.createdAt)}</span>
+              <span>${t('联机 · {n} 个视角', { n: (d.availableFields || []).length })}${d.partial ? t(' · 部分视角') : ''}</span>
+              <${Button} size="sm" variant="ghost" onClick=${async () => { const doc = await downloadDemo(`team_${d.id}`); if (doc) openDemo(doc); }}>${t('下载并播放')}<//>
             </li>`)}</ul>`}
       <h4 class="cloud__h">${t('云端 Demo（最新 10 局）')}</h4>
       ${cloudDemos == null ? html`<p class="cloud__note">${t('读取中…')}</p>`

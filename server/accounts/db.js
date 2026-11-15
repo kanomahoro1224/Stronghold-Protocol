@@ -114,6 +114,36 @@ ALTER TABLE account_demos ADD COLUMN IF NOT EXISTS marks jsonb NOT NULL DEFAULT 
 ALTER TABLE account_demos ADD COLUMN IF NOT EXISTS owner jsonb;
 CREATE INDEX IF NOT EXISTS account_demos_account_idx ON account_demos (account_id, started_at DESC);
 
+-- 四人联机 Demo：每个玩家上传自己的 part，服务端只合并 JSON，不重跑战斗（docs/TEAM_DEMO_MERGE.md）。
+CREATE TABLE IF NOT EXISTS team_demo_parts (
+  id          bigserial PRIMARY KEY,
+  match_id    text NOT NULL,
+  player_id   text NOT NULL,
+  account_id  bigint NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  doc         bytea NOT NULL,
+  bytes       integer NOT NULL,
+  uploaded_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (match_id, player_id)
+);
+CREATE INDEX IF NOT EXISTS team_demo_parts_match_idx ON team_demo_parts (match_id);
+
+CREATE TABLE IF NOT EXISTS team_demos (
+  id               bigserial PRIMARY KEY,
+  match_id         text UNIQUE NOT NULL,
+  canonical        bytea NOT NULL,
+  bytes            integer NOT NULL,
+  partial          boolean NOT NULL DEFAULT false,
+  available_fields jsonb NOT NULL DEFAULT '[]'::jsonb,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS team_demo_links (
+  team_demo_id bigint NOT NULL REFERENCES team_demos(id) ON DELETE CASCADE,
+  account_id   bigint NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  player_id    text NOT NULL,
+  PRIMARY KEY (team_demo_id, account_id)
+);
+
 CREATE TABLE IF NOT EXISTS player_links (
   player_id  text PRIMARY KEY,
   account_id bigint NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,

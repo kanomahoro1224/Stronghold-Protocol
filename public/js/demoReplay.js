@@ -15,7 +15,7 @@ import { render } from '../vendor/preact.module.js';
 import { net } from './net.js';
 import { store, emptyMatch, selectRoute } from './store.js';
 import { battleRunner, keepsState } from './battle/runner.js';
-import { t } from '../shared/i18n.js';
+import { t } from '../../shared/i18n.js';
 import { PHASE } from '../../shared/constants.js';
 
 let session = null;
@@ -397,15 +397,78 @@ function seek(s, ms, autoplay = s.playing) {
   });
 }
 
-export function canReplayVisual(doc) { return Array.isArray(doc?.wire) && doc.wire.length > 0; }
+/** Switch a paused or playing team replay to another field without moving the cursor / clock. */
+function switchTeamField(s, fieldId) {
+  const target = Number(s.cursor) || 0;
+  const wasPlaying = s.playing;
+  s.team.fieldId = fieldId;
+  s.doc = { ...s.doc, wire: teamWireFor(s.team.source, fieldId) };
+  const fields = teamFields(s.team.source);
+  s.team.fields = fields;
+  // seek rebuilds the selected field from its own frames; autoplay follows the previous play/pause state
+  seek(s, target, wasPlaying);
+}
+
+/** A team document's viewer: the server already filtered privates to this account, so its only key is the viewer. */
+export function teamViewerId(doc) {
+  const keys = Object.keys(doc?.privates || {});
+  if (keys.length) return keys[0];
+  return (doc?.players || []).find((p) => p && !p.isBot)?.playerId || null;
+}
+
+/** Available fields of a team document, owner first. */
+export function teamFields(doc) {
+  return Object.entries(doc?.fields || {}).map(([fieldId, f]) => ({ fieldId, owner: f.owner || null, degraded: !!f.degraded }));
+}
+
+/**
+ * Turn one team field into the same flat wire stream the single-player replay already understands:
+ * public timeline + this field's frames + this viewer's private frames. Switching a field just rebuilds this array.
+ */
+export function teamWireFor(doc, fieldId) {
+  const f = doc?.fields?.[fieldId];
+  if (!f) return [];
+  const meta = f.fieldMeta || {};
+  const wire = [
+    ...(doc.public || []).map((x) => ({ at: x.at, t: x.t, m: x.m })),
+    { at: 0, t: 'm.field', m: { ...meta, fieldId } },
+    ...(f.frames || []).map((x) => ({ at: x.at, t: x.t, m: x.m })),
+  ];
+  const viewer = teamViewerId(doc);
+  for (const x of (doc.privates?.[viewer] || [])) wire.push({ at: x.at, t: x.t, m: x.m });
+  wire.sort((a, b) => (a.at || 0) - (b.at || 0));
+  return wire;
+}
+
+/** The synthetic single-field doc used by the existing replay engine. */
+function teamViewDoc(doc, fieldId) {
+  const viewer = teamViewerId(doc);
+  const owner = (doc.players || []).find((p) => p.playerId === (doc.fields?.[fieldId]?.owner || viewer));
+  return {
+    ...doc,
+    id: doc.id || `team_${doc.matchId || ''}`,
+    owner: { playerId: viewer, name: owner?.name || null },
+    wire: teamWireFor(doc, fieldId),
+  };
+}
+
+export function canReplayVisual(doc) {
+  return (Array.isArray(doc?.wire) && doc.wire.length > 0)
+    || !!(doc?.kind === 'team' && doc?.fields && doc?.public);
+}
 export function isReplaying() { return !!session; }
 
 /**
  * Start an in-game replay. Returns false when the document has no wire stream (old text-only demo).
  * @param {any} doc demo document (local IndexedDB or cloud download)
  */
-export function startDemoReplay(doc) {
-  if (!canReplayVisual(doc)) return false;
+export function startDemoReplay(input) {
+  if (!canReplayVisual(input)) return false;
+  const team = input?.kind === 'team' ? input : null;
+  const viewer = team ? teamViewerId(team) : null;
+  const fields = team ? teamFields(team) : [];
+  const firstField = fields.find((f) => f.owner === viewer)?.fieldId || fields[0]?.fieldId || null;
+  const doc = team ? teamViewDoc(team, firstField) : input;
   stopDemoReplay();
   const prev = store.get();
   const ownerId = doc.owner?.playerId
@@ -432,7 +495,8 @@ export function startDemoReplay(doc) {
   const endAt = Number.isFinite(Number(doc.endedAt)) ? Number(doc.endedAt) - Number(doc.startedAt) : 0;
   const duration = Math.max(last, endAt, (doc.snapshots || []).reduce((m, f) => Math.max(m, f.at || 0), 0));
   const s = {
-    doc, snapshotMode: (doc.wire || []).some((f) => f.local), idx: 0, cursor: 0, duration, playing: true, speed: 1,
+    doc, team: team ? { source: team, viewer, fieldId: firstField, fields } : null,
+    snapshotMode: team ? true : (doc.wire || []).some((f) => f.local), idx: 0, cursor: 0, duration, playing: true, speed: 1,
     base: Date.now(), timer: 0, clockTimer: 0, prev, onTick: null, active: new Map(), lastSync: 0,
     marks: marksOf(doc).filter((m) => m.at <= duration), battleMarks: battleMarksOf(doc, duration), drag: false, paused: false, waiting: false, waitAt: 0, endGraceAt: 0, catchingUp: false, catchTargets: new Map(), catchSince: 0,
   };
@@ -467,6 +531,11 @@ export function startDemoReplay(doc) {
       if (type === 'g.pause') {
         // 游戏按钮 / 空格的 on 状态依赖 m.public.paused（回放里不会变），这里一律按「切换」处理
         if (s.playing) pause(s); else play(s);
+      } else if (type === 'g.watch') {
+        if (!s.team) return Promise.resolve({ ok: false, replay: true, error: 'REPLAY_NO_TEAM' });
+        const target = fields && typeof fields === 'object' ? fields.fieldId : null;
+        if (!target || !s.team.fields.some((f) => f.fieldId === target)) return Promise.resolve({ ok: false, replay: true, error: 'REPLAY_NO_FIELD' });
+        switchTeamField(s, target);
       }
       return Promise.resolve({ ok: true, replay: true });
     }

@@ -534,3 +534,21 @@ if (type === 'g.watch') {
 | M3 | 视角切换 | HUD 可切四个队友，位置/模型正确 |
 | M4 | 体积与隐私加固 | gzip、partial、private 隔离、重试 |
 | M5 | 四人真实浏览器验收 | 完整 e2e，可发布 |
+
+## 19. 实施进度（2026-11-16）
+
+### 已完成
+
+- **Phase 0 对局标识**：`server/lobby.js` 为每局生成 `m_<room>_<matchNo>_<seed>`，经 `Match` / match host 写入 `m.public.matchId`；测试 / 旧对局不带该键，帧保持原样。
+- **Demo 录制元数据**：`demoRecorder` 文档记录 `matchId / playerId / isTeam`（至少 2 名真人且服务器给了 matchId 才标记联机）。
+- **服务端存储**：`team_demo_parts / team_demos / team_demo_links` 三张表（`server/accounts/db.js`），part 以 gzip JSON 存 `bytea`，canonical 一份 + 四账号 link。
+- **纯合并器**：`server/accounts/teamDemos.js`：`m.public.serverNow` 锚定时间、公共帧去重、按 field owner 选帧（观战副本仅降级兜底）、private 按 playerId 隔离；不重跑战斗。
+- **上传 / 状态 / 列表 / 下载 API**：`POST /api/team-demos/:matchId/parts`、`GET /api/team-demos/:matchId/status`、`GET /api/team-demos`、`GET /api/team-demos/:id`（按登录账号过滤 private）。
+- **客户端**：四人局 `uploadDemo` 自动走 part 接口；云端 Demo 面板增加「联机合并 Demo」列表；`demoReplay` 能把 team canonical 转成单 field wire，并拦截 `g.watch` 在暂停/播放中切 field，保持游标和暂停状态。
+
+### 尚未完成 / 待确认
+
+- 真实 PostgreSQL 集成测试（上传 → 四人到齐 → canonical → 四账号下载）尚未在本机跑；纯合并器和回放转换已有单测。
+- 缺人超时自动 `partial`、8 MB 体积降采样、上传失败重试队列尚未实现（当前缺人时 status 报告 waitingFor，不自动生成 partial）。
+- 4 人真实 Chromium e2e、非参与者 403 验证尚未跑。
+- §16 的决策目前按文档默认执行：merged 替换个人云版、非参与者不可见、`player_links` 鉴权、canonical 存 PostgreSQL、目标 8 MB、缺人等待 5 分钟；如用户选择不同，再调整。

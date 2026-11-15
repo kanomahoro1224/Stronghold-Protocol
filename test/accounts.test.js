@@ -20,7 +20,7 @@ const CONN = process.env.SP_TEST_DATABASE_URL || process.env.DATABASE_URL || '';
 before(async () => {
   if (!CONN) return;
   db = await createDb({ url: CONN, log: {} });
-  await db.query(`TRUNCATE accounts, email_codes, sessions, profiles, match_records, demos, player_links RESTART IDENTITY CASCADE`);
+  await db.query(`TRUNCATE accounts, email_codes, sessions, profiles, match_records, demos, player_links, team_demo_parts, team_demos, team_demo_links RESTART IDENTITY CASCADE`);
 });
 
 after(async () => { await db?.close(); });

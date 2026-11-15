@@ -13,6 +13,9 @@
 //   POST /api/link                   { playerId, playerToken } — verify the WS secret, then bind playerId
 //   GET  /api/history?limit=50       → { ok, matches: [...] }
 //   GET  /api/demo/:id               → { ok, demo }
+//   POST /api/team-demos/:matchId/parts { playerId, doc } → { ok, waitingFor, merged, id }
+//   GET  /api/team-demos/:matchId/status → { participants, uploaded, missing, merged }
+//   GET  /api/team-demos/:id         → { ok, demo } (only this viewer's m.private)
 //
 // A server without DATABASE_URL still answers /api/config (accounts:false) and every other route with 503 — the
 // client hides the account UI in that case instead of failing silently.
@@ -21,6 +24,8 @@ import { sendJson } from '../http/common.js';
 import { N_ } from '../../shared/i18n.js';
 import { readCookie, sessionCookie, clearCookie } from './auth.js';
 import { listMatches, getDemo, canWatchDemo, getProfile, putProfile, linkPlayer, putAccountDemo, listAccountDemos, getAccountDemo, MAX_CLOUD_DEMO_BYTES } from './store.js';
+import { putTeamDemoPart, getTeamDemoStatus, mergeTeamDemo, pruneTeamParts, getTeamDemoForViewer, listTeamDemosForAccount } from './teamStore.js';
+import { MAX_TEAM_PART_JSON } from './teamDemos.js';
 
 const MAX_BODY = 64 * 1024;
 
@@ -210,6 +215,47 @@ export function createAccountApi({ db, auth, turnstile, mailer, registry, log = 
       const cloudDemo = path.match(/^\/api\/cloud\/demos\/([0-9]+)$/);
       if (cloudDemo && (method === 'GET' || method === 'HEAD')) {
         const doc = await getAccountDemo(db, account.id, cloudDemo[1]);
+        if (!doc) { json(res, 404, { ok: false, error: 'NOT_FOUND' }); return true; }
+        json(res, 200, { ok: true, demo: doc });
+        return true;
+      }
+
+      // ---- 四人联机 Demo：每玩家上传自己的 part，全部到齐后服务端只合并 JSON（不重跑战斗） ----
+      if (path === '/api/team-demos' && (method === 'GET' || method === 'HEAD')) {
+        json(res, 200, { ok: true, demos: await listTeamDemosForAccount(db, account.id) });
+        return true;
+      }
+
+      const teamPart = path.match(/^\/api\/team-demos\/([^/]+)\/parts$/);
+      if (teamPart && method === 'POST') {
+        const matchId = decodeURIComponent(teamPart[1]);
+        const body = await readJson(req, MAX_TEAM_PART_JSON + 64 * 1024);
+        if (!body) { json(res, 413, { ok: false, error: 'BAD_BODY' }); return true; }
+        try {
+          const r = await putTeamDemoPart(db, { matchId, playerId: body.playerId, accountId: account.id, doc: body.doc });
+          await pruneTeamParts(db).catch(() => {});
+          const status = await getTeamDemoStatus(db, matchId);
+          // all declared human participants are in → merge immediately; a partial waits for the timeout / retry
+          let merged = null;
+          if (!status.missing.length) merged = await mergeTeamDemo(db, matchId, { force: false });
+          json(res, 200, { ok: true, partId: String(account.id), waitingFor: status.waitingFor, merged: !!merged?.ok, id: merged?.ok ? merged.id : null });
+          return true;
+        } catch (e) {
+          const code = e?.code || 'BAD_PART';
+          json(res, code.startsWith('TOO_LARGE') ? 413 : code === 'PLAYER_NOT_LINKED' ? 403 : 400, { ok: false, error: code });
+          return true;
+        }
+      }
+
+      const teamStatus = path.match(/^\/api\/team-demos\/([^/]+)\/status$/);
+      if (teamStatus && (method === 'GET' || method === 'HEAD')) {
+        json(res, 200, await getTeamDemoStatus(db, decodeURIComponent(teamStatus[1])));
+        return true;
+      }
+
+      const teamDemo = path.match(/^\/api\/team-demos\/([0-9]+)$/);
+      if (teamDemo && (method === 'GET' || method === 'HEAD')) {
+        const doc = await getTeamDemoForViewer(db, account.id, teamDemo[1]);
         if (!doc) { json(res, 404, { ok: false, error: 'NOT_FOUND' }); return true; }
         json(res, 200, { ok: true, demo: doc });
         return true;
