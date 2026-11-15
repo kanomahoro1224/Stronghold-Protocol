@@ -16,6 +16,7 @@ import { net } from './net.js';
 import { store, emptyMatch, selectRoute } from './store.js';
 import { battleRunner } from './battle/runner.js';
 import { t } from '../shared/i18n.js';
+import { PHASE } from '../../shared/constants.js';
 
 let session = null;
 let uiHost = null;
@@ -68,6 +69,22 @@ function syncReplayClock(s, force = false) {
   if (force || Math.abs((store.get().clock?.offset || 0) - off) > 100) store.patch('clock', { offset: off, synced: true });
 }
 const speedLabel = (v) => (v === 0.25 ? '¼×' : v === 0.5 ? '½×' : `${v}×`);
+
+/** 这条帧会结束一场战斗 / 整局：必须等本地战斗真的打完再发，否则怪还在打就弹出「完美作战」。 */
+const ENDS_BATTLE = (f) => f.t === 'b.end' || f.t === 'm.result' || (f.t === 'm.public' && f.m?.phase === PHASE.RESULT);
+
+/** 本地战斗 sim 是否还没结束（回放按真实战斗动画等待，不抢跑结算）。 */
+function battleStillRunning() {
+  try {
+    const entries = battleRunner?._entries;
+    if (entries && entries.size) {
+      for (const e of entries.values()) if (e && e.battle && !e.done) return true;
+      return false;
+    }
+    const st = battleRunner?.state?.();
+    return !!st && st.done === false;
+  } catch { return false; }
+}
 
 /** 回合标记：优先用录制时记下的 marks；老文档从 wire 的 m.public 回合变化推导。 */
 /** 战斗开始短标：从 wire 的 b.start 帧推导（每场战斗一条），老 Demo 也有。 */
@@ -165,6 +182,26 @@ function runTo(s, target) {
   const wire = s.doc.wire || [];
   while (s.idx < wire.length && (wire[s.idx].at || 0) <= target) {
     const f = wire[s.idx];
+    if (ENDS_BATTLE(f)) {
+      const now = Date.now();
+      // 本地战斗没打完 → 等；刚打完也留 300ms 给死亡动画，避免「怪还在」就弹完美作战
+      if (battleStillRunning()) {
+        if (!s.waiting) { s.waiting = true; s.waitAt = now; }
+        if (now - (s.waitAt || 0) < 20_000) { s.onTick?.(); return; }
+      } else if (!s.endGraceAt) {
+        s.endGraceAt = now;
+        s.waiting = true;
+        s.waitAt = now;
+        s.onTick?.();
+        return;
+      } else if (now - s.endGraceAt < 300) {
+        s.waiting = true;
+        s.onTick?.();
+        return;
+      }
+      s.endGraceAt = 0;
+    }
+    s.waiting = false;
     dispatch(f);
     noteBattle(s, f);
     s.idx++;
@@ -177,16 +214,34 @@ function runTo(s, target) {
     // 播完停在最后一帧：冻结战斗 sim，不继续在后台空跑
     battleRunner?.setPaused?.(true);
     s.onTick?.();
+    syncReplayClock(s, true);
+    holdClock(s);
   }
 }
 
 function tick() {
   if (!session || !session.playing) return;
   const s = session;
+  if (s.waiting) {
+    // 等战斗结束期间冻结进度与时钟，结束后把等待时长从 base 里补掉
+    if (battleStillRunning() && Date.now() - (s.waitAt || 0) < 20_000) {
+      syncReplayClock(s, true);
+      s.timer = setTimeout(tick, 40);
+      return;
+    }
+    s.waiting = false;
+    s.base += Date.now() - (s.waitAt || Date.now());
+  }
   const el = (Date.now() - s.base) * s.speed;
   runTo(s, Math.min(s.duration, el));
   syncReplayClock(s);
   if (s.playing) s.timer = setTimeout(tick, 40);
+}
+
+/** 暂停期间 serverNow = Date.now() + offset 仍会随墙钟走：持续把 offset 拉回游标位置，右上角才真的停住。 */
+function holdClock(s) {
+  clearInterval(s.clockTimer);
+  s.clockTimer = setInterval(() => { if (session === s) syncReplayClock(s, true); else clearInterval(s.clockTimer); }, 250);
 }
 
 function pause(s) {
@@ -196,11 +251,13 @@ function pause(s) {
   // 真暂停：冻结战斗 sim 时钟与回放时钟（右上角倒计时停在同一秒）
   battleRunner?.setPaused?.(true);
   syncReplayClock(s, true);
+  holdClock(s);
   s.onTick?.();
 }
 
 function play(s) {
   if (s.playing) return;
+  clearInterval(s.clockTimer);
   if (s.idx >= (s.doc.wire || []).length) { seek(s, 0); return; }
   battleRunner?.setPaused?.(false);
   s.playing = true;
@@ -218,6 +275,7 @@ function play(s) {
  * 这样拖到某一回合中间，单位位置、战斗进度与进度条一致，而不是每次从头打。
  */
 function seek(s, ms) {
+  clearInterval(s.clockTimer);
   const target = Math.max(0, Math.min(s.duration, ms));
   s.playing = false;
   clearTimeout(s.timer);
@@ -287,8 +345,8 @@ export function startDemoReplay(doc) {
   const duration = Math.max(last, endAt, (doc.snapshots || []).reduce((m, f) => Math.max(m, f.at || 0), 0));
   const s = {
     doc, idx: 0, cursor: 0, duration, playing: true, speed: 1,
-    base: Date.now(), timer: 0, prev, onTick: null, active: new Map(), lastSync: 0,
-    marks: marksOf(doc).filter((m) => m.at <= duration), battleMarks: battleMarksOf(doc, duration), drag: false,
+    base: Date.now(), timer: 0, clockTimer: 0, prev, onTick: null, active: new Map(), lastSync: 0,
+    marks: marksOf(doc).filter((m) => m.at <= duration), battleMarks: battleMarksOf(doc, duration), drag: false, waiting: false, waitAt: 0, endGraceAt: 0,
   };
   session = s;
 
@@ -314,6 +372,20 @@ export function startDemoReplay(doc) {
     dispatch({ t: 'm.public', m: { ...snap0, players: doc.players || snap0.players || [] } });
   }
   syncReplayClock(s);
+  // 游戏自己的暂停按钮 / 空格发的是 g.pause：回放里改成控制回放；其余 g.* 一律不发服务器
+  const origRequest = net.request.bind(net);
+  net.request = (type, fields) => {
+    if (session === s && typeof type === 'string' && type.startsWith('g.')) {
+      if (type === 'g.pause') {
+        // 游戏按钮 / 空格的 on 状态依赖 m.public.paused（回放里不会变），这里一律按「切换」处理
+        if (s.playing) pause(s); else play(s);
+      }
+      return Promise.resolve({ ok: true, replay: true });
+    }
+    return origRequest(type, fields);
+  };
+  s.restoreRequest = () => { net.request = origRequest; };
+
   // 玩家从游戏自己的「离开」退出（而不是回放条）时，回放必须跟着结束，否则 timer 会继续喂帧把人拉回对局
   s.unsub = store.subscribe(() => {
     if (session !== s || s.suppress) return;
@@ -336,7 +408,9 @@ export function stopDemoReplay() {
   const s = session;
   session = null;
   clearTimeout(s.timer);
+  clearInterval(s.clockTimer);
   try { s.unsub?.(); } catch { /* ignore */ }
+  try { s.restoreRequest?.(); } catch { /* ignore */ }
   try { render(null, uiHost); } catch { /* host gone */ }
   try { uiHost?.remove(); } catch { /* ignore */ }
   uiHost = null;
