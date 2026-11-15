@@ -57,22 +57,25 @@ test('disconnected players (AI 托管) and bots count; an eliminated player does
   h.m.dispose();
 });
 
-test('mode scale overrides the global scale; GameData and the plain fallback agree', () => {
+test('config restores the fixed pool of 0.1.x (perPlayer false, solo 0.25) — GameData and the plain-object fallback agree', () => {
   const data = structuredClone(DATA);
-  data.config.bossHpScale = { ...data.config.bossHpScale, solo: 0.25, coop: 1, aliveScaling: false };
+  data.config.bossHpScale = { ...data.config.bossHpScale, perPlayer: false, solo: 0.25 };
   for (const modeId of ['mode_single_abyss', 'mode_multi_abyss']) {
     const gd = new GameData(data, modeId);
     const base = data.bosses.boss_8.bloodPoint.ABYSS;
+    const expected = gd.isSolo ? base * 0.25 : base;
     for (const n of [1, 2, 3, 4]) {
-      const expected = gd.isSolo ? base : base * n;
+      assert.equal(gd.bossPoolHp('boss_8', n), expected, `${modeId} ×${n}`);
+      assert.equal(bossPoolHp(gd, 'boss_8', n), expected);
+      // a caller's game-data object without bossPoolShare reads the same config through bossPoolShareOf
       const plain = { boss: (id) => gd.boss(id), difficulty: gd.difficulty, mode: gd.mode, config: gd.config, isSolo: gd.isSolo };
-      assert.equal(gd.bossPoolHp('boss_8', n), expected);
       assert.equal(bossPoolHp(plain, 'boss_8', n), expected);
     }
-    data.config.modes[modeId].bossHpScale = { ...data.config.modes[modeId].bossHpScale, solo: 0.25, coop: 1, aliveScaling: false };
-    const fixed = new GameData(data, modeId);
-    assert.equal(bossPoolHp(fixed, 'boss_8', 2), gd.isSolo ? base * 0.25 : base);
   }
+  // and the per-player rule through the same fallback
+  const gd = new GameData(DATA, 'mode_multi_abyss');
+  const plain = { boss: (id) => gd.boss(id), difficulty: gd.difficulty, mode: gd.mode, config: gd.config, isSolo: false };
+  assert.equal(bossPoolHp(plain, 'boss_8', 3), DATA.bosses.boss_8.bloodPoint.ABYSS * 3);
 });
 
 test('only the leader\'s pool scales: escorts and the Hidden Core\'s parts keep their stats', () => {

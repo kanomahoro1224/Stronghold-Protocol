@@ -126,7 +126,7 @@ export class MatchInfra {
    * has no available chess are not offered (choices.js).
    */
   bondLive(bondId) {
-    return this.bondInPool(bondId);
+    return !this.gd.modeInactiveBonds.has(bondId) && this.bondInPool(bondId);
   }
 
   /**

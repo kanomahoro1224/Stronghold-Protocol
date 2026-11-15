@@ -295,7 +295,7 @@ server/match/Match.js	both_text	text	text-conflict	冲突 2 处：采用上游 0
 server/match/PlayerState.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
 server/match/aiDigest.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
 server/match/aiEconomy.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
-server/match/aiPlan.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/aiPlan.js	both_text	text	auto-merge	严格对齐上游：恢复 modeInactiveBonds 过滤	0	no-change
 server/match/audit.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
 server/match/bandCommandEffects.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
 server/match/bandCommands.js	local_A	text	both-added	采用上游 0.4.0		upstream
@@ -566,7 +566,7 @@ test/golden/act3autochess-v3_1/standins.json	local_A	text	both-added	golden 基�
 test/golden/bonds.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
 test/golden/diy.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
 test/golden/fields.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
-test/golden/matches.json	both_text	text	text-conflict	golden 基线采用上游 0.4.0	30	upstream
+test/golden/matches.json	both_text	text	text-conflict	严格对齐上游代码后，按上游行为重新生成 golden	30	upstream
 test/golden/roster.json	both_text	text	text-conflict	golden 基线采用上游 0.4.0	13	upstream
 test/golden/standins.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
 test/helpers/battleHarness.js	both_text	text	auto-merge	三方无冲突合并	0	merged
@@ -612,7 +612,7 @@ test/match/band-strength.test.js	local_A	text	already-same	本地已有且内容
 test/match/beacon-diy.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
 test/match/bond-groups.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
 test/match/bond-timers.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/match/bonds.test.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+test/match/bonds.test.js	both_text	text	auto-merge	严格对齐上游：采用上游 0.4.0 测试（本局禁用盟约不得激活）	0	upstream
 test/match/bosshp.test.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
 test/match/bot-prep-pipeline.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
 test/match/bot-self-plan.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change

@@ -37,6 +37,16 @@
 - 测试依赖的 3 个服务端模块：一并恢复上游。
 - 文档冲突：采用上游 0.4.0。
 
+## 严格对齐上游（用户确认）
+
+用户选择“严格对齐上游 0.4.0”后，以下本地偏离被逐文件切回上游，并重新生成受影响的 golden：
+
+- `server/match/aiPlan.js`：恢复 `modeInactiveBonds` 过滤，采购评分不再忽略本局禁用盟约。
+- `server/match/bondsMeta.js`：恢复 `computeBonds` 跳过本局禁用盟约，以及 `offBondCounts` 的“本局禁用”展示数据。
+- `server/match/gamedata.js`：恢复上游 boss 共享血量倍率规则（`coop` × `alive / aliveFull`）。
+- `data/config.json`：恢复上游 `bossHpScale` 配置（`perPlayer` / `coop:1` / `aliveScaling:false`），并恢复上游文件格式。
+- `test/golden/matches.json`：按严格对齐后的上游行为重新计算，`test/golden.test.js` 9/9 通过。
+
 ## 几个关键文件
 
 - `public/js/ui/shopBar.js`：18 处冲突，旧本地实现与上游卡面实现无法拼成可运行版本，最终采用上游完整实现。
@@ -62,11 +72,12 @@
 - `test/content/feedback1d-solvent.test.js`：15/15
 - `test/docs-consistency.test.js` + `test/ui/asset-import.test.js` + 上述两项：92/92
 - `test/ui/demo-recorder.test.js` / `test/ui/deploy-replay.test.js` / `test/bands/regulation-replay.test.js`：19/19
-- 完整 `npm test`：3243 pass / 3 fail；剩余失败均为 golden 基线差异，根因是本地额外盟约（`arcaneShip` / `soloShip`）与本地 RNG 扩展，需要用户决定是否严格对齐上游或按本地基线更新。
+- `test/golden.test.js`：9/9 通过；严格对齐上游服务端行为后重新生成 `test/golden/matches.json`。
+- `test/match/*.test.js`：严格对齐后复跑结果见最终提交说明。
 - 界面 `commandDisplayText is not defined`：修复后 `test/ui/command-spectate.test.js` 与 `test/ui/spectate-effects.test.js` 共 7/7 通过。
 
 ## 状态
 
 - 已提交 `b7a5cdec` 并推送；界面修复另提交 `0dbccf2a` 并推送。
-- `test/golden` 上游基线已包含在 `b7a5cdec`；3 项差异仍在等待用户决定处理方式，不属于未提交文件。
+- 严格对齐上游的代码、配置、测试和 golden 变更为新的本地提交，推送后以远端 HEAD 为准。
 - `config/announcements.json` 保持受保护内容不变（sha256 前缀 `eb9a1dfd382a1c96f05e`）。

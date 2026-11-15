@@ -79,10 +79,8 @@ export function ownsElite(m, ps, id) {
 export function planCopyUseful(m, ps, id) {
   const gd = ps.gd || m.gd;
   if (!gd.chess(id) || gd.isGolden(id) || ownsElite(m, ps, id)) return false;
-  // The mode's inactive list only shrinks the chess pool, and every bond kept by a remaining operator still activates
-  // (AGENTS.md 本分支游戏规则: 模式名单不再禁止盟约激活), so a plan bond never stops a copy from being useful.
   return gd.mergeCount(gd.baseIdOf(id)) > 1 || (!!advisorPlan(m, ps)?.bonds?.some(b =>
-    gd.chess(id).bonds?.includes(b.id))
+    !gd.modeInactiveBonds.has(b.id) && gd.chess(id).bonds?.includes(b.id))
     && !ps.allChess().some(p => gd.baseIdOf(p.id) === gd.baseIdOf(id)));
 }
 
@@ -100,7 +98,7 @@ export function planUnitWeight(m, ps, id, buying = false) {
   const bondUseful = buying ? planCopyUseful(m, ps, id) : rec?.isGolden || planCopyUseful(m, ps, id);
   return ((buying ? planBuyTarget(m, ps, id) : planContains(m, p.keep, id)) ? (buying ? 24 : 18) : 0)
     - (planContains(m, p.sell, id) ? 24 : 0)
-    + (p.bonds || []).reduce((n, b) => n + (bondUseful && rec?.bonds?.includes(b.id) ? b.priority * 6 : 0), 0);
+    + (p.bonds || []).reduce((n, b) => n + (bondUseful && rec?.bonds?.includes(b.id) && !m.gd.modeInactiveBonds.has(b.id) ? b.priority * 6 : 0), 0);
 }
 
 export function planPlacementWeight(m, ps, id, row, col, dir) {

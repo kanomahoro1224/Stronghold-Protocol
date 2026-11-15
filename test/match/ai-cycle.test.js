@@ -105,11 +105,8 @@ test('cycle rejects engine bans, insufficient natural members, cheap-pool conten
     board: [{ id: 'chess_char_2_19_a' }, { id: 'chess_char_3_04_a' }] }] }).length, 0);
   assert.equal(candidates({ ...digest(), lp: 6 }).length, 0);
   assert.equal(candidates({ ...digest(), feedback: { lastBattle: { leaks: 3 } } }).length, 0);
-  // 标准模拟 lists 投资人/远见 as mode-inactive, but that list only shrinks the chess pool and every bond a remaining
-  // operator still carries activates (AGENTS.md 本分支游戏规则). The pool decides feasibility, as the bannedChess case above.
   const short = buildPlaybook(DATA, { modeId: 'mode_multi_funny' });
-  assert.ok(candidates(digest(), short).length > 0, 'the mode list is a pool filter, not a bond ban');
-  assert.equal(candidates({ ...digest(), availability: { bannedChess: ['chess_char_5_14_a', 'chess_char_5_17_a'] } }, short).length, 0);
+  assert.equal(candidates(digest(), short).length, 0);
 });
 
 test('known gifted investors/growers and an owned package permit a level-four hold without inventing future gifts', () => {

@@ -68,9 +68,11 @@ export const COMBAT_TIME_SCALE = 2;
  * Multiplier of bloodPoint[difficulty] for the shared leader pool (DESIGN §20.10, §25.13.4), from config bossHpScale —
  * each key from the mode's entry first, then the global one; the defaults are the current rule:
  *   solo   `solo` (1: the table value — one player's share);
- *   co-op  `coop` (4) × min(alive, aliveFull) / aliveFull when `aliveScaling` is enabled;
- *          bots and AI-controlled seats count, eliminated and departed seats do not.
- *          Mode settings override global settings; an omitted count means a full team.
+ *   co-op  `perPlayer` true (the owner's decision of 2026-10-06, adopting PR #209 by @qingjingshenghuo): `coop` (1) × the
+ *          players alive when the fight starts — bots and AI 托管 seats count, eliminated and departed seats do not —
+ *          at most `aliveFull` (4); a count left out means a full team;
+ *          `perPlayer` false: the fixed pool of 0.1.x (「保持固定血量」, restorable with `solo` 0.25): `coop` whatever the
+ *          count, × min(alive, aliveFull) / aliveFull with `aliveScaling`.
  * @param {object|null|undefined} modeScale config.modes[modeId].bossHpScale
  * @param {object|null|undefined} cfgScale config.bossHpScale
  * @param {boolean} isSolo
@@ -81,12 +83,13 @@ export function bossPoolShareOf(modeScale, cfgScale, isSolo, aliveCount) {
   const ms = modeScale && typeof modeScale === 'object' ? modeScale : {};
   const cs = cfgScale && typeof cfgScale === 'object' ? cfgScale : {};
   const pick = (k, d) => (Number.isFinite(ms[k]) && ms[k] > 0 ? ms[k] : Number.isFinite(cs[k]) && cs[k] > 0 ? cs[k] : d);
+  const flag = (k, d) => (typeof ms[k] === 'boolean' ? ms[k] : typeof cs[k] === 'boolean' ? cs[k] : d);
   if (isSolo) return pick('solo', 1);
   const full = Math.max(1, Math.floor(pick('aliveFull', 4)));
   const n = Number(aliveCount);
-  const scaling = typeof ms.aliveScaling === 'boolean' ? ms.aliveScaling : cs.aliveScaling === true;
-  const alive = scaling && Number.isFinite(n) && n >= 1 ? Math.min(full, Math.floor(n)) : full;
-  return pick('coop', 4) * alive / full;
+  const alive = Number.isFinite(n) && n >= 1 ? Math.min(full, Math.floor(n)) : full;
+  if (flag('perPlayer', true)) return pick('coop', 1) * alive;
+  return pick('coop', 1) * (flag('aliveScaling', false) ? alive / full : 1);
 }
 
 /** Strip the _a/_b suffix of an item id (the registry key of an item family). */
@@ -152,9 +155,12 @@ export class GameData {
   }
 
   /**
-   * Shared leader HP pool: solo = bloodPoint × 1; co-op = bloodPoint × 4 × alive / 4.
-   * Alive players are counted at the Final Assault / Hidden Core start; omitted means a full team.
-   * Leaders are never scaled by enemyScale. User configuration, 2026-10-06.
+   * Shared leader HP pool (DESIGN §20.10, §25.13.4): ONE pool for every boss field of the match (official tip "最终攻势中，
+   * 所有人将一起对敌方领袖造成伤害"; the mirrored copies of a pair field share it — notice 5114 "两侧的敌方领袖共享生命值
+   * （敌方领袖的总生命值不变）", which is about those copies). Size = bloodPoint[difficulty] × bossPoolShare: the table value
+   * per player alive when the fight starts (the owner's decision of 2026-10-06, PR #209; it replaces the fixed pool of
+   * 「保持固定血量」, which config bossHpScale restores — bossPoolShareOf); `aliveCount` omitted ⇒ a full team. Leaders are
+   * never scaled by enemyScale ("领袖单位于服务器的生命值加成不受上述加成影响").
    * @param {string} bossId
    * @param {number} [aliveCount] alive players at the Final Assault / Hidden Core start (co-op)
    * @returns {number}
@@ -171,8 +177,7 @@ export class GameData {
   }
 
   /**
-   * Multiplier of bloodPoint for the leader pool (see bossPoolHp): solo = bossHpScale.solo (1); co-op = coop (4) ×
-   * min(alive, aliveFull) / aliveFull when bossHpScale.aliveScaling (mode entry first, then the global one).
+   * Multiplier of bloodPoint for the leader pool (see bossPoolHp; the rule and the config keys: bossPoolShareOf).
    * @param {number} [aliveCount]
    */
   bossPoolShare(aliveCount) {
