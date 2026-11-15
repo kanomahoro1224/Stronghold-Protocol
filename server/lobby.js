@@ -2844,7 +2844,7 @@ export class Lobby {
     const matchNo = checkpoint ? Math.max(1, room.matchCount) : room.matchCount + 1;
     try {
       const match = await this.matchWorkerPool.create(room.code, {
-        roomCode: room.code, mode: room.mode, difficulty: room.difficulty, modeId: modeIdFor(room.mode, room.difficulty),
+        roomCode: room.code, matchId: this.matchIdFor(room, matchNo, seed), mode: room.mode, difficulty: room.difficulty, modeId: modeIdFor(room.mode, room.difficulty),
         seats, spectators: room.spectators.map((s) => s.playerId), consoleEnabled: !!room.consoleEnabled,
         hostId: room.hostId, ...(room.content ? { cs: room.content.cs } : {}),
         seed, matchNo, aiPicksLast: !!room.aiPicksLast,
@@ -2916,6 +2916,7 @@ export class Lobby {
     try {
       const opts = {
         roomCode: room.code,
+        matchId: this.matchIdFor(room, matchNo, seed),
         mode: room.mode,
         difficulty: room.difficulty,
         // a plugin mode the host chose (header "Gameplay plugins"), a laddered room's official mode (规程's solo), else the
@@ -3039,6 +3040,11 @@ export class Lobby {
     }
   }
 
+  /** Stable id for one room match: four clients group their team-demo parts by it. */
+  matchIdFor(room, matchNo, seed) {
+    return `m_${room?.code || 'queue'}_${Number(matchNo) || 1}_${Number(seed) >>> 0}`;
+  }
+
   async startQueuedMatchWorker(owner, players, selected = [owner]) {
     const room = owner?.room || null;
     if (room && (room.disposed || room.match)) return fail(ERR.ROOM_STARTED);
@@ -3057,7 +3063,7 @@ export class Lobby {
     try { seed = this.seedFn() >>> 0; } catch { seed = randomInt(2 ** 32); }
     try {
       const match = await this.matchWorkerPool.create(matchCode, {
-        roomCode: matchCode, mode: owner.mode, difficulty: owner.difficulty, modeId: modeIdFor(owner.mode, owner.difficulty),
+        roomCode: matchCode, matchId: this.matchIdFor(room, room ? room.matchCount + 1 : 1, seed), mode: owner.mode, difficulty: owner.difficulty, modeId: modeIdFor(owner.mode, owner.difficulty),
         seats, consoleEnabled: !!room?.consoleEnabled, aiPicksLast: !!room?.aiPicksLast, seed, matchNo: room ? room.matchCount + 1 : 1,
       }, {
         created: (match) => {

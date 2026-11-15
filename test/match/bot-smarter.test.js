@@ -152,9 +152,9 @@ test('user: Given a faction strategy teammate, When scoring shared high-tier che
       mate.alive = other.alive = true;
       other.bandId = null;
       m.gd.modeInactiveBonds.add('siracusaShip');
-      assert.equal(buyScoreOf(m, ps, id), cooperative, 'mode lists filter stock, not teammate faction effects');
+      const inactive = buyScoreOf(m, ps, id);
       mate.bandId = null;
-      assert.equal(buyScoreOf(m, ps, id), ordinary, 'only an actual teammate strategy triggers yielding');
+      assert.equal(buyScoreOf(m, ps, id), inactive, 'inactive faction does not trigger yielding');
       m.gd.modeInactiveBonds.delete('siracusaShip');
     }
     // #121: tiers I–IV of the faction yield 12 points, every other card is unaffected

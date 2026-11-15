@@ -9,6 +9,8 @@
 //
 // new Match(opts)
 //   opts.roomCode    string                     4-letter room code (logging only)
+//   opts.matchId     string (optional)          stable id of this match (server/lobby.js): copied into m.public so the
+//                                               client-side demo recorder can group a team's four parts
 //   opts.mode        'solo' | 'coop'
 //   opts.difficulty  'FUNNY'|'NORMAL'|'HARD'|'ABYSS'
 //   opts.modeId      string                     modeIdFor(mode, difficulty), e.g. 'mode_multi_hard'
@@ -313,6 +315,8 @@ export class Match {
     }
     this.opts = opts;
     this.roomCode = opts.roomCode ?? '----';
+    /** Stamped by the platform into m.public for team-demo grouping; null on a bare test/journal match. */
+    this.matchId = typeof opts.matchId === 'string' && opts.matchId ? opts.matchId : null;
     this.mode = opts.mode === 'solo' ? 'solo' : 'coop';
     this.difficulty = opts.difficulty;
     this.modeId = opts.modeId || modeIdFor(this.mode, opts.difficulty);

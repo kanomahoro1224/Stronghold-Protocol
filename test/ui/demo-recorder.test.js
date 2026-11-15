@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { net } from '../../public/js/net.js';
-import { keepsDemo, startDemoRecorder, currentDemoId, dropDemo } from '../../public/js/demoRecorder.js';
+import { keepsDemo, startDemoRecorder, currentDemoId, currentDemoMeta, dropDemo } from '../../public/js/demoRecorder.js';
 
 const frame = (over = {}) => ({
   t: 'm.public', phase: 'prep', round: 1, modeId: 'mode_single_hard', difficulty: 'HARD',
@@ -54,4 +54,15 @@ test('demo recorder: one document per match, closed by every ending', () => {
   assert.ok(currentDemoId());
   net._emit('room.state', { inMatch: false });
   assert.equal(currentDemoId(), null, 'the room going away closes it');
+});
+
+test('demo recorder: matchId / playerId / isTeam come from the first public frame', () => {
+  startDemoRecorder();
+  net._emit('m.public', frame({
+    matchId: 'm_TEST_1_7',
+    players: [{ playerId: 'p1', seat: 0, name: 'A', isBot: false }, { playerId: 'p2', seat: 1, name: 'B', isBot: false }],
+  }));
+  assert.deepEqual(currentDemoMeta(), { matchId: 'm_TEST_1_7', playerId: null, isTeam: true });
+  dropDemo();
+  net._emit('room.state', { inMatch: false });
 });

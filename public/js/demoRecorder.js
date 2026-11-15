@@ -43,7 +43,7 @@ const HANDOFF_MS = 15_000;
 
 /** @typedef {{ id: string, startedAt: number, endedAt: number|null, end: string|null, rounds: number, settled: boolean,
  *   mode: string|null, difficulty: string|null, players: any[], events: any[], snapshots: any[], bytes: number,
- *   closed: boolean }} DemoDoc */
+ *   closed: boolean, matchId: string|null, playerId: string|null, isTeam: boolean }} DemoDoc */
 
 /** @type {DemoDoc | null} */
 let active = null;
@@ -78,6 +78,10 @@ function begin(frame) {
     rounds: 0,
     settled: false,
     mode: frame.modeId ?? null, difficulty: frame.difficulty ?? null,
+    // team-demo grouping: the server stamps matchId into m.public; old servers / test frames leave it null
+    matchId: typeof frame.matchId === 'string' && frame.matchId ? frame.matchId : null,
+    playerId: store.get().me?.playerId || null,
+    isTeam: !!(frame.matchId && (frame.players || []).filter((p) => p && !p.isBot).length >= 2),
     players: frame.players || [], events: [], snapshots: [], marks: [], wire: [], wireBytes: 0, bytes: 0, closed: false,
     owner: { playerId: store.get().me?.playerId || null, name: store.get().me?.name || null },
   };
@@ -196,6 +200,12 @@ export function dropDemo() { if (active) active.closed = true; active = null; }
  * the one just saved (the result listener and the record builder run in no fixed order).
  * @returns {string|null}
  */
+/** The live recording's team metadata (for cloud team-upload gating); null when nothing is recording. */
+export function currentDemoMeta() {
+  if (!active || active.closed) return null;
+  return { matchId: active.matchId, playerId: active.playerId, isTeam: !!active.isTeam };
+}
+
 export function currentDemoId() {
   if (active && !active.closed) return active.id;
   if (handled && Date.now() - handled.at < HANDOFF_MS) return handled.id;

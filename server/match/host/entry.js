@@ -231,6 +231,8 @@ function create(matchId, opts) {
     match = new MatchClass({
       ...(options.matchOptions || {}),
       ...opts,
+      // the host's own match key: the stable id the clients group team-demo parts by
+      matchId,
       // the content set installed at boot (server/data.js getData)
       data: installed,
       // the match names itself in its lines ([match <code>] …), as in the server process (the host adds [cs:<8 hex>])
