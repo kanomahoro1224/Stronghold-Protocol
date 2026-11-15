@@ -78,6 +78,11 @@ desktop.ini
 .idea/
 .vscode/
 .claude/
+# local scratch that never belongs in history: ad-hoc review dumps, the community/ runtime data dir,
+# and this machine's agent memory/refs
+.review/
+community/
+.workbuddy/
 # tools/sim-check.mjs: the corpus and its Node traces for /dev/sim-check.html
 public/dev/simcheck/data/
 

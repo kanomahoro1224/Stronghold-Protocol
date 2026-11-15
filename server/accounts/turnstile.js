@@ -20,6 +20,8 @@ export function createTurnstile(opts = {}) {
   const log = opts.log || {};
   return {
     siteKey: String(opts.siteKey || '').trim() || TEST_SITE_KEY,
+    /** false ⇒ the official test keys are in use（本机 demo / 测试）: 任意 token 都能通过，客户端不必渲染挂件. */
+    configured: !!String(opts.secret || '').trim(),
     /** @param {{ token?: string, remoteIp?: string }} input */
     async verify({ token, remoteIp } = {}) {
       if (!enabled) return { ok: true, skipped: true };

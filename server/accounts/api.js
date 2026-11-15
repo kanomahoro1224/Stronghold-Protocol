@@ -2,10 +2,12 @@
 //
 // Routes (all JSON; responses never carry the session token in a body — it is only ever the HttpOnly cookie):
 //   GET  /api/config                 → { accounts: bool, turnstileSiteKey, mail: bool, dev: bool }
-//   POST /api/auth/code              { email, turnstileToken } → { ok, email, expiresInMs, sent, devCode? }
-//   POST /api/auth/verify            { email, code } → { ok, account } + Set-Cookie
+//   POST /api/auth/code              { email, turnstileToken, mode? } → { ok, email, expiresInMs, sent, devCode? }
+//   POST /api/auth/verify            { email, code, password?, name?, tag? } → { ok, account } + Set-Cookie
+//   POST /api/auth/password          { email, password } → { ok, account } + Set-Cookie
 //   POST /api/auth/logout            → { ok }
 //   GET  /api/auth/me                → { ok, account } | 401
+//   PUT  /api/profile                { name?, tag? } → { ok, account } — 只补空位
 //   GET  /api/cloud                  → { ok, loadouts, settings, stats, updatedAt }
 //   PUT  /api/cloud                  { loadouts?, settings?, stats? } → { ok, updatedAt }
 //   POST /api/link                   { playerId, playerToken } — verify the WS secret, then bind playerId
@@ -16,6 +18,7 @@
 // client hides the account UI in that case instead of failing silently.
 
 import { sendJson } from '../http/common.js';
+import { N_ } from '../../shared/i18n.js';
 import { readCookie, sessionCookie, clearCookie } from './auth.js';
 import { listMatches, getDemo, canWatchDemo, getProfile, putProfile, linkPlayer, putAccountDemo, listAccountDemos, getAccountDemo, MAX_CLOUD_DEMO_BYTES } from './store.js';
 
@@ -50,8 +53,8 @@ function sameOrigin(req) {
 /**
  * @param {{ db: any, auth: any, turnstile: any, mailer: any, registry: any, log?: object, dev?: boolean }} deps
  */
-export function createAccountApi({ db, auth, turnstile, mailer, registry, log = {}, dev = false }) {
-  const off = () => ({ ok: false, error: 'ACCOUNTS_OFF', message: '账号服务未启用：服务端没有配置 DATABASE_URL' });
+export function createAccountApi({ db, auth, turnstile, mailer, registry, log = {}, dev = false, requireAccount = false }) {
+  const off = () => ({ ok: false, error: 'ACCOUNTS_OFF', message: N_('账号服务未启用：服务端没有配置 DATABASE_URL') });
 
   async function accountOf(req) {
     if (!db) return null;
@@ -73,6 +76,11 @@ export function createAccountApi({ db, auth, turnstile, mailer, registry, log = 
     if (path === '/api/config' && (method === 'GET' || method === 'HEAD')) {
       json(res, 200, {
         ok: true, accounts: !!db, mail: !!mailer?.ready, dev: !!dev,
+        // The title screen hides 「登录 / 注册」 and gates 开始 only when the server itself enforces it
+        // (SP_REQUIRE_ACCOUNT=1, server/index.js). A database-less server can never require an account.
+        requireAccount: !!(db && requireAccount),
+        // false = 官方测试密钥（任意 token 通过）：客户端不必渲染 Cloudflare 挂件
+        turnstileConfigured: !!turnstile.configured,
         turnstileSiteKey: turnstile.siteKey,
       });
       return true;
@@ -90,7 +98,7 @@ export function createAccountApi({ db, auth, turnstile, mailer, registry, log = 
         const body = await readJson(req);
         if (!body) { json(res, 400, { ok: false, error: 'BAD_BODY' }); return true; }
         const ip = req.socket?.remoteAddress || undefined;
-        const r = await auth.requestCode({ email: body.email, turnstileToken: body.turnstileToken, ip });
+        const r = await auth.requestCode({ email: body.email, turnstileToken: body.turnstileToken, ip, mode: body.mode });
         json(res, r.ok ? 200 : r.status || 400, r);
         return true;
       }
@@ -100,8 +108,27 @@ export function createAccountApi({ db, auth, turnstile, mailer, registry, log = 
         if (!body) { json(res, 400, { ok: false, error: 'BAD_BODY' }); return true; }
         const ip = req.socket?.remoteAddress || undefined;
         const ua = req.headers?.['user-agent'];
-        const r = await auth.verify({ email: body.email, code: body.code, ip, ua });
+        // 注册时可以带密码 / 博士代号 / #识别号（2026-11-15）；老账号只补空位，不覆盖
+        const r = await auth.verify({
+          email: body.email, code: body.code, ip, ua,
+          password: body.password, name: body.name, tag: body.tag,
+        });
         if (!r.ok) { json(res, r.status || 400, r); return true; }
+        const secure = String(req.headers?.['x-forwarded-proto'] || '') === 'https';
+        json(res, 200, { ok: true, account: r.account },
+          { 'Set-Cookie': sessionCookie(r.token, { secure }) });
+        return true;
+      }
+
+      // 密码登录：邮箱 + 密码，免收验证码。失败一律 BAD_CREDENTIALS（不区分邮箱不存在 / 密码不对）
+      if (path === '/api/auth/password' && method === 'POST') {
+        const body = await readJson(req);
+        if (!body) { json(res, 400, { ok: false, error: 'BAD_BODY' }); return true; }
+        const r = await auth.loginWithPassword({
+          email: body.email, password: body.password,
+          ip: req.socket?.remoteAddress || undefined, ua: req.headers?.['user-agent'],
+        });
+        if (!r.ok) { json(res, r.status || 401, r); return true; }
         const secure = String(req.headers?.['x-forwarded-proto'] || '') === 'https';
         json(res, 200, { ok: true, account: r.account },
           { 'Set-Cookie': sessionCookie(r.token, { secure }) });
@@ -125,6 +152,16 @@ export function createAccountApi({ db, auth, turnstile, mailer, registry, log = 
       // everything below needs a session
       const account = await accountOf(req);
       if (!account) { json(res, 401, { ok: false, error: 'NOT_LOGGED_IN' }); return true; }
+
+      // 博士代号 + #识别号：登录后在标题页输入框里填，存进账号，下次登录自动带回（auth.setProfile）
+      if (path === '/api/profile' && (method === 'PUT' || method === 'POST')) {
+        const body = await readJson(req);
+        if (!body) { json(res, 400, { ok: false, error: 'BAD_BODY' }); return true; }
+        const r = await auth.setProfile({ account, name: body.name, tag: body.tag });
+        if (!r.ok) { json(res, r.status || 400, r); return true; }
+        json(res, 200, { ok: true, account: r.account });
+        return true;
+      }
 
       if (path === '/api/cloud' && (method === 'GET' || method === 'HEAD')) {
         const p = await getProfile(db, account.id);

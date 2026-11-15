@@ -927,11 +927,12 @@ export function LobbyScreen() {
       </div>
     </main>`;
 
+  // the lobby wears the look of its version's season (规程: data-season="act3autochess", lobby.css)
+  const season = seasonOf(version);
+
   return html`<div class="screen lobby-screen lobby-hub" data-hub-theme=${backdropTheme(bg)} data-hub-scene=${backdropScene(bg)} data-season=${season}>
     <${HubBackdrop} bg=${bg} season=${season} />
     <header class="topbar hub-topbar">
-  // the lobby wears the look of its version's season (规程: data-season="act3autochess", lobby.css)
-  const season = seasonOf(version);
       <div class="topbar__left">
         <${Button} variant="ghost" size="sm" icon="chevronLeft" onClick=${backToTitle} title=${t('返回标题')}>${t('返回')}<//>
         <div class="connection-status">

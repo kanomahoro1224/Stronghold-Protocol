@@ -282,6 +282,21 @@
 .st-go { width: calc(0.24 * var(--ui-unit, 1rem)); color: var(--text-lo); }
 .st-go .icon { width: max(calc(0.18 * var(--ui-unit, 1rem)), calc(0.12 * var(--ui-unit, 1rem))); height: max(calc(0.18 * var(--ui-unit, 1rem)), calc(0.12 * var(--ui-unit, 1rem))); }
 .st-table tr.is-clickable:hover .st-go { color: var(--mint-400); }
+/* 对局记录 · Demo：the row's own recording, played from here (public/js/demoStore.js) */
+.st-table th.st-demo { width: 1%; white-space: nowrap; }
+.st-table td.st-demo { width: 1%; white-space: nowrap; }
+.st-demo__btn {
+  display: inline-flex; align-items: center; gap: calc(0.04 * var(--ui-unit, 1rem));
+  padding: calc(0.02 * var(--ui-unit, 1rem)) calc(0.07 * var(--ui-unit, 1rem));
+  font: inherit; font-size: max(calc(0.12 * var(--utility-text, var(--t))), calc(0.09 * var(--ui-unit, 1rem)));
+  font-weight: 700; letter-spacing: .08em; line-height: 1.5; color: var(--mint-400);
+  background: var(--mint-a10); border: 1px solid var(--mint-800); border-radius: calc(0.03 * var(--ui-unit, 1rem));
+  cursor: pointer; transition: color .15s, background .15s, border-color .15s;
+}
+.st-demo__btn .icon { width: 1em; height: 1em; }
+.st-demo__btn:hover, .st-demo__btn:focus-visible {
+  color: var(--text-hi); background: var(--mint-a20); border-color: var(--mint-a35); outline: none;
+}
 .st-more { display: flex; justify-content: center; margin: calc(0.14 * var(--ui-unit, 1rem)) 0 0; }
 .st-hint { margin: calc(0.1 * var(--ui-unit, 1rem)) 0 0; font-size: max(calc(0.13 * var(--utility-text, var(--t))), calc(0.1 * var(--ui-unit, 1rem))); line-height: 1.6; color: var(--text-lo); letter-spacing: .04em; }
 

@@ -902,3 +902,35 @@ describe('local stats: official versions (DESIGN §35.23, format v3)', () => {
     assert.equal(levelProgress(recs, { counted: false, at, season: 'act2autochess' }).before, 200);
   });
 });
+
+test('local stats: the demo link (对局记录 plays the very match of its row)', async () => {
+  const { demoIdFor } = await import('../../public/js/ui/stats.js');
+  const rec = buildRecord(baseResult(), { myId: 'p1', now: 1_000_000, demoId: 'd_abc' });
+  assert.equal(rec.demoId, 'd_abc', 'the record names the demo being recorded');
+  assert.equal(normalizeRecord({ ...rec, demoId: 'x'.repeat(200) }).demoId.length, 64, 'bounded');
+  assert.equal(compactRecord(rec).demoId, 'd_abc', 'kept in the compact form');
+  const { id, ...anon } = rec;
+  assert.equal(normalizeRecord({ ...anon, demoId: 'd_other' }).id, normalizeRecord(anon).id, 'the content id leaves the link out');
+
+  const index = [
+    { id: 'd_abc', at: 47_877, mode: 'mode_single_hard' },
+    { id: 'd_old', at: 400_000, mode: 'mode_single_hard' },
+  ];
+  assert.equal(demoIdFor(rec, index), 'd_abc', 'the record\'s own demo');
+  assert.equal(demoIdFor(rec, []), null, 'no catalogue, no button');
+  assert.equal(demoIdFor({ ...rec, demoId: 'd_gone' }, index), null, 'a deleted demo offers no substitute');
+
+  // a row from before the link: matched by when the match started (t − durationMs), same mode only
+  const legacy = { ...rec, demoId: undefined, t: 400_000 + 952_123, durationMs: 952_123 };
+  assert.equal(demoIdFor(legacy, index), 'd_old');
+  assert.equal(demoIdFor(legacy, [{ id: 'd_other_mode', at: 400_000, mode: 'mode_multi_hard' }]), null, 'another mode is another match');
+  assert.equal(demoIdFor({ ...legacy, durationMs: null }, index), null, 'no start time, no guess');
+
+  // 放弃模拟: the quit record names the demo too
+  const live = createLiveMatch();
+  const state = { me: { playerId: 'p1' }, room: { code: 'A', mode: 'solo', version: null },
+    match: { ...emptyMatch(), public: { phase: PHASE.PREP, round: 2, modeId: 'mode_single_hard', players: [{ playerId: 'p1', seat: 0, alive: true }] } } };
+  observeMatch(live, state, 10);
+  assert.equal(buildQuitRecord(state, { live, now: 20, demoId: 'd_q' }).demoId, 'd_q');
+  assert.equal('demoId' in buildQuitRecord(state, { live, now: 20 }), false, 'no demo, no link');
+});

@@ -44,7 +44,8 @@ import { html, Button, Icon, MicroLabel, TextField, PingPill, Modal } from '../u
 import { AnnouncementButton } from '../ui/announcement.js';
 import { GuideButton } from '../ui/guide.js';
 import { openStats } from './stats.js';
-import { openCloudAccount, accountsAvailable } from '../ui/cloud.js';
+import { openAccountPanel, LoginForm, cloudConfig, me, saveProfile } from '../ui/cloud.js';
+import { currentAccount, setLocalAccountTag } from '../ui/accounts.js';
 import { toast } from '../ui/toasts.js';
 import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual } from '../store.js';
@@ -75,7 +76,7 @@ export function enterSession(rawName) {
 
 /** Name rejection or server capacity refusal returns to the title without abandoning the saved identity. */
 export function returnToTitleAfterNameReview(error, connection = net, sessionIdentity = identity, state = store) {
-  if (!['NAME_REJECTED', 'SERVER_FULL'].includes(error?.code)
+  if (!['NAME_REJECTED', 'SERVER_FULL', 'LOGIN_REQUIRED'].includes(error?.code)
     && !(error?.code === 'BAD_MSG' && connection.status !== 'online')) return false;
   sessionIdentity.setEntered(false);
   state.patch('session', { entered: false });
@@ -216,9 +217,43 @@ export function TitleScreen() {
   // 需要时把开关改回 true 即可恢复（`official-damage-numbers.test.js` 仍校验弹窗内的链接与免责声明）。
   const SHOW_ABOUT = false;
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // 云端账号入口只在这台服务器开了账号服务时出现（GET /api/config accounts:true）
+  // 云端账号（server/accounts/*）：账号服务开着才显示入口。SP_REQUIRE_ACCOUNT=1 时标题页也拦住「开始」，
+  // 但真正的强制在服务端（server/net.js gateHello 校验升级请求里的 HttpOnly 会话 cookie），这里只是提前给出
+  // 可读的提示，免得玩家点了「开始」才发现要登录。
   const [accountOn, setAccountOn] = useState(false);
-  useEffect(() => { accountsAvailable().then(setAccountOn, () => setAccountOn(false)); }, []);
+  const [account, setAccount] = useState(null);
+  const [needAccount, setNeedAccount] = useState(false);
+  const [authMode, setAuthMode] = useState('login'); // 右侧面板的两个按钮：登录 / 注册
+  // 博士代号后面的 #识别号（4 位数字）：本机账号的编号就地保存（大厅右上角的名片显示的就是它），登录后跟着云端
+  // 账号存进数据库、换设备自动带回；账号已经定了编号的，输入框置灰不可改。
+  const [tag, setTag] = useState(() => currentAccount().tag || '');
+  /** 账号变化时把代号 / 识别号带回输入框（只填空位，不动玩家正在输入的内容）。 */
+  const applyAccount = (a) => {
+    setAccount(a || null);
+    if (a?.tag) {
+      setTag(a.tag);
+      // 云端编号也写进本机账号：界面上的 #xxxx 与本机名片用的是同一个号
+      setLocalAccountTag(a.tag);
+    }
+    if (a?.name) setName((draft) => draft || a.name);
+  };
+  useEffect(() => {
+    let live = true;
+    cloudConfig().then((cfg) => {
+      if (!live || !cfg?.accounts) return;
+      setAccountOn(true);
+      setNeedAccount(!!cfg.requireAccount);
+      me().then((a) => { if (live && a) applyAccount(a); }, () => {});
+    }, () => {});
+    return () => { live = false; };
+  }, []);
+  // 账号面板是独立挂载的（ui/cloud.js），在里面退出登录不会通知本组件；回到本页时重新读一次。
+  useEffect(() => {
+    if (!accountOn) return undefined;
+    const sync = () => me().then((a) => applyAccount(a || null), () => {});
+    globalThis.addEventListener?.('focus', sync);
+    return () => globalThis.removeEventListener?.('focus', sync);
+  }, [accountOn]);
   // the list of the server's plugins once loaded (ui/pluginPanel.js — a component in state: set through an updater)
   const [Installed, setInstalled] = useState(null);
   const openPlugins = () => {
@@ -256,9 +291,34 @@ export function TitleScreen() {
 
   const valid = isValidName(name);
   const serverFull = conn.lastError?.code === 'SERVER_FULL';
+  const tagLocked = !!account?.tag; // 账号上已经有识别号：跟着账号走，改不了
+  /**
+   * 失焦时收下识别号：先写本机账号（大厅名片上的 #xxxx 立刻变），登录了且账号还没编号时再存进云端账号
+   * （服务器保证不重复；被占用就把本机编号也退回去）。没登录时留到注册 / 登录时随表单一起提交。
+   */
+  const commitTag = async () => {
+    if (tag.length !== 4) return;
+    const before = currentAccount().tag || '';
+    if (!setLocalAccountTag(tag)) return;
+    if (!account || tagLocked) return;
+    const r = await saveProfile({ tag });
+    if (r.ok) { setAccount(r.data.account); toast(t('识别号 #{tag} 已保存', { tag }), 'success'); return; }
+    if (r.data?.error === 'TAG_TAKEN') {
+      setTag(before); setLocalAccountTag(before);
+      toast(t('这个识别号已经被占用，换一个'), 'warn');
+      return;
+    }
+    toast(t('识别号保存失败，请稍后再试'), 'error');
+  };
   const start = () => {
     if (serverFull) return;
     if (!valid) { toast(t('请输入博士代号'), 'warn'); return; }
+    // 不注册就无法进入游戏：右侧账号面板登录后才能开始（服务端 gateHello 还会再校验一次会话 cookie）。
+    if (needAccount && !account) {
+      toast(t('请先登录或注册账号后再进入游戏'), 'warn');
+      document.querySelector?.('.title-auth .cloud__input')?.focus?.();
+      return;
+    }
     enterSession(name);
   };
 
@@ -317,26 +377,66 @@ export function TitleScreen() {
       <h1 class=${`title-cn${alphabetic ? ' title-cn--latin' : ''}${regStill ? ' sr-only' : ''}`}>${t('卫戍协议')}<span class="title-cn__colon">${alphabetic ? ': ' : '：'}</span><em>${regStart ? t('规程') : t('盟约')}</em></h1>
       <p class="title-tag">${t('调配资金与干员，与同伴协同布防，抵御多波次进攻，直至击败敌方领袖。')}</p>
 
-      <div class="title-login">
-        ${pendingJoin ? html`<div class="title-invite">
-          <${Icon} name="key" />
-          <span>${t('收到同盟邀请')}</span><b class="num">${pendingJoin}</b><span class="t-lo">${t('· 输入代号后将自动加入')}</span>
-        </div>` : null}
-        <${TextField} label=${t('博士代号')} micro="CALLSIGN" size="lg" icon="user" value=${name} maxLength=${NAME_MAX_LEN}
-          placeholder=${t('输入你的代号（最多 {NAME_MAX_LEN} 字）', { NAME_MAX_LEN })} autoFocus=${!touchUi}
-          onInput=${setName} onEnter=${start} />
-        <${Button} variant="primary" size="xl" block=${true} iconRight="chevrons" disabled=${!valid || serverFull} onClick=${start}>${t('开始')}<//>
-        <div class="title-conn">
-          <span class=${`status-dot ${dotClass}`}></span>
-          <span role=${serverFull ? 'alert' : undefined}>${serverFull ? t('当前服务器容量已满') : STATUS_TEXT[conn.status] ? t(STATUS_TEXT[conn.status]) : conn.status}</span>
-          ${conn.status === 'online' ? html`<${PingPill} ms=${conn.ping} />` : null}
-          <${GuideButton} class="title-guide" label=${t('玩法说明')} />
-          ${accountOn ? html`<button type="button" class="title-settings fsbtn tapx" aria-label=${t('云端账号')} title=${t('云端账号')}
-            onClick=${() => openCloudAccount()}><${GIcon} name="user" /></button>` : null}
-          <button type="button" class="title-settings fsbtn tapx" aria-label=${t('设置')} title=${t('设置')}
-            onClick=${() => setSettingsOpen(true)}><${GIcon} name="gear" /></button>
-          <${FullscreenButton} class="title-fs" />
+      <div class="title-entry">
+        <div class="title-login">
+          ${pendingJoin ? html`<div class="title-invite">
+            <${Icon} name="key" />
+            <span>${t('收到同盟邀请')}</span><b class="num">${pendingJoin}</b><span class="t-lo">${t('· 输入代号后将自动加入')}</span>
+          </div>` : null}
+          <div class="title-name">
+            <${TextField} class="title-name__field" label=${t('博士代号')} micro="CALLSIGN" size="lg" icon="user" value=${name} maxLength=${NAME_MAX_LEN}
+              placeholder=${t('输入你的代号（最多 {NAME_MAX_LEN} 字）', { NAME_MAX_LEN })} placeholderShort=${t('输入你的代号')}
+              autoFocus=${!touchUi} onInput=${setName} onEnter=${start} />
+            ${accountOn ? html`<label class=${`title-idtag${tagLocked ? ' is-locked' : ''}`}
+              title=${tagLocked ? t('识别号跟账号绑定，不能修改') : t('4 位数字，跟账号绑定且不能重复')}>
+              <span class="field__label">${t('识别号')}</span>
+              <span class="field__box brackets title-idtag__box">
+                <span class="title-idtag__hash">#</span>
+                <input class="field__input title-idtag__input" inputmode="numeric" maxlength="4" value=${tag}
+                  placeholder="0000" disabled=${tagLocked} aria-label=${t('识别号（4 位数字）')}
+                  onFocus=${(e) => {
+                    // 框里已经有 4 位数字时 maxlength 会把新输入全挡掉（用户 2026-11-15：「输入 1224 但没变成 1224」）：
+                    // 聚焦就把旧号整段选中，直接打字即覆盖。等鼠标抬起后再选，免得点击把选区收掉。
+                    const el = e.currentTarget;
+                    setTimeout(() => { if (document.activeElement === el) el.select(); }, 0);
+                  }}
+                  onInput=${(e) => setTag(e.currentTarget.value.replace(/\D/g, '').slice(0, 4))}
+                  onBlur=${commitTag}
+                  onKeyDown=${(e) => { if (e.key === 'Enter' && !e.isComposing) { e.currentTarget.blur(); start(); } }} />
+              </span>
+            </label>` : null}
+          </div>
+          <${Button} variant="primary" size="xl" block=${true} iconRight="chevrons"
+            class=${needAccount && !account ? 'is-gated' : undefined}
+            disabled=${!valid || serverFull || (needAccount && !account)} onClick=${start}>${needAccount && !account ? t('登录账号后可开始') : t('开始')}<//>
+          <div class="title-conn">
+            <span class=${`status-dot ${dotClass}`}></span>
+            <span role=${serverFull ? 'alert' : undefined}>${serverFull ? t('当前服务器容量已满') : STATUS_TEXT[conn.status] ? t(STATUS_TEXT[conn.status]) : conn.status}</span>
+            ${conn.status === 'online' ? html`<${PingPill} ms=${conn.ping} />` : null}
+            <${GuideButton} class="title-guide" label=${t('玩法说明')} />
+            <button type="button" class="title-settings fsbtn tapx" aria-label=${t('设置')} title=${t('设置')}
+              onClick=${() => setSettingsOpen(true)}><${GIcon} name="gear" /></button>
+            <${FullscreenButton} class="title-fs" />
+          </div>
         </div>
+        ${accountOn ? html`<aside class="title-auth" aria-label=${t('账号')}>
+          ${account ? html`<div class="title-auth__in">
+            <b class="title-auth__title">${account.email}</b>
+            <p class="title-auth__note">${account.tag
+              ? t('识别号 #{tag} 跟这个账号绑定，换设备登录会自动填入。', { tag: account.tag })
+              : t('已登录：编队、设置与战绩会同步到这个账号。')}</p>
+            <${Button} variant="ghost" size="md" block=${true} onClick=${() => openAccountPanel(account)}>${t('账号与云同步')}<//>
+          </div>` : html`<div class="title-auth__in">
+            <div class="title-auth__modes" role="tablist" aria-label=${t('登录或注册')}>
+              <button type="button" role="tab" aria-selected=${authMode === 'login'} class=${authMode === 'login' ? 'is-on' : ''}
+                onClick=${() => setAuthMode('login')}>${t('登录')}</button>
+              <button type="button" role="tab" aria-selected=${authMode === 'register'} class=${authMode === 'register' ? 'is-on' : ''}
+                onClick=${() => setAuthMode('register')}>${t('注册')}</button>
+            </div>
+            <${LoginForm} mode=${authMode} onDone=${(acc) => applyAccount(acc)}
+              profile=${() => ({ name: sanitizeName(name), tag: tag.length === 4 ? tag : '' })} />
+          </div>`}
+        </aside>` : null}
       </div>
       <div class="title-about-wrap">
         <${AnnouncementButton} variant="ghost" />

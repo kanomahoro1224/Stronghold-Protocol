@@ -213,6 +213,40 @@
 }
 @keyframes rise-in { from { opacity: 0; transform: translateY(calc(0.14 * var(--ui-unit, 1rem))); } }
 
+/* 博士代号 + #识别号：同一行，识别号是个窄框。账号上已有识别号时它跟着账号走，输入框置灰不可改
+   （screens/title.js commitTag → PUT /api/profile；服务端 server/accounts/auth.js setProfile）。 */
+.title-name {
+  display: flex;
+  align-items: flex-end;
+  gap: calc(0.1 * var(--ui-unit, 1rem));
+}
+.title-name__field { flex: 1 1 auto; min-width: 0; }
+.title-idtag {
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.07 * var(--ui-unit, 1rem));
+  flex: 0 0 auto;
+  width: calc(1.12 * var(--ui-unit, 1rem));
+  cursor: text;
+}
+.title-idtag.is-locked { cursor: default; }
+.title-idtag__box {
+  height: calc(0.68 * var(--ui-unit, 1rem));
+  padding: 0 calc(0.1 * var(--ui-unit, 1rem));
+  gap: calc(0.03 * var(--ui-unit, 1rem));
+}
+.title-idtag.is-locked .title-idtag__box { opacity: .65; }
+.title-idtag__hash { font-family: var(--font-num); font-size: calc(0.2 * var(--ui-unit, 1rem)); font-weight: 700; color: var(--text-dim); }
+.title-idtag__input {
+  padding: 0;
+  text-align: center;
+  font-family: var(--font-num);
+  font-size: calc(0.24 * var(--utility-text, var(--t)));
+  font-weight: 700;
+  letter-spacing: .06em;
+}
+.title-idtag__input:disabled { color: var(--text-lo); -webkit-text-fill-color: var(--text-lo); }
+
 .title-login {
   --bk-c: var(--mint-500);
   position: relative;
@@ -239,6 +273,67 @@
   background: linear-gradient(90deg, var(--mint-500), transparent 60%);
 }
 .title-login .btn--xl { letter-spacing: .6em; padding-left: calc(calc(0.48 * var(--ui-unit, 1rem)) + .3em); }
+/* 标题页：代号卡片右侧的账号面板（登录 / 注册，或已登录状态）。注册与登录是同一个邮箱验证码表单
+   （ui/cloud.js 的 LoginForm）。服务端 SP_REQUIRE_ACCOUNT=1 时，它是进入游戏的前置条件。 */
+.title-entry {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: calc(0.26 * var(--ui-unit, 1rem));
+  margin-top: calc(0.42 * var(--ui-unit, 1rem));
+}
+.title-entry .title-login { margin-top: 0; }
+.title-auth {
+  position: relative;
+  width: calc(4 * var(--ui-unit, 1rem));
+  padding: calc(0.24 * var(--ui-unit, 1rem)) calc(0.26 * var(--ui-unit, 1rem)) calc(0.22 * var(--ui-unit, 1rem));
+  background: linear-gradient(180deg, rgba(20, 25, 23, .82), rgba(10, 13, 12, .88));
+  border: 1px solid var(--line-2);
+  box-shadow: 0 calc(0.2 * var(--ui-unit, 1rem)) calc(0.5 * var(--ui-unit, 1rem)) rgba(0, 0, 0, .5);
+  -webkit-backdrop-filter: blur(calc(0.04 * var(--ui-unit, 1rem)));
+  backdrop-filter: blur(calc(0.04 * var(--ui-unit, 1rem)));
+  animation: rise-in 600ms 320ms var(--ease-out) backwards;
+}
+.title-auth::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--mint-500), transparent 60%);
+}
+.title-auth__in { display: flex; flex-direction: column; gap: calc(0.12 * var(--ui-unit, 1rem)); }
+/* 登录 / 注册 两个按钮：同一张表单，服务端按 mode 拒绝「已注册」/「未注册」的邮箱 */
+.title-auth__modes { display: flex; gap: calc(0.08 * var(--ui-unit, 1rem)); }
+.title-auth__modes button {
+  flex: 1 1 0;
+  height: calc(0.42 * var(--ui-unit, 1rem));
+  background: rgba(0, 0, 0, .3);
+  border: 1px solid var(--line-2);
+  color: var(--text-lo);
+  font: inherit;
+  font-size: calc(0.17 * var(--utility-text, var(--t)));
+  font-weight: 800;
+  letter-spacing: .08em;
+  cursor: pointer;
+  transition: color 120ms, background 120ms, border-color 120ms;
+}
+.title-auth__modes button:hover, .title-auth__modes button:focus-visible { color: var(--text-hi); border-color: var(--mint-500); }
+.title-auth__modes button.is-on { color: #07110d; background: var(--mint-500); border-color: var(--mint-500); }
+/* 「登录账号后可开始」比「开始」长：收掉大字号带来的 .6em 字距，仍然是一行 */
+.title-login .btn--xl.is-gated { letter-spacing: .12em; padding-left: calc(calc(0.48 * var(--ui-unit, 1rem)) + .12em); font-size: calc(.2 * var(--utility-text, var(--t))); }
+.title-auth__title { font-size: calc(0.24 * var(--utility-text, var(--t))); font-weight: 900; letter-spacing: .02em; overflow-wrap: anywhere; }
+.title-auth__note { margin: 0; font-size: calc(0.15 * var(--utility-text, var(--t))); line-height: 1.55; color: var(--text-lo); }
+/* the embedded form is built for a modal: drop its min-width and shrink the type to the panel */
+.title-auth .cloud { min-width: 0; gap: calc(0.1 * var(--ui-unit, 1rem)); }
+.title-auth .cloud__label { font-size: calc(0.15 * var(--utility-text, var(--t))); }
+.title-auth .cloud__input { font-size: calc(0.19 * var(--utility-text, var(--t))); padding: calc(0.08 * var(--ui-unit, 1rem)) calc(0.12 * var(--ui-unit, 1rem)); }
+.title-auth .cloud__note { font-size: calc(0.14 * var(--utility-text, var(--t))); }
+/* Turnstile renders a fixed 300×65 widget. `zoom` (not `transform`) so the widget's layout box shrinks too and the
+   buttons below stay where they are drawn — a transform would leave a 65px gap or clip the widget. */
+.title-auth .cloud-ts { zoom: .78; }
 .title-assets { width: 4.9rem; margin-top: .12rem; }
 .title-assets > .btn { width: 100%; height: auto; min-height: .36rem; padding-top: .04rem; padding-bottom: .04rem; white-space: normal; line-height: 1.15; }
 .modal__box.resource-manager { width: min(11rem, 94vw); text-align: left; }

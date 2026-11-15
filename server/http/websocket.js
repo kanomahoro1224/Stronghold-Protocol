@@ -80,7 +80,7 @@ export function createSessionStack(opts, { data, log, workerPool = null, matchWo
     registry, log, MatchClass: opts.MatchClass, getData: () => data, seedFn: opts.seedFn, options: lobbyOptions,
     workerPool, matchWorkerPool, content, plugins, hosts, versions, versionHosts, simPool, nameModeration: opts.nameModeration,
   });
-  const network = new Network({ registry, handler: lobby, log, options: netOptions, nameModeration: opts.nameModeration });
+  const network = new Network({ registry, handler: lobby, log, options: netOptions, nameModeration: opts.nameModeration, accountGate: opts.accountGate || null });
   // The caps in effect, printed once when the stack is built, so the deploy log states the configuration the server is
   // actually running with. A global cap of 0 is printed as 0 (it rejects every room / socket); a per-network 0 is
   // printed as "unlimited". `log` is the quiet-aware logger, so a test server stays silent.

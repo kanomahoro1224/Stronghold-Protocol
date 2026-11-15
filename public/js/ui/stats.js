@@ -300,6 +300,8 @@ export function normalizeRecord(raw) {
     teamLp: num(r.teamLp),
     roomMode: r.roomMode === 'solo' || r.roomMode === 'coop' ? r.roomMode : null,
     selfId: str(r.selfId),
+    // the demo of this match in the local library (public/js/demoRecorder.js): 对局记录 plays it from its row
+    ...(str(r.demoId) ? { demoId: str(r.demoId) } : {}),
     // the room's cosmetic plugins (see the header): its visual set, null without any (or a record from before 0.3.0)
     vs: vsOf(r.vs),
     // the room's gameplay plugins (see the header): its content set, null for the original game
@@ -313,9 +315,9 @@ export function normalizeRecord(raw) {
   if (r.test === true) rec.test = true;
   if (rec.test === true && Number.isInteger(r.testActions) && r.testActions >= 0 && r.testActions <= 1e6) rec.testActions = r.testActions;
   if (r.compact === true) rec.compact = true;
-  // an id-less (hand-made) record gets a content id, so both copies of it land on the same key (`vs` and `content` left
-  // out: the id of a record from before 0.3.0 stays the same)
-  if (!rec.id) rec.id = `c.${fnv1a(JSON.stringify({ ...rec, vs: undefined, content: undefined, version: undefined }))}`;
+  // an id-less (hand-made) record gets a content id, so both copies of it land on the same key (`vs`, `content`,
+  // `version` and the demo link left out: the id of a record from before 0.3.0 stays the same)
+  if (!rec.id) rec.id = `c.${fnv1a(JSON.stringify({ ...rec, vs: undefined, content: undefined, version: undefined, demoId: undefined }))}`;
   return rec;
 }
 
@@ -416,7 +418,7 @@ export function peekStatsRecords() {
 // ---- compaction + the storage budget ---------------------------------------------------------------------------
 
 const COMPACT_FRAME = ['id', 'v', 't', 'end', 'victory', 'roundsPassed', 'lastRound', 'hiddenReached', 'hiddenCleared', 'reason', 'modeId',
-  'difficulty', 'roomMode', 'durationMs', 'selfId', 'vs', 'content', 'version', 'test', 'testActions'];
+  'difficulty', 'roomMode', 'durationMs', 'selfId', 'vs', 'content', 'version', 'test', 'testActions', 'demoId'];
 
 /**
  * The compact form of a record: the frame and the player's OWN row without lineup, bonds and name — everything the
@@ -520,9 +522,10 @@ export function roomModeOf(modeId, roomMode) {
  * without players (the error-path settlement) or matches the local player did not take part in (spectator
  * seats get every result pushed too — eliminated players, who ARE in players[], keep recording).
  * @param {any} res raw m.result payload
- * @param {{ myId?: string|null, roomMode?: string|null, vs?: string|null, content?: any, version?: string|null, now?: number }} ctx
+ * @param {{ myId?: string|null, roomMode?: string|null, vs?: string|null, content?: any, version?: string|null, now?: number, demoId?: string|null }} ctx
  *   vs: the room's visual set (room.state.content.vs); content: room.state.content (its content set when it played
- *   gameplay plugins); version: the official version it played (null / 第二期下半: left out) — see the header
+ *   gameplay plugins); version: the official version it played (null / 第二期下半: left out) — see the header;
+ *   demoId: the local demo of the match (demoRecorder.currentDemoId), played from its 对局记录 row
  * @returns {any|null}
  */
 export function buildRecord(res, ctx = {}) {
@@ -552,6 +555,7 @@ export function buildRecord(res, ctx = {}) {
     teamLp: num(r.teamLp),
     roomMode: roomModeOf(str(r.modeId), ctx.roomMode),
     selfId: myId,
+    demoId: str(ctx.demoId) || null,
     vs: vsOf(ctx.vs),
     content: contentOf(ctx.content),
     version: ctx.version ?? null,
@@ -621,7 +625,7 @@ export function clearedRounds(phase, round) {
  * there is nothing of mine to record: no match on screen, its settlement already here (that one is recorded by
  * recordResult), a spectator seat, or a match the page never saw.
  * @param {any} state the app store state BEFORE the match is cleared
- * @param {{ live?: ReturnType<typeof createLiveMatch>, now?: number }} [ctx]
+ * @param {{ live?: ReturnType<typeof createLiveMatch>, now?: number, demoId?: string|null }} [ctx]
  * @returns {any|null}
  */
 export function buildQuitRecord(state, ctx = {}) {
@@ -658,6 +662,7 @@ export function buildQuitRecord(state, ctx = {}) {
     teamLp: num(pub.teamLp),
     roomMode: roomModeOf(str(pub.modeId), state.room?.mode),
     selfId: myId,
+    demoId: str(ctx.demoId) || null,
     vs: vsOf(state.room?.content?.vs),
     content: contentOf(state.room?.content),
     // the room's version, else the frames' (m.public `version`; absent = 第二期下半, as versions.js matchFrameVersion)
@@ -730,7 +735,7 @@ function storeRecord(rec) {
  * Record a finished match end-to-end (load → append → save). Returns the built record, or null when
  * nothing was stored (no players / not my match / replay).
  * @param {any} res raw m.result payload
- * @param {{ myId?: string|null, roomMode?: string|null, vs?: string|null, now?: number }} [ctx]
+ * @param {{ myId?: string|null, roomMode?: string|null, vs?: string|null, now?: number, demoId?: string|null }} [ctx]
  * @returns {any|null}
  */
 export function recordResult(res, ctx = {}) {
@@ -741,7 +746,7 @@ export function recordResult(res, ctx = {}) {
 /**
  * Record the match the player is giving up (放弃模拟), before the app clears its state. Returns the record, or null.
  * @param {any} state the app store state before the match is cleared
- * @param {{ live?: ReturnType<typeof createLiveMatch>, now?: number }} [ctx]
+ * @param {{ live?: ReturnType<typeof createLiveMatch>, now?: number, demoId?: string|null }} [ctx]
  * @returns {any|null}
  */
 export function recordQuit(state, ctx = {}) {
@@ -862,6 +867,37 @@ export function countsTowardStats(rec) {
   const self = selfRowOf(rec);
   if (!self) return false;
   return self.alive === false || (Number.isFinite(self.roundsPassed) && self.roundsPassed >= 1);
+}
+
+/**
+ * The local demo of a record (public/js/demoStore.js catalogue), so 对局记录 can offer 播放 on its row.
+ *
+ * A record written by this build names its demo (`demoId`, filled by ui/stats.js buildRecord / buildQuitRecord from
+ * demoRecorder.currentDemoId). Older rows have no link: they are matched by when the match started — the record ends
+ * at `t`, the demo starts at `t − durationMs` — and only against a demo of the same mode (a demo is also the only thing
+ * that proves the match had one: a row left before the first round has none, and then nothing is offered).
+ * @param {any} rec a normalized record
+ * @param {Array<{ id: string, at: number, mode?: string|null, diff?: string|null }>} index demo catalogue, newest first
+ * @returns {string|null} the demo's id
+ */
+export function demoIdFor(rec, index) {
+  if (!isObj(rec) || !Array.isArray(index) || !index.length) return null;
+  const known = new Set(index.map((d) => d?.id).filter(Boolean));
+  // a record of this build names its demo: that answer is final — a deleted demo offers no substitute
+  if (rec.demoId) return known.has(rec.demoId) ? rec.demoId : null;
+  const at = Number(rec.t);
+  const dur = Number(rec.durationMs);
+  if (!Number.isFinite(at) || !Number.isFinite(dur) || dur < 0) return null;
+  const start = at - dur;
+  let best = null;
+  let bestGap = 3 * 60_000; // the page's first frame and the record's start are seconds apart; minutes means another match
+  for (const d of index) {
+    if (!d?.id || !Number.isFinite(d.at)) continue;
+    if (rec.modeId && d.mode && d.mode !== rec.modeId) continue;
+    const gap = Math.abs(d.at - start);
+    if (gap <= bestGap) { best = d; bestGap = gap; }
+  }
+  return best ? best.id : null;
 }
 
 /** Active settlement bonds, deduplicated per player and bounded like imported bond rows. */

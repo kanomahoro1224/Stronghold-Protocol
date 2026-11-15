@@ -43,13 +43,15 @@ import { ResultView } from './result.js';
 import { toast, toastError } from '../ui/toasts.js';
 import {
   loadStats, peekStatsRecords, saveStats, emptyStats, importStats, exportStats, aggregateStats, countsTowardStats, selfRowOf, roundsOf, isModdedRecord,
-  recordToResult, MAX_RECORDS, FULL_KEEP, IMPORT_MAX_CHARS,
+  recordToResult, demoIdFor, MAX_RECORDS, FULL_KEEP, IMPORT_MAX_CHARS,
   trophyMedalOf, strategyBadgeIds, bondMemberChess, highestBondRecord, achievementRecords, recordVersion, recordsOfVersion, recordsOfSeason,
 } from '../ui/stats.js';
 import { t, N_ } from '../../../shared/i18n.js';
 import { scriptOf } from '../../../shared/i18nPacks.js';
 import { VersionTag } from '../ui/pluginTag.js';
 import { contentSet, retryContentSet } from '../content.js';
+import { listDemoIndex, rebuildDemoIndex, getLocalDemo } from '../demoStore.js';
+import { openDemo, openDemoLibrary } from '../ui/cloud.js';
 import { DEFAULT_VERSION, shownVersion, seasonOf, versionLabel, welcomeVersion } from '../versions.js';
 import { VERSIONS } from '../../../shared/versions.js';
 
@@ -506,7 +508,7 @@ function VersionFilter({ records, value, shown }) {
 const versionOffered = (s, version) => version === DEFAULT_VERSION || !!welcomeVersion(s, version);
 
 /** One 对局记录 row: what it was, who won, whether it counted and whether the settlement can be re-viewed. */
-function HistoryRow({ rec, gd, onOpen }) {
+function HistoryRow({ rec, gd, onOpen, demos, onPlay }) {
   const self = selfRowOf(rec);
   const quit = rec.end === 'quit';
   const counted = countsTowardStats(rec);
@@ -514,6 +516,7 @@ function HistoryRow({ rec, gd, onOpen }) {
   const band = self?.bandId ? gd.band(self.bandId) : null;
   const rounds = roundsOf(rec);
   const known = Number.isFinite(self?.roundsPassed) || Number.isFinite(rec.roundsPassed);
+  const demo = demoIdFor(rec, demos);
   // another version's settlement needs its data on the page (see the header): offered as a switch outside a room
   const version = recordVersion(rec);
   const shown = useStore(shownVersion);
@@ -537,22 +540,25 @@ function HistoryRow({ rec, gd, onOpen }) {
       ${!counted ? html`<em class="st-chip">${t('不计入统计')}</em>` : null}
       ${isModdedRecord(rec) ? html`<em class="st-chip is-modded" title=${(rec.content.plugins || []).join(', ')}>${t('非官方')}</em>` : null}
       <${VersionTag} version=${rec.version ?? null} compact=${true} class="st-chip" /></td>
+    <td class="st-demo">${demo ? html`<button type="button" class="st-demo__btn" data-testid="history-demo"
+      title=${t('播放这局的 Demo（本机录制）')} onClick=${(e) => { e.stopPropagation(); onPlay?.(rec); }}
+      onKeyDown=${(e) => e.stopPropagation()}><${Icon} name="play" /><span>${t('播放')}</span></button>` : null}</td>
     <td class="num">${known ? fmtNum(rounds) : '—'}</td>
     <td class="st-go" aria-hidden="true">${view ? html`<${Icon} name="chevronRight" />` : null}</td>
   </tr>`;
 }
 
 /** 对局记录: every stored match, newest first, HISTORY_PAGE rows at a time. */
-function History({ records, gd, onOpen }) {
+function History({ records, gd, onOpen, demos, onPlay }) {
   const [shown, setShown] = useState(HISTORY_PAGE);
   const rows = records.slice(0, shown);
   return html`<${Section} title=${t('对局记录')} micro=${`HISTORY · ${records.length}`}>
     ${rows.length ? html`<div class="st-tablewrap"><table class="st-table st-table--history">
-      <thead><tr><th>${t('时间')}</th><th>${t('难度')}</th><th>${t('模式')}</th><th>${t('策略')}</th><th>${t('结果')}</th><th class="num">${t('回合')}</th><th aria-hidden="true"></th></tr></thead>
-      <tbody>${rows.map((r) => html`<${HistoryRow} key=${r.id} rec=${r} gd=${gd} onOpen=${onOpen} />`)}</tbody>
+      <thead><tr><th>${t('时间')}</th><th>${t('难度')}</th><th>${t('模式')}</th><th>${t('策略')}</th><th>${t('结果')}</th><th class="st-demo">${t('Demo')}</th><th class="num">${t('回合')}</th><th aria-hidden="true"></th></tr></thead>
+      <tbody>${rows.map((r) => html`<${HistoryRow} key=${r.id} rec=${r} gd=${gd} onOpen=${onOpen} demos=${demos} onPlay=${onPlay} />`)}</tbody>
     </table></div>
     ${records.length > shown ? html`<div class="st-more"><${Button} size="sm" variant="secondary" onClick=${() => setShown(shown + HISTORY_PAGE)}>${t('显示更多（还有 {n} 局）', { n: records.length - shown })}<//></div>` : null}
-    <p class="st-hint">${t('点击一行，回看该局结算；中途退出的对局只留记录。')} ${t('最多保留最近 {max} 局，最新的 {full} 局及盟约最高叠加战绩能回看结算。', { max: MAX_RECORDS, full: FULL_KEEP })}</p>`
+    <p class="st-hint">${t('点击一行，回看该局结算；中途退出的对局只留记录。')} ${t('录到了 Demo 的对局可以点「播放」回放。')} ${t('最多保留最近 {max} 局，最新的 {full} 局及盟约最高叠加战绩能回看结算。', { max: MAX_RECORDS, full: FULL_KEEP })}</p>`
       : html`<p class="st-empty">${t('还没有记录 —— 完成一局对局后，这里会开始积累。')}</p>`}
   <//>`;
 }
@@ -654,6 +660,22 @@ function StatsScreen({ tab }) {
     setReplay(rec);
   };
   const closeReplay = () => { setReplay(null); clearReplayVersion(); };
+  // 本机 Demo 目录（public/js/demoStore.js）：判断哪一行能「播放」，不读整份文档
+  const [demos, setDemos] = useState(() => listDemoIndex());
+  useEffect(() => {
+    // 目录是后加的：第一次打开本页时从 IndexedDB 补一次（旧 Demo 也能对上）
+    if (demos.length) return;
+    let live = true;
+    rebuildDemoIndex().then((rows) => { if (live) setDemos(rows); }, () => {});
+    return () => { live = false; };
+  }, []);
+  const playDemo = async (rec) => {
+    const id = demoIdFor(rec, demos);
+    if (!id) return;
+    const doc = await getLocalDemo(id).catch(() => null);
+    if (!doc) { toast(t('这局的 Demo 不在本机（Demo 只存在录制它的浏览器里）'), 'warn'); return; }
+    openDemo(doc);
+  };
   useEffect(() => clearReplayVersion, []);
   const reload = () => setStats(loadStats());
 
@@ -717,6 +739,7 @@ function StatsScreen({ tab }) {
         </div>
       </div>
       <div class="st-top__right">
+        <${Button} variant="ghost" size="sm" icon="play" data-testid="stats-demos" onClick=${() => openDemoLibrary()} title=${t('本机录制的 Demo：播放、下载、删除')}>${t('Demo 库')}<//>
         <${Button} variant="ghost" size="sm" data-testid="stats-export" disabled=${empty || stats.newer} onClick=${doExport} title=${t('导出为文件（可在别的设备上导入）')}>${t('导出')}<//>
         <${Button} variant="ghost" size="sm" data-testid="stats-import" disabled=${stats.newer} onClick=${() => fileRef.current?.click()} title=${t('从导出的文件导入（与现有记录合并）')}>${t('导入')}<//>
         <input ref=${fileRef} type="file" accept="application/json,.json" hidden onChange=${doFile} />
@@ -735,7 +758,7 @@ function StatsScreen({ tab }) {
             : !recs.length ? html`<p class="st-empty" data-testid="stats-version-empty">${t('这个版本还没有记录。')}</p>`
             : tab === 'bands' ? html`<${Bands} agg=${agg} gd=${gd} records=${achRecords} />`
               : tab === 'totals' ? html`<${CombatSums} agg=${agg} />`
-                : tab === 'history' ? html`<${History} records=${recs} gd=${gd} onOpen=${openRecord} />`
+                : tab === 'history' ? html`<${History} records=${recs} gd=${gd} onOpen=${openRecord} demos=${demos} onPlay=${playDemo} />`
                   : html`<${Overview} agg=${agg} gd=${gd} nickname=${nickname} records=${achRecords} />`}
     </main>
   </div>`;

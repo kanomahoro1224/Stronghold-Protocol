@@ -66,6 +66,58 @@ test('accounts: schema, e-mail codes, sessions', { skip: !CONN }, async () => {
   assert.match(sessionCookie('tok'), /HttpOnly/);
 });
 
+test('accounts: password login and the #tag that follows the account', { skip: !CONN }, async () => {
+  const mailer = { ready: false, dev: true, async sendCode() { return { sent: false, dev: true }; } };
+  const turnstile = createTurnstile({ secret: '', log: {} });
+  const auth = createAuth({ db, mailer, turnstile, pepper: 'test-pepper' });
+
+  const first = await auth.requestCode({ email: 'tag@x.co', turnstileToken: 't', mode: 'register' });
+  assert.equal(first.ok, true);
+
+  // 弱密码 / 非法识别号在验证码被消费之前就拒绝，玩家可以原地改
+  assert.equal((await auth.verify({ email: 'tag@x.co', code: first.devCode, password: '123' })).code, 'PASSWORD_WEAK');
+  assert.equal((await auth.verify({ email: 'tag@x.co', code: first.devCode, tag: '42' })).code, 'TAG_INVALID');
+
+  const created = await auth.verify({ email: 'tag@x.co', code: first.devCode, password: 'secret123', name: '博士 A', tag: '0042' });
+  assert.equal(created.ok, true);
+  assert.equal(created.account.tag, '0042');
+  assert.equal(created.account.name, '博士 A');
+  assert.equal(created.account.passwordHash, undefined); // 哈希不出现在 API 形状里
+
+  // 会话解析把代号 / 识别号一起带回来 → 标题页登录后自动填入
+  const resolved = await auth.resolve(created.token);
+  assert.equal(resolved.tag, '0042');
+  assert.equal(resolved.name, '博士 A');
+
+  // 密码登录：密码错、账号不存在都说 BAD_CREDENTIALS（不给人枚举邮箱）
+  assert.equal((await auth.loginWithPassword({ email: 'tag@x.co', password: 'nope-123' })).code, 'BAD_CREDENTIALS');
+  assert.equal((await auth.loginWithPassword({ email: 'ghost@x.co', password: 'secret123' })).code, 'BAD_CREDENTIALS');
+  const pwLogin = await auth.loginWithPassword({ email: 'TAG@x.co ', password: 'secret123' });
+  assert.equal(pwLogin.ok, true);
+  assert.equal(pwLogin.account.tag, '0042');
+
+  // 识别号全局唯一：撞号时验证码不被消费，换个号立刻能过（否则要等 60 秒再收一封信）
+  const second = await auth.requestCode({ email: 'tag2@x.co', turnstileToken: 't', mode: 'register' });
+  assert.equal((await auth.verify({ email: 'tag2@x.co', code: second.devCode, tag: '0042' })).code, 'TAG_TAKEN');
+  const retried = await auth.verify({ email: 'tag2@x.co', code: second.devCode, tag: '0043' });
+  assert.equal(retried.ok, true);
+  assert.equal(retried.account.tag, '0043');
+
+  // 跟着账号：只补空位，已有值不覆盖
+  const kept = await auth.setProfile({ account: created.account, tag: '0777', name: '改名' });
+  assert.equal(kept.account.tag, '0042');
+  assert.equal(kept.account.name, '博士 A');
+
+  // 老账号（注册时没填）登录后补：识别号同上唯一
+  const legacy = await auth.requestCode({ email: 'tag3@x.co', turnstileToken: 't', mode: 'register' });
+  const old = await auth.verify({ email: 'tag3@x.co', code: legacy.devCode });
+  assert.equal(old.account.tag, null);
+  assert.equal((await auth.setProfile({ account: old.account, tag: '0043' })).code, 'TAG_TAKEN');
+  const filled = await auth.setProfile({ account: old.account, tag: '0044', name: '博士 C' });
+  assert.equal(filled.account.tag, '0044');
+  assert.equal(filled.account.name, '博士 C');
+});
+
 test('accounts: cloud save, history, demo access', { skip: !CONN }, async () => {
   const account = (await db.query(`INSERT INTO accounts (email) VALUES ('save@x.co') RETURNING id`)).rows[0];
   const accountId = String(account.id);
@@ -197,6 +249,24 @@ test('accounts: REST surface (config, code, verify, cloud, rejection)', { skip: 
       body: JSON.stringify({ email: last.to, code: last.code }) });
     assert.equal(verified.status, 200);
     const cookie = (verified.headers.get('set-cookie') || '').split(';')[0];
+
+    // 博士代号 / #识别号：登录后补进账号（未登录 401，撞号 409）
+    const anonProfile = await fetch(`${base}/api/profile`, { method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tag: '0101' }) });
+    assert.equal(anonProfile.status, 401);
+    const tagged = await (await fetch(`${base}/api/profile`, { method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ name: '博士 R', tag: '0101' }) })).json();
+    assert.equal(tagged.ok, true);
+    assert.equal(tagged.account.tag, '0101');
+    assert.equal(tagged.account.name, '博士 R');
+    // 已经有识别号的账号不会被改写
+    const keptTag = await (await fetch(`${base}/api/profile`, { method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ tag: '0202' }) })).json();
+    assert.equal(keptTag.account.tag, '0101');
+    // 没设过密码的账号走密码登录：401 BAD_CREDENTIALS
+    const pw = await fetch(`${base}/api/auth/password`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'rest@x.co', password: 'whatever1' }) });
+    assert.equal(pw.status, 401);
 
     const up = await fetch(`${base}/api/cloud/demos`, { method: 'POST',
       headers: { 'content-type': 'application/json', cookie },

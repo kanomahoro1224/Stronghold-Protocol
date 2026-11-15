@@ -15,8 +15,18 @@ CREATE TABLE IF NOT EXISTS accounts (
   id           bigserial PRIMARY KEY,
   email        text NOT NULL UNIQUE,
   created_at   timestamptz NOT NULL DEFAULT now(),
-  last_login_at timestamptz
+  last_login_at timestamptz,
+  -- password login (2026-11-15): scrypt hash; NULL for an older e-mail-code-only account, which may set one later
+  password_hash text,
+  -- doctor callsign and the #xxxx tag that follows the account (tag is globally unique)
+  display_name text,
+  tag          text
 );
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS password_hash text;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS display_name text;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS tag text;
+-- the 4-digit tag is globally unique; an older account without one is NULL and outside the index
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_tag_unique ON accounts (tag) WHERE tag IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS email_codes (
   id          bigserial PRIMARY KEY,

@@ -237,7 +237,7 @@ export async function removeMedia(slot) {
     return;
   }
   revision[slot]++;
-  if (slot === 'backdrop') showBackdrop(null); else keepMusic(null);
+  keepMusic(null);
   savePrefs({ [slot]: false });
 }
 
@@ -267,7 +267,7 @@ function MusicRow({ file, on, busy }) {
       <${Button} size="sm" icon="plus" loading=${busy === 'music'} onClick=${() => input.current?.click()}>${t('选择音乐文件')}<//>
       ${file ? html`<button type="button" class=${`set-toggle${on ? ' is-on' : ''}`} role="switch" aria-checked=${on ? 'true' : 'false'}
           data-testid="media-music-on" onClick=${() => setMusicOn(!on)}><i></i><span>${on ? tc('toggle', '开启') : tc('toggle', '关闭')}</span></button>` : null}
-      ${file ? html`<${Button} size="sm" variant="ghost" icon="close" data-testid="media-music-remove" onClick=${() => removeMusic()}>${t('删除')}<//>` : null}
+      ${file ? html`<${Button} size="sm" variant="ghost" icon="close" data-testid="media-music-remove" onClick=${() => removeMedia('music')}>${t('删除')}<//>` : null}
     </div>
   </section>`;
 }

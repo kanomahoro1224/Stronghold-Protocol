@@ -46,6 +46,22 @@ export function currentAccount() {
   return { id: `local-${p.tag}`, name, tag: p.tag, avatar: typeof p.avatar === 'string' ? p.avatar : null, card: null, local: true };
 }
 export function onAccountChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+
+/**
+ * 换本机的 #识别号（标题页「博士代号 #____」那个框，用户 2026-11-15：输入 1224 就得变成 #1224）。
+ * 4 位数字才收；本机账号的编号只影响这台设备的显示与 P2P 名片，登录后云端账号的编号仍由服务器保证唯一。
+ * @param {string} tag
+ * @returns {boolean} 存下了没有
+ */
+export function setLocalAccountTag(tag) {
+  const value = String(tag || '').trim();
+  if (!/^\d{4}$/.test(value)) return false;
+  profile = { ...load(), tag: value };
+  write(profile);
+  emit();
+  return true;
+}
+
 export async function refreshAccount() { return currentAccount(); }
 export async function logoutAccount() { /* a local account cannot log out */ }
 /** A fetch timeout signal (some modules import it from here). */

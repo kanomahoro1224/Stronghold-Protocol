@@ -7,6 +7,7 @@
 //     echoed in the API response so a local demo can be driven without a mail server. Never echoed otherwise.
 
 import { createTransport } from 'nodemailer';
+import { N_ } from '../../shared/i18n.js';
 
 /**
  * @param {{ host?: string, port?: number, user?: string, pass?: string, from?: string, dev?: boolean,
@@ -42,11 +43,11 @@ export function createMailer(opts = {}) {
      * @param {{ to: string, code: string, minutes: number, purpose?: string }} msg
      */
     async sendCode({ to, code, minutes, purpose = 'login' }) {
-      const subject = purpose === 'register' ? '注册验证码 · Stronghold Protocol' : '登录验证码 · Stronghold Protocol';
+      const subject = purpose === 'register' ? N_('注册验证码 · Stronghold Protocol') : N_('登录验证码 · Stronghold Protocol');
       const text = [
-        `你的验证码是 ${code}，${minutes} 分钟内有效。`,
-        purpose === 'register' ? '用于注册 / 登录 Stronghold Protocol 账号。' : '用于登录 Stronghold Protocol 账号。',
-        '如果不是你本人操作，请忽略这封邮件。',
+        N_('你的验证码是 {code}，{minutes} 分钟内有效。').replace('{code}', code).replace('{minutes}', minutes),
+        purpose === 'register' ? N_('用于注册 / 登录 Stronghold Protocol 账号。') : N_('用于登录 Stronghold Protocol 账号。'),
+        N_('如果不是你本人操作，请忽略这封邮件。'),
         '',
         `Your verification code is ${code}. It expires in ${minutes} minutes.`,
         'If you did not request it, ignore this message.',

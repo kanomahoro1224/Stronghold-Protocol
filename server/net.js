@@ -596,6 +596,10 @@ class Connection {
     this.alive = true;
     /** @type {Session | null} */
     this.session = null;
+    /** The signed-in account this socket proved at hello (SP_REQUIRE_ACCOUNT, server/index.js accountGate). */
+    this.account = null;
+    /** Raw Cookie header of the upgrade request; only kept while an account gate is configured. */
+    this.cookie = '';
     this.helloReview = 0;
     this.reviewPending = false;
     this.bucket = new TokenBucket(opts.ratePerSec, opts.rateBurst, now);
@@ -629,8 +633,10 @@ export class Network {
    *   options?: Partial<typeof NET_DEFAULTS>,
    * }} opts
    */
-  constructor({ registry, handler, log = noopLog, now = Date.now, options = {}, nameModeration = null }) {
+  constructor({ registry, handler, log = noopLog, now = Date.now, options = {}, nameModeration = null, accountGate = null }) {
     this.nameModeration = nameModeration;
+    /** @type {null | ((cookieHeader: string) => Promise<object|null>)} SP_REQUIRE_ACCOUNT: resolve the WS cookie to an account. */
+    this.accountGate = accountGate;
     this.registry = registry;
     this.handler = handler;
     this.log = log;
@@ -805,6 +811,9 @@ export class Network {
   handleConnection(ws, req) {
     if (this.closed) { try { ws.close(CLOSE.SHUTDOWN, 'server shutdown'); } catch { /* ignore */ } return; }
     const conn = new Connection(ws, clientAddress(req, this.opts.trustProxy), this.now(), this.opts);
+    // SP_REQUIRE_ACCOUNT (server/index.js): the HttpOnly session cookie rides on the upgrade request, so the hello can
+    // be checked without trusting anything the page says about itself. Not kept otherwise.
+    if (this.accountGate) conn.cookie = req?.headers?.cookie || '';
     this.conns.set(ws, conn);
     socketDiagnostics.set(ws, this.diagnostics);
     if (conn.key) this.connsPerKey.set(conn.key, (this.connsPerKey.get(conn.key) || 0) + 1);
@@ -929,6 +938,40 @@ export class Network {
     }
     const name = sanitizeName(msg.name);
     if (!name) { this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'bad field name')); return; }
+    // A socket that already proved an account keeps it: renames, the AI-handover replay and the aiTakeover hello skip
+    // the lookup (and a session that expires mid-game does not drop the player).
+    if (this.accountGate && !conn.account) { this.gateHello(conn, msg, name, now); return; }
+    this.bindHello(conn, msg, name, now);
+  }
+
+  /**
+   * SP_REQUIRE_ACCOUNT (server/index.js): the first hello on a socket must come from a signed-in account. Runs before
+   * the capacity check so an anonymous player is told to sign in instead of being told the server is full. The gate
+   * resolves the upgrade request's HttpOnly cookie; a resolver error passes (the account service is degraded, not the
+   * player's fault) while a resolved `null` refuses.
+   */
+  gateHello(conn, msg, name, now) {
+    const generation = ++conn.helloReview;
+    conn.reviewPending = true;
+    Promise.resolve()
+      .then(() => this.accountGate(conn.cookie || ''))
+      .then((account) => {
+        if (generation !== conn.helloReview || conn.closing || this.closed || this.draining || conn.ws.readyState !== WS_OPEN) return;
+        conn.reviewPending = false;
+        if (!account) { this.reply(conn, errorMsg(ERR.LOGIN_REQUIRED, msg.rid)); return; }
+        conn.account = account.degraded ? null : account;
+        this.bindHello(conn, msg, name, this.now());
+      })
+      .catch(() => {
+        if (generation !== conn.helloReview || conn.closing || this.closed || this.draining) return;
+        conn.reviewPending = false;
+        this.reply(conn, errorMsg(ERR.INTERNAL, msg.rid));
+      });
+  }
+
+  /** Capacity, then name review, then the session itself — the tail every hello shares. */
+  bindHello(conn, msg, name, now) {
+    const rid = msg.rid;
     if (this.rejectAtCapacity(conn, msg, now)) return;
     if (this.nameModeration) {
       const generation = ++conn.helloReview;

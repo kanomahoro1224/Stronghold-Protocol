@@ -16,6 +16,11 @@ import { render } from '../../vendor/preact.module.js';
 import { store, loadPref, savePref } from '../store.js';
 import { listDemos, deleteDemo, putDemo } from '../demoStore.js';
 import { t } from '../../../shared/i18n.js';
+import { toast } from './toasts.js';
+
+// 与 server/accounts/auth.js 的 PASSWORD_MIN / PASSWORD_MAX 一致：前端只做按钮可用性判断，真正的校验在服务端
+const PW_MIN = 6;
+const PW_MAX = 64;
 
 let configPromise = null;
 /** GET /api/config once; null when the endpoint is missing (not a Stronghold server) or the fetch fails. */
@@ -36,6 +41,9 @@ async function api(path, { method = 'GET', body = null } = {}) {
   });
   let data = null;
   try { data = await res.json(); } catch { /* empty */ }
+  // 两套错误键：账号接口（server/accounts/auth.js）回 `code`，其它接口回 `error`。统一成 `error`，
+  // 调用方只判一个字段就不会漏掉「验证码不对 / 识别号被占用」这类具体原因。
+  if (data && data.ok === false && data.error == null && data.code != null) data.error = data.code;
   return { status: res.status, ok: res.ok && !!data?.ok, data: data || {} };
 }
 
@@ -50,6 +58,14 @@ export async function linkCurrentPlayer() {
   const m = store.get().me;
   if (!m?.playerId || !m?.token) return { ok: false, error: 'NO_PLAYER' };
   return api('/api/link', { method: 'POST', body: { playerId: m.playerId, playerToken: m.token } });
+}
+
+/**
+ * 保存博士代号 / #识别号到当前账号（标题页的输入框在登录后调用）。
+ * 服务端只填空白位：识别号一旦跟着账号定下就不再改（409 TAG_TAKEN 表示这个号被占了）。
+ */
+export async function saveProfile(patch) {
+  return api('/api/profile', { method: 'PUT', body: patch });
 }
 
 // ---- Turnstile widget ------------------------------------------------------------------------------------------------
@@ -92,14 +108,40 @@ async function downloadDemo(id) {
 }
 
 // ---- login / account modal -------------------------------------------------------------------------------------------
-function LoginPanel({ onDone, onClose }) {
+/**
+ * 登录 / 退出后换一条新握手。`sp_sid` 是 HttpOnly cookie，只在 WS 升级请求里送给服务端
+ * （server/net.js 的 gateHello 用它判断有没有登录）；页面加载时开的 socket 早于登录，握手请求里没有它，
+ * 不重连就会一直收到 LOGIN_REQUIRED。已经在局内（session.entered）时不重连，避免打断对局。
+ */
+async function reconnectSocket() {
+  if (store.get().session?.entered) return;
+  try {
+    const { net } = await import('../net.js');
+    net.reconnectNow();
+  } catch { /* a page without the game shell (tests) */ }
+}
+
+/**
+ * 邮箱验证码 / 密码登录表单（注册与登录同一个入口）。弹窗（LoginPanel）和标题页右侧的账号面板共用。
+ * `mode` 只在标题页的两个按钮里给：'login' / 'register' 让服务端拒绝「没注册过的邮箱」/「已注册的邮箱」，
+ * 并决定是否显示密码输入：
+ *   - register：验证码 + 可选密码（设了以后能直接密码登录）
+ *   - login：邮箱 + 密码直接登录，也可以改用验证码
+ * 不传 mode 时（弹窗）保持旧语义——验证码即注册即登录，没有密码。
+ * @param {{ onDone?: (account: any, linked?: boolean) => void, mode?: '' | 'login' | 'register',
+ *           profile?: () => { name?: string, tag?: string } | null }} props
+ *   `profile` 在登录成功时调用一次，把标题页输入框里的博士代号 / #识别号补到账号上（只补空位）。
+ */
+export function LoginForm({ onDone, mode = '', profile = null }) {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
   const [step, setStep] = useState('email'); // email → code
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const [token, setToken] = useState('');
   const [dev, setDev] = useState(false);
+  const [testKeys, setTestKeys] = useState(false);
   const [widgetFailed, setWidgetFailed] = useState(false);
   const box = useState(() => {
     const el = document.createElement('div');
@@ -113,7 +155,11 @@ function LoginPanel({ onDone, onClose }) {
     (async () => {
       const cfg = await cloudConfig();
       setDev(!!cfg?.dev);
+      setTestKeys(cfg?.turnstileConfigured === false);
       if (!cfg?.accounts) { setNote(t('账号服务未启用（服务器没有配置数据库）')); return; }
+      // 服务器没配真实 secret 时用的是 Cloudflare 官方测试密钥（任意 token 都通过）：不渲染挂件，
+      // 否则本机 demo 会挂出一块与游戏界面无关的白色验证框。
+      if (cfg?.turnstileConfigured === false) return;
       if (!box) return;
       const ts = await loadTurnstile();
       if (cancelled) return;
@@ -127,59 +173,129 @@ function LoginPanel({ onDone, onClose }) {
     return () => { cancelled = true; if (widget != null) globalThis.turnstile?.remove?.(widget); };
   }, []);
 
+  // 标题页把表单直接内嵌在 .title-auth 里（不经过 mount()），所以这里自己保证样式已注入
+  useEffect(ensureStyle, []);
+
+  // 切换「登录 / 注册」时回到第一步：上一个流程的验证码不该被带过去
+  useEffect(() => {
+    setStep('email'); setCode(''); setNote('');
+    setPassword(mode === 'login' ? '' : password);
+  }, [mode]);
+
+  /** 登录成功后的共同收尾：补账号资料 → 绑定本局玩家 → 换新握手 → 上传本机存档。 */
+  const finish = async (accountIn) => {
+    let account = accountIn;
+    // 老账号（注册时没填代号 / 识别号）在这里补上；服务端只填空位，已有值不会被覆盖
+    const extra = (typeof profile === 'function' ? profile() : null) || {};
+    const patch = {};
+    if (extra.name && !account?.name) patch.name = extra.name;
+    if (extra.tag && !account?.tag) patch.tag = extra.tag;
+    if (Object.keys(patch).length) {
+      const p = await api('/api/profile', { method: 'PUT', body: patch });
+      if (p.ok) account = p.data.account;
+      else if (p.data?.error === 'TAG_TAKEN') toast(t('识别号 {tag} 已被占用，未保存', { tag: patch.tag }), 'warn');
+    }
+    const link = await linkCurrentPlayer();
+    // 登录后换一条新握手，升级请求才带得上刚下发的 sp_sid（服务端 gateHello 读它）
+    reconnectSocket();
+    // 登录后先把这台设备上的编队/设置传上去，换设备时才有东西可恢复
+    uploadCurrentSave().catch(() => {});
+    onDone?.(account, link.ok);
+  };
+
+  const noteForError = (error) => (error === 'RATE_LIMITED' ? t('操作太频繁，请稍后再试')
+    : error === 'TURNSTILE_FAILED' ? t('人机验证未通过，请重试')
+      : error === 'ACCOUNT_EXISTS' ? t('该邮箱已经注册过了，请直接登录')
+        : error === 'ACCOUNT_NOT_FOUND' ? t('该邮箱还没有注册，请先注册')
+          : error === 'EMAIL_INVALID' ? t('邮箱格式不正确')
+            : error === 'PASSWORD_WEAK' ? t('密码至少 {n} 位', { n: PW_MIN })
+              : error === 'TAG_TAKEN' ? t('这个识别号已经被占用，换一个')
+                : error === 'TAG_INVALID' ? t('识别号是 4 位数字')
+                  : error === 'BAD_CREDENTIALS' ? t('邮箱或密码不对')
+                    : error === 'CODE_WRONG' ? t('验证码不正确')
+                      : error === 'CODE_EXPIRED' ? t('验证码已过期，请重新获取')
+                        : error === 'CODE_LOCKED' ? t('尝试次数过多，请重新获取验证码')
+                          : t('操作失败，请稍后再试'));
+
   const send = async () => {
     setBusy(true); setNote('');
-    const r = await api('/api/auth/code', { method: 'POST', body: { email, turnstileToken: token || (widgetFailed && dev ? 'dev' : '') } });
+    const r = await api('/api/auth/code', { method: 'POST', body: { email, turnstileToken: token || (testKeys ? 'test' : widgetFailed && dev ? 'dev' : ''), ...(mode ? { mode } : {}) } });
     setBusy(false);
-    if (!r.ok) {
-      setNote(r.data.error === 'RATE_LIMITED' ? t('发送太频繁，请稍后再试')
-        : r.data.error === 'TURNSTILE_FAILED' ? t('人机验证未通过，请重试')
-          : r.data.error === 'EMAIL_INVALID' ? t('邮箱格式不正确') : t('发送失败，请稍后再试'));
-      return;
-    }
+    if (!r.ok) { setNote(noteForError(r.data.error)); return; }
     setStep('code');
     setNote(r.data.devCode ? t('开发模式验证码：{code}', { code: r.data.devCode })
       : r.data.sent ? t('验证码已发送，请查收邮件') : t('邮件未配置，验证码已写入服务器日志'));
   };
 
-  const verify = async () => {
+  /** 邮箱 + 密码直接登录（注册时设过密码的账号）。 */
+  const loginWithPassword = async () => {
     setBusy(true); setNote('');
-    const r = await api('/api/auth/verify', { method: 'POST', body: { email, code } });
+    const r = await api('/api/auth/password', { method: 'POST', body: { email, password } });
     setBusy(false);
-    if (!r.ok) {
-      setNote(r.data.error === 'CODE_WRONG' ? t('验证码不正确')
-        : r.data.error === 'CODE_EXPIRED' ? t('验证码已过期，请重新获取')
-          : r.data.error === 'CODE_LOCKED' ? t('尝试次数过多，请重新获取验证码') : t('登录失败，请重试'));
-      return;
-    }
-    const link = await linkCurrentPlayer();
-    // 登录后先把这台设备上的编队/设置传上去，换设备时才有东西可恢复
-    uploadCurrentSave().catch(() => {});
-    onDone?.(r.data.account, link.ok);
+    if (!r.ok) { setNote(noteForError(r.data.error)); return; }
+    await finish(r.data.account);
   };
 
-  return html`<${Modal} open=${true} title=${t('云端账号')} micro="ACCOUNT · 邮箱验证码" onClose=${onClose}>
-    <div class="cloud">
+  const verify = async () => {
+    setBusy(true); setNote('');
+    const body = { email, code };
+    if (mode === 'register') {
+      if (password) body.password = password;
+      const extra = (typeof profile === 'function' ? profile() : null) || {};
+      if (extra.name) body.name = extra.name;
+      if (extra.tag) body.tag = extra.tag;
+    }
+    const r = await api('/api/auth/verify', { method: 'POST', body });
+    setBusy(false);
+    if (!r.ok) { setNote(noteForError(r.data.error)); return; }
+    await finish(r.data.account);
+  };
+
+  const pwTooShort = password.length > 0 && password.length < PW_MIN;
+  const registerReady = code.length === 6 && !pwTooShort;
+
+  return html`<div class="cloud">
       ${step === 'email' ? html`
-        <p class="cloud__note">${t('输入邮箱获取一次性验证码，注册与登录是同一个入口。')}</p>
+        <p class="cloud__note">${mode === 'register' ? t('输入邮箱获取一次性验证码，验证后即完成注册。')
+          : mode === 'login' ? t('用邮箱和密码登录；忘记密码可以改用验证码。')
+            : t('输入邮箱获取一次性验证码，注册与登录是同一个入口。')}</p>
         <label class="cloud__label">${t('邮箱')}</label>
         <input class="cloud__input" type="email" inputmode="email" value=${email} placeholder="you@example.com"
           onInput=${(e) => setEmail(e.currentTarget.value)} />
+        ${mode ? html`<label class="cloud__label">${t('密码')}${mode === 'login' ? html`<span class="cloud__opt">${t('（没有密码可留空）')}</span>` : html`<span class="cloud__opt">${t('（可选）')}</span>`}</label>
+        <input class="cloud__input" type="password" value=${password} maxlength=${PW_MAX}
+          autocomplete=${mode === 'login' ? 'current-password' : 'new-password'}
+          placeholder=${mode === 'register' ? t('至少 {n} 位', { n: PW_MIN }) : '••••••'}
+          onInput=${(e) => setPassword(e.currentTarget.value)} />` : null}
         <div ref=${(el) => { if (el && box.parentNode !== el) el.append(box); }}></div>
         ${widgetFailed ? html`<p class="cloud__warn">${dev ? t('人机验证组件未加载；开发模式将跳过验证') : t('人机验证组件未加载，请检查网络')}</p>` : null}
-        <${Button} variant="primary" loading=${busy} disabled=${!email} onClick=${send}>${t('获取验证码')}<//>
+        ${mode === 'login' ? html`<div class="cloud__row">
+            <${Button} variant="primary" loading=${busy} disabled=${!email || password.length < PW_MIN} onClick=${loginWithPassword}>${t('登录')}<//>
+            <${Button} variant="ghost" loading=${busy} disabled=${!email} onClick=${send}>${t('用验证码登录')}<//>
+          </div>` : html`<${Button} variant="primary" loading=${busy} disabled=${!email} onClick=${send}>${t('获取验证码')}<//>`}
       ` : html`
         <p class="cloud__note">${t('验证码已发往 {email}，10 分钟内有效。', { email })}</p>
         <label class="cloud__label">${t('验证码')}</label>
         <input class="cloud__input cloud__input--code" inputmode="numeric" maxlength="6" value=${code}
           onInput=${(e) => setCode(e.currentTarget.value.replace(/\D/g, ''))} />
+        ${mode === 'register' ? html`<label class="cloud__label">${t('密码')}<span class="cloud__opt">${t('（可选）')}</span></label>
+        <input class="cloud__input" type="password" value=${password} maxlength=${PW_MAX} autocomplete="new-password"
+          placeholder=${t('至少 {n} 位', { n: PW_MIN })}
+          onInput=${(e) => setPassword(e.currentTarget.value)} />` : null}
+        ${pwTooShort ? html`<p class="cloud__warn">${t('密码至少 {n} 位', { n: PW_MIN })}</p>` : null}
         <div class="cloud__row">
-          <${Button} variant="primary" loading=${busy} disabled=${code.length !== 6} onClick=${verify}>${t('登录')}<//>
+          <${Button} variant="primary" loading=${busy} disabled=${mode === 'register' ? !registerReady : code.length !== 6} onClick=${verify}>${mode === 'register' ? t('注册') : t('登录')}<//>
           <${Button} variant="ghost" onClick=${() => { setStep('email'); setCode(''); }}>${t('更换邮箱')}<//>
         </div>
       `}
       ${note ? html`<p class="cloud__note">${note}</p>` : null}
-    </div>
+    </div>`;
+}
+
+/** 弹窗形态的登录（云账号入口 / 设置里打开）；内嵌到标题页时直接用 LoginForm。 */
+function LoginPanel({ onDone, onClose }) {
+  return html`<${Modal} open=${true} title=${t('云端账号')} micro=${t('账号 · 邮箱验证码')} onClose=${onClose}>
+    <${LoginForm} onDone=${onDone} />
   <//>`;
 }
 
@@ -207,6 +323,7 @@ function AccountPanel({ account, onClose, onRefresh }) {
   };
   const logout = async () => {
     await api('/api/auth/logout', { method: 'POST' });
+    reconnectSocket(); // 退出后同样要换握手：旧 socket 仍带着已注销的会话
     onRefresh?.(null);
   };
 
@@ -241,13 +358,13 @@ function HistoryPanel({ onClose }) {
   const remove = async (id) => { await deleteDemo(id); setLocal((rows) => (rows || []).filter((d) => d.id !== id)); };
   return html`<${Modal} open=${true} title=${t('历史战绩 / Demo')} micro="LOCAL DEMOS" onClose=${onClose}>
     <div class="cloud">
-      <p class="cloud__note">${t('Demo 只保存在这台设备的浏览器里（IndexedDB），播放也在本机完成，不上传、不占服务器。')}</p>
+      <p class="cloud__note">${t('Demo 存在这台设备的浏览器里（IndexedDB），播放也在本机完成；登录后最新 10 局会备份到账号，换设备能下载播放。')}</p>
       <h4 class="cloud__h">${t('本机 Demo')}</h4>
       ${local == null ? html`<p class="cloud__note">${t('读取中…')}</p>`
-        : local.length === 0 ? html`<p class="cloud__note">${t('还没有本机 Demo：完成一局后会自动记录你的每一步操作与棋盘帧。')}</p>`
+        : local.length === 0 ? html`<p class="cloud__note">${t('还没有本机 Demo：对局会自动记录每一步操作与棋盘帧，第一个回合都没清完就退出的除外。')}</p>`
           : html`<ul class="cloud__list">${local.map((d) => html`<li key=${d.id}>
               <span class="cloud__when">${dateOf(d.startedAt)}</span>
-              <span>${d.mode || ''} · ${d.difficulty || ''} · ${(d.events || []).length} 步</span>
+              <span>${t('{mode} · {diff} · {n} 步', { mode: d.mode || '', diff: d.difficulty || '', n: (d.events || []).length })}</span>
               <${Button} size="sm" variant="primary" onClick=${() => setOpen(d)}>${t('播放')}<//>
               <${Button} size="sm" variant="ghost" onClick=${() => remove(d.id)}>${t('删除')}<//>
             </li>`)}</ul>`}
@@ -257,7 +374,7 @@ function HistoryPanel({ onClose }) {
         : cloudDemos.length === 0 ? html`<p class="cloud__note">${t('云端还没有 Demo。')}</p>`
           : html`<ul class="cloud__list">${cloudDemos.map((d) => html`<li key=${d.id}>
               <span class="cloud__when">${dateOf(d.startedAt)}</span>
-              <span>${d.mode || ''} · ${d.difficulty || ''} · ${d.events} 步</span>
+              <span>${t('{mode} · {diff} · {n} 步', { mode: d.mode || '', diff: d.difficulty || '', n: d.events })}</span>
               <${Button} size="sm" variant="ghost" onClick=${async () => { const doc = await downloadDemo(d.id); if (doc) setOpen(doc); }}>${t('下载并播放')}<//>
             </li>`)}</ul>`}
       <h4 class="cloud__h">${t('云端战绩（账号）')}</h4>
@@ -290,7 +407,7 @@ function DemoPlayer({ doc, onClose }) {
     for (const f of snaps) { if ((f.at || 0) <= at) cur = f; else break; }
     return cur || snaps[0] || null;
   })();
-  return html`<${Modal} open=${true} title=${t('Demo 回放')} micro=${doc ? `${events.length} 动作 · ${snaps.length} 帧` : 'DEMO'} onClose=${onClose}>
+  return html`<${Modal} open=${true} title=${t('Demo 回放')} micro=${doc ? t('{n} 动作 · {n2} 帧', { n: events.length, n2: snaps.length }) : 'DEMO'} onClose=${onClose}>
     <div class="cloud">
       ${events.length === 0 ? html`<p class="cloud__note">${t('这一局没有记录到动作。')}</p>` : html`
         <div class="cloud__row">
@@ -301,9 +418,9 @@ function DemoPlayer({ doc, onClose }) {
         </div>
         <p class="cloud__note">${t('第 {i} / {n} 步 · {sec}s', { i: idx + 1, n: events.length, sec: ((ev?.at || 0) / 1000).toFixed(1) })}</p>
         ${snap ? html`<div class="cloud__board">
-          <div class="cloud__board-head">${t('第 {round} 回合 · 阶段 {phase}', { round: snap.round ?? '-', phase: snap.phase ?? '-' })}${snap.teamLp != null ? ` · 队伍 LP ${snap.teamLp}` : ''}</div>
+          <div class="cloud__board-head">${t('第 {round} 回合 · 阶段 {phase}', { round: snap.round ?? '-', phase: snap.phase ?? '-' })}${snap.teamLp != null ? t(' · 队伍 LP {lp}', { lp: snap.teamLp }) : ''}</div>
           <div class="cloud__seats">${(snap.players || []).map((p) => html`<div key=${p.seat} class="cloud__seat ${p.alive ? '' : 'cloud__seat--dead'}">
-            <b>${p.name}</b><span>LP ${p.lp}</span><span>商店 ${p.shopLevel}</span><span>场上 ${p.boardCount}</span><span>${p.status}</span>
+            <b>${p.name}</b><span>LP ${p.lp}</span><span>${t('商店 {lvl}', { lvl: p.shopLevel })}</span><span>${t('场上 {n}', { n: p.boardCount })}</span><span>${p.status}</span>
           </div>`)}</div>
         </div>` : html`<p class="cloud__note">${t('这一局没有录制到棋盘帧，仅能看操作时间轴。')}</p>`}
         <pre class="cloud__event">${ev ? `${ev.a?.t || ''}\n${JSON.stringify(ev.a, null, 2)}` : ''}</pre>
@@ -319,7 +436,8 @@ function ensureStyle() {
   st.id = 'cloud-acct-style';
   st.textContent = `
 .cloud{display:flex;flex-direction:column;gap:.16rem;min-width:min(9rem,86vw)}
-.cloud__label{font-size:.18rem;font-weight:800;opacity:.8}
+.cloud__label{display:flex;align-items:baseline;gap:.06rem;font-size:.18rem;font-weight:800;opacity:.8}
+.cloud__opt{font-weight:600;font-size:.14rem;opacity:.6}
 .cloud__input{font:inherit;font-size:.22rem;padding:.1rem .14rem;border-radius:.1rem;border:1px solid rgba(127,127,127,.45);background:rgba(0,0,0,.18);color:inherit}
 .cloud__input--code{letter-spacing:.12em;font-variant-numeric:tabular-nums}
 .cloud__row{display:flex;flex-wrap:wrap;gap:.1rem}
@@ -350,13 +468,16 @@ function mount() {
   return { host, close };
 }
 
-/** 打开登录框；成功后 `onDone(account)`。 */
-export async function openLogin(onDone) {
+/**
+ * 打开登录框；成功后 `onDone(account, linked)`。
+ * `panel: false` 用于「登录后直接进入游戏」这类流程——不再自动弹出账号面板。
+ */
+export async function openLogin(onDone, { panel = true } = {}) {
   const { host: h, close } = mount();
   render(html`<${LoginPanel} onClose=${() => { close(); }} onDone=${(account, linked) => {
     close();
     onDone?.(account, linked);
-    if (account) openAccountPanel(account);
+    if (account && panel) openAccountPanel(account);
   }} />`, h);
 }
 
@@ -374,6 +495,23 @@ export function openAccountPanel(account) {
 export async function openCloudAccount() {
   const account = await me();
   if (account) openAccountPanel(account); else openLogin();
+}
+
+/**
+ * 播放一局 Demo（统计数据页的对局记录里点「播放」时用）：文档来自本机 IndexedDB 或云端下载。
+ * 不经过账号 / 登录，纯本机回放。
+ * @param {any} doc public/js/demoRecorder.js 的文档
+ */
+export async function openDemo(doc) {
+  if (!doc) return;
+  const { host: h, close } = mount();
+  render(html`<${DemoPlayer} doc=${doc} onClose=${() => close()} />`, h);
+}
+
+/** Demo 库（本机 + 云端 + 云端战绩）：账号面板里同一块内容，单独打开。 */
+export function openDemoLibrary() {
+  const { host: h, close } = mount();
+  render(html`<${HistoryPanel} onClose=${() => close()} />`, h);
 }
 
 /** 服务器是否提供账号功能（标题页据此决定是否显示入口）。 */

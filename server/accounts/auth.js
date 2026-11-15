@@ -9,12 +9,42 @@
 // random value (codes then survive a restart only within the same process — acceptable: they expire in 10 min).
 // Attempts are capped per code (5) and codes are single-use.
 
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual, scrypt as scryptCallback } from 'node:crypto';
+import { promisify } from 'node:util';
+
+const scrypt = promisify(scryptCallback);
 
 export const CODE_TTL_MIN_MS = 10 * 60 * 1000;
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const COOKIE_NAME = 'sp_sid';
 const MAX_ATTEMPTS = 5;
+
+/** 密码登录（2026-11-15 用户要求）：scrypt(N=16384, r=8, p=1) + 每条独立盐，存成 `scrypt$N$r$p$salt$hash`。 */
+const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32, maxmem: 64 * 1024 * 1024 };
+export const PASSWORD_MIN = 6;
+export const PASSWORD_MAX = 64;
+
+export async function hashPassword(password) {
+  const salt = randomBytes(16);
+  const key = await scrypt(password, salt, SCRYPT.keylen, { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p, maxmem: SCRYPT.maxmem });
+  return `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString('base64')}$${Buffer.from(key).toString('base64')}`;
+}
+
+/** @param {string} password @param {string | null | undefined} stored */
+export async function checkPassword(password, stored) {
+  const parts = String(stored || '').split('$');
+  if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
+  const [, N, r, p, saltB64, keyB64] = parts;
+  const want = Buffer.from(keyB64, 'base64');
+  if (!want.length) return false;
+  const got = Buffer.from(await scrypt(String(password), Buffer.from(saltB64, 'base64'), want.length,
+    { N: Number(N), r: Number(r), p: Number(p), maxmem: SCRYPT.maxmem }));
+  return got.length === want.length && timingSafeEqual(got, want);
+}
+
+/** 4 位数字识别号（#0427）：跟着账号、全局唯一。 */
+export const isTag = (value) => typeof value === 'string' && /^\d{4}$/.test(value);
+export const isPassword = (value) => typeof value === 'string' && value.length >= PASSWORD_MIN && value.length <= PASSWORD_MAX;
 
 /** Reasonable, deliberately loose address check — the mail itself is the proof. */
 export function isEmail(value) {
@@ -52,7 +82,7 @@ export function createAuth({ db, mailer, turnstile, pepper = '', log = {} }) {
 
   /** @type {Map<string, number[]>} timestamps (ms) of recent sends, keyed by email and by ip */
   const sends = new Map();
-  const RATE = { emailGapMs: 60_000, emailHourMax: 5, ipHourMax: 20 };
+  const RATE = { emailGapMs: 60_000, emailHourMax: 5, ipHourMax: 20, passwordHourMax: 10, passwordIpHourMax: 60 };
 
   function rateLimited(key, gapMs, hourMax) {
     const now = Date.now();
@@ -73,11 +103,20 @@ export function createAuth({ db, mailer, turnstile, pepper = '', log = {} }) {
      * Issue a code.
      * @param {{ email: string, turnstileToken?: string, ip?: string }} input
      */
-    async requestCode({ email, turnstileToken, ip } = {}) {
+    async requestCode({ email, turnstileToken, ip, mode } = {}) {
       const normalized = normalizeEmail(email);
       if (!isEmail(normalized)) return { ok: false, status: 400, code: 'EMAIL_INVALID' };
       const ts = await turnstile.verify({ token: turnstileToken, remoteIp: ip });
       if (!ts.ok) return { ok: false, status: 403, code: 'TURNSTILE_FAILED', detail: ts.codes || [] };
+      // 标题页右侧的「登录」「注册」两个入口（用户 2026-11-15）：注册拒绝已存在的邮箱，登录拒绝没注册过的
+      // 邮箱。不带 mode（弹窗入口、旧客户端）保持原样——验证码即注册即登录。放在人机验证之后，避免免验证枚举。
+      if (mode === 'register' || mode === 'login') {
+        const exists = await settle(() => db.query('SELECT 1 FROM accounts WHERE email = $1 LIMIT 1', [normalized]));
+        if (!exists.ok) return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
+        const found = !!exists.value.rows[0];
+        if (mode === 'register' && found) return { ok: false, status: 409, code: 'ACCOUNT_EXISTS' };
+        if (mode === 'login' && !found) return { ok: false, status: 404, code: 'ACCOUNT_NOT_FOUND' };
+      }
       if (rateLimited(`e:${normalized}`, RATE.emailGapMs, RATE.emailHourMax)
         || (ip && rateLimited(`i:${ip}`, 0, RATE.ipHourMax))) {
         return { ok: false, status: 429, code: 'RATE_LIMITED' };
@@ -101,13 +140,17 @@ export function createAuth({ db, mailer, turnstile, pepper = '', log = {} }) {
     },
 
     /**
-     * Verify a code and open a session.
-     * @param {{ email: string, code: string, ip?: string, ua?: string }} input
+     * Verify a code and open a session. Registration is the same call: an optional password / 博士代号 / #tag is
+     * stored on a new account and fills the gaps of an older one (never overwrites an existing value).
+     * @param {{ email: string, code: string, ip?: string, ua?: string,
+     *           password?: string, name?: string, tag?: string }} input
      */
-    async verify({ email, code, ip, ua } = {}) {
+    async verify({ email, code, ip, ua, password, name, tag } = {}) {
       const normalized = normalizeEmail(email);
       const value = String(code || '').trim();
       if (!isEmail(normalized) || !/^\d{6}$/.test(value)) return { ok: false, status: 400, code: 'CODE_INVALID' };
+      if (password != null && password !== '' && !isPassword(password)) return { ok: false, status: 400, code: 'PASSWORD_WEAK' };
+      if (tag != null && tag !== '' && !isTag(tag)) return { ok: false, status: 400, code: 'TAG_INVALID' };
       const res = await settle(() => db.query(
         `SELECT id, code_hash, attempts, consumed_at FROM email_codes
           WHERE email = $1 AND expires_at > now()
@@ -124,14 +167,32 @@ export function createAuth({ db, mailer, turnstile, pepper = '', log = {} }) {
         await db.query(`UPDATE email_codes SET attempts = attempts + 1 WHERE id = $1`, [row.id]).catch(() => {});
         return { ok: false, status: 400, code: 'CODE_WRONG' };
       }
+      // 识别号先查占用再消费验证码：撞号时玩家换个号重提，同一个验证码还能用（否则要等 60 秒再收一封）
+      if (isTag(tag)) {
+        const taken = await settle(() => db.query('SELECT 1 FROM accounts WHERE tag = $1 LIMIT 1', [tag]));
+        if (!taken.ok) return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
+        if (taken.value.rows[0]) return { ok: false, status: 409, code: 'TAG_TAKEN' };
+      }
       const consumed = await settle(() => db.query(
         `UPDATE email_codes SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL RETURNING id`, [row.id]));
       if (!consumed.ok || !consumed.value.rowCount) return { ok: false, status: 409, code: 'CODE_USED' };
+      const passHash = password ? await hashPassword(password) : null;
+      const cleanName = String(name || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 32);
+      const tagValue = isTag(tag) ? tag : null;
       const account = await settle(() => db.query(
-        `INSERT INTO accounts (email) VALUES ($1)
-         ON CONFLICT (email) DO UPDATE SET last_login_at = now()
-         RETURNING id, email, created_at, last_login_at`, [normalized]));
-      if (!account.ok) return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
+        `INSERT INTO accounts (email, password_hash, display_name, tag, last_login_at)
+         VALUES ($1, $2, NULLIF($3, ''), $4, now())
+         ON CONFLICT (email) DO UPDATE SET
+           last_login_at = now(),
+           password_hash = COALESCE(accounts.password_hash, EXCLUDED.password_hash),
+           display_name  = COALESCE(accounts.display_name, EXCLUDED.display_name),
+           tag           = COALESCE(accounts.tag, EXCLUDED.tag)
+         RETURNING id, email, created_at, last_login_at, display_name, tag`, [normalized, passHash, cleanName, tagValue]));
+      if (!account.ok) {
+        // 4 位识别号的唯一索引（accounts_tag_unique）撞了：换一个号
+        if (account.error?.code === '23505') return { ok: false, status: 409, code: 'TAG_TAKEN' };
+        return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
+      }
       const token = randomBytes(32).toString('base64url');
       const inserted = await settle(() => db.query(
         `INSERT INTO sessions (account_id, token_hash, expires_at, ip, ua) VALUES ($1, $2, $3, $4, $5)`,
@@ -141,11 +202,61 @@ export function createAuth({ db, mailer, turnstile, pepper = '', log = {} }) {
       return { ok: true, token, account: publicAccount(account.value.rows[0]) };
     },
 
+    /**
+     * 密码登录（2026-11-15）：邮箱 + 密码，省去每次都收验证码。失败一律 BAD_CREDENTIALS，不区分
+     * 「没有这个邮箱」和「密码不对」，避免被用来枚举账号。
+     * @param {{ email: string, password: string, ip?: string, ua?: string }} input
+     */
+    async loginWithPassword({ email, password, ip, ua } = {}) {
+      const normalized = normalizeEmail(email);
+      if (!isEmail(normalized) || !password) return { ok: false, status: 401, code: 'BAD_CREDENTIALS' };
+      if (rateLimited(`p:${normalized}`, 0, RATE.passwordHourMax)
+        || (ip && rateLimited(`pi:${ip}`, 0, RATE.passwordIpHourMax))) {
+        return { ok: false, status: 429, code: 'RATE_LIMITED' };
+      }
+      const found = await settle(() => db.query(
+        `SELECT id, email, created_at, last_login_at, password_hash, display_name, tag FROM accounts WHERE email = $1`, [normalized]));
+      if (!found.ok) return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
+      const row = found.value.rows[0];
+      if (!row?.password_hash) return { ok: false, status: 401, code: 'BAD_CREDENTIALS' };
+      if (!(await checkPassword(password, row.password_hash))) return { ok: false, status: 401, code: 'BAD_CREDENTIALS' };
+      await db.query(`UPDATE accounts SET last_login_at = now() WHERE id = $1`, [row.id]).catch(() => {});
+      const token = randomBytes(32).toString('base64url');
+      const inserted = await settle(() => db.query(
+        `INSERT INTO sessions (account_id, token_hash, expires_at, ip, ua) VALUES ($1, $2, $3, $4, $5)`,
+        [row.id, tokenHash(token), new Date(Date.now() + SESSION_TTL_MS), ip || null, String(ua || '').slice(0, 200)]));
+      if (!inserted.ok) return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
+      return { ok: true, token, account: publicAccount(row) };
+    },
+
+    /**
+     * 保存博士代号 / #tag（登录后调用）。只补空位，不覆盖已有值：识别号一旦定下就跟着账号走。
+     * @param {{ account: any, name?: string, tag?: string }} input
+     */
+    async setProfile({ account, name, tag } = {}) {
+      if (!account?.id) return { ok: false, status: 401, code: 'NOT_LOGGED_IN' };
+      if (tag != null && tag !== '' && !isTag(tag)) return { ok: false, status: 400, code: 'TAG_INVALID' };
+      const cleanName = String(name || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 32);
+      const res = await settle(() => db.query(
+        `UPDATE accounts SET
+           display_name = COALESCE(display_name, NULLIF($2, '')),
+           tag = COALESCE(tag, $3)
+         WHERE id = $1
+         RETURNING id, email, created_at, last_login_at, display_name, tag`,
+        [account.id, cleanName, isTag(tag) ? tag : null]));
+      if (!res.ok) {
+        if (res.error?.code === '23505') return { ok: false, status: 409, code: 'TAG_TAKEN' };
+        return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
+      }
+      return { ok: true, account: publicAccount(res.value.rows[0] || {}) };
+    },
+
     /** @param {string | undefined} token */
     async resolve(token) {
       if (!token) return null;
       const res = await settle(() => db.query(
-        `SELECT a.id, a.email, a.created_at, s.expires_at FROM sessions s JOIN accounts a ON a.id = s.account_id
+        `SELECT a.id, a.email, a.created_at, a.display_name, a.tag, s.expires_at
+           FROM sessions s JOIN accounts a ON a.id = s.account_id
           WHERE s.token_hash = $1 AND s.expires_at > now() LIMIT 1`, [tokenHash(token)]));
       if (!res.ok || !res.value.rows[0]) return null;
       const row = res.value.rows[0];
@@ -164,7 +275,10 @@ export function createAuth({ db, mailer, turnstile, pepper = '', log = {} }) {
 
 /** @param {any} row */
 export function publicAccount(row) {
-  return { id: String(row.id), email: row.email, createdAt: row.created_at || null };
+  return {
+    id: String(row.id), email: row.email, createdAt: row.created_at || null,
+    name: row.display_name || null, tag: row.tag || null,
+  };
 }
 
 /** Serialize a session cookie. `secure` only when the request was https (local http demos must work). */

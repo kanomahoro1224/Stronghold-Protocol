@@ -183,6 +183,8 @@ export const ERR = Object.freeze({
   ROOM_NOT_FOUND: 'ROOM_NOT_FOUND',
   ROOM_FULL: 'ROOM_FULL',
   SERVER_FULL: 'SERVER_FULL',     // the online cap (SP_MAX_ONLINE) has no seat for a new player
+  // SP_REQUIRE_ACCOUNT=1 (server/index.js): the hello carried no signed-in account session (server/net.js accountGate)
+  LOGIN_REQUIRED: 'LOGIN_REQUIRED',
   ROOM_STARTED: 'ROOM_STARTED',
   // a fixed alliance key (--room-code): one room at a time can hold it
   ROOM_CODE_TAKEN: 'ROOM_CODE_TAKEN',
@@ -242,6 +244,7 @@ export const ERR = Object.freeze({
 
 export const ERR_TEXT = {
   SERVER_FULL: N_('当前服务器容量已满'),
+  LOGIN_REQUIRED: N_('请先登录或注册账号后再进入游戏'),
   SESSION_IN_USE: N_('此对局仍在其他窗口中，或当前浏览器无法安全恢复。请关闭原窗口后重试。'),
   NAME_REJECTED: N_('该名称不可用'),
   CHAT_REJECTED: N_('该内容不可用'),

@@ -800,7 +800,13 @@ export async function bootUiThemes() {
   let manifest;
   try { manifest = await library.loadAssetManifest(); } catch { manifest = null; }
   const id = settingsGet().uiTheme;
-  if (id && officialThemeById(id)) {
+  // 'default' and 'glass' are this branch's own skins (ui/settings.js UI_THEMES), not theme packs: they are never in the
+  // library, so asking it would call the built-in look a broken pack on every boot.
+  if (!id || id === 'default' || id === 'glass') {
+    applyUiTheme(id);
+    return;
+  }
+  if (officialThemeById(id)) {
     const installed = installedOfficialThemes(manifest).some((row) => row.id === id);
     // A lite zip has no group. Fall back quietly: the pack was never stored here.
     if (!installed) {

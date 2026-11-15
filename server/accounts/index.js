@@ -38,7 +38,7 @@ function envConfig(env) {
 /**
  * @param {{ registry: any, log?: any, env?: Record<string, string | undefined> }} deps
  */
-export async function createAccounts({ registry, log = {}, env = process.env } = {}) {
+export async function createAccounts({ registry, log = {}, env = process.env, requireAccount = false } = {}) {
   const cfg = envConfig(env);
   let db = null;
   try {
@@ -57,7 +57,7 @@ export async function createAccounts({ registry, log = {}, env = process.env } =
   // Demo 默认只存玩家浏览器（public/js/demoStore.js + demoRecorder.js）。服务端录制仅在显式开启时启用：
   // 老部署可以用它做线上排查，但默认不写库、不重跑，避免服务器承担回放运算。
   const recorder = env.SP_ACCOUNTS_SERVER_DEMO === '1' ? createDemoRecorder({ db, log }) : null;
-  const api = createAccountApi({ db, auth, turnstile, mailer, registry, log, dev: cfg.dev });
+  const api = createAccountApi({ db, auth, turnstile, mailer, registry, log, dev: cfg.dev, requireAccount });
   return {
     db, api, recorder, auth, turnstile, mailer, enabled: true,
     siteKey: turnstile.siteKey,

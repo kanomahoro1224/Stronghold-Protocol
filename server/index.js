@@ -76,6 +76,7 @@ import { MIME, COMPRESSIBLE, acceptsGzip, pickEncoding, parseRange } from './htt
 import { BUILD_INPUTS, computeBuildTag, buildTag, resetBuildTag } from './http/buildTag.js';
 import { createRequestHandler } from './http/routes.js';
 import { createAccounts } from './accounts/index.js';
+import { readCookie } from './accounts/auth.js';
 import { createTrafficCounter } from './http/traffic.js';
 import { answerClientError } from './http/common.js';
 import { createEventLoopMonitor } from './health/eventLoop.js';
@@ -86,6 +87,26 @@ export {
   ROOT, WS_MAX_PAYLOAD, DATA_SHIM_JS, MIME, COMPRESSIBLE, BUILD_INPUTS, computeBuildTag, buildTag, resetBuildTag,
   acceptsGzip, pickEncoding, parseRange, createStaticHandler, lanUrls, parseTrustProxy,
 };
+
+/**
+ * Load `<root>/.env` into process.env without overriding anything already set in the real environment (the semantics
+ * of `node --env-file`). Missing file, unreadable file, or `SP_ENV_FILE=0` is a no-op — a deployment that injects its
+ * environment directly behaves exactly as before.
+ *
+ * Only the process entry calls this (bottom of the file), never `startServer()`: the test suite starts servers with
+ * its own options and must not inherit a developer's `.env` (which may turn on SP_REQUIRE_ACCOUNT or a real database).
+ * @param {string} [file]
+ * @returns {boolean} true when the file was read
+ */
+export function loadDotEnv(file = path.join(ROOT, '.env')) {
+  if (process.env.SP_ENV_FILE === '0') return false;
+  try {
+    const real = { ...process.env };
+    process.loadEnvFile(file);
+    for (const [k, v] of Object.entries(real)) process.env[k] = v;
+    return true;
+  } catch { return false; }
+}
 
 /**
  * Build and start the HTTP + WebSocket server.
@@ -229,13 +250,29 @@ export async function startServer(opts = {}) {
   const matchWorkerPool = ownsMatchWorkerPool && matchWorkers > 0
     ? new MatchWorkerPool({ data, lanes: matchWorkers, log, timeoutMs: workerConfig.timeoutMs })
     : opts.matchWorkerPool || null;
+  /** 不注册就无法进入游戏（docs/ACCOUNTS.md「登录门禁」）：opts 优先，其次 SP_REQUIRE_ACCOUNT=1。 */
+  const requireAccount = opts.requireAccount ?? (process.env.SP_REQUIRE_ACCOUNT === '1');
   const { registry, lobby, network } = createSessionStack({ ...opts, nameModeration },
     { data, log, workerPool, matchWorkerPool, content, plugins: roomSets, hosts, versions, versionHosts, simPool });
   // Account / cloud-save / demo service (server/accounts/*): opt-in through SP_DATABASE_URL; a server without a
   // database boots exactly as before, with the account UI hidden (GET /api/config → accounts:false).
   const accounts = opts.accounts === false ? null
-    : (opts.accounts || await createAccounts({ registry, log, env: process.env }));
+    : (opts.accounts || await createAccounts({ registry, log, env: process.env, requireAccount }));
   if (accounts?.recorder) lobby.demoRecorder = accounts.recorder;
+  // SP_REQUIRE_ACCOUNT=1 (user request 2026-11-15: 不注册账号就无法进入游戏): every new WebSocket session must come from
+  // a signed-in account. The check reads the HttpOnly session cookie on the upgrade request (server/net.js gateHello),
+  // so a page cannot claim an account it does not have; a database outage lets the hello through rather than locking
+  // the server out (the account service is degraded, not the player at fault).
+  if (requireAccount && accounts?.enabled) {
+    network.accountGate = async (cookie) => {
+      try { return await accounts.auth.resolve(readCookie(cookie)); }
+      catch (e) {
+        log.warn?.('[accounts] login gate could not reach the database, letting the hello through', e?.message || e);
+        return { degraded: true };
+      }
+    };
+    log.info('[accounts] login required for every new WebSocket session (SP_REQUIRE_ACCOUNT=1)');
+  }
   // Resume the last state before listening: every reconnecting client is recognized by its token right away.
   const persister = store ? new Persister({ store, registry, lobby, log, now: opts.now, saveMs }) : null;
   if (store && opts.resume !== false) {
@@ -455,5 +492,9 @@ export function roomCodeFromArgv(argv = process.argv.slice(2)) {
   return null;
 }
 
-// `node server/index.js` / npm start: listen, print the banner, stop on SIGINT / SIGTERM (http/boot.js).
-if (isProcessEntry(import.meta.url)) runMain(() => startServer({ roomCode: roomCodeFromArgv() }));
+// `node server/index.js` / npm start: read the repo's .env (SMTP, database, the login gate — never committed), then
+// listen, print the banner, stop on SIGINT / SIGTERM (http/boot.js).
+if (isProcessEntry(import.meta.url)) {
+  loadDotEnv();
+  runMain(() => startServer({ roomCode: roomCodeFromArgv() }));
+}
