@@ -54,6 +54,9 @@ let resultAt = 0;
 /** The document just saved: `currentDemoId()` still answers with it while the match's record is being built. */
 let handled = /** @type {{ id: string, at: number } | null} */ (null);
 
+/** 回放（合成 DEMO 房间）里绝不能再录：否则拖一次进度条就会生成一份新 Demo。 */
+const replaying = () => store.get().room?.code === 'DEMO';
+
 const slimFrame = (msg) => ({
   at: Date.now() - (active?.startedAt || Date.now()),
   phase: msg.phase ?? null, round: msg.round ?? null,
@@ -79,6 +82,8 @@ function begin(frame) {
   };
   active.players = (frame.players || []).map((p) => ({ playerId: p.playerId, seat: p.seat, name: p.name, isBot: !!p.isBot }));
   pushFrame(frame);
+  // 开启文档的这条 m.public 在 _emit 包装里还没有 active，补录进 wire；否则回放第一帧缺 public 进不了对局画面
+  pushWire('m.public', frame);
 }
 
 function pushFrame(msg) {
@@ -99,7 +104,7 @@ function pushFrame(msg) {
 }
 
 function recordAction(t, fields) {
-  if (!active || active.closed) return;
+  if (replaying() || !active || active.closed) return;
   if (active.events.length >= MAX_EVENTS) return;
   const a = { ...(fields && typeof fields === 'object' ? fields : {}), t };
   const size = (() => { try { return JSON.stringify(a).length; } catch { return 0; } })();
@@ -110,7 +115,7 @@ function recordAction(t, fields) {
 
 /** One S2C frame of the replay stream (kept verbatim: b.start specs and m.* are what the UI renders). */
 function pushWire(t, msg) {
-  if (!active || active.closed) return;
+  if (replaying() || !active || active.closed) return;
   if (active.wire.length >= MAX_WIRE) return;
   let size;
   try { size = JSON.stringify(msg).length; } catch { return; }
@@ -219,7 +224,7 @@ export function startDemoRecorder() {
   //    and the frames a lobby reconnect pushes right after a settlement must not open one — the store knows the
   //    result too, but a recorder that trusts only its own state also works without main.js' patching.
   net.on('m.public', (msg) => {
-    if (!msg || isSpectator()) return;
+    if (!msg || isSpectator() || replaying()) return;
     if (msg.phase === PHASE.RESULT || msg.phase === PHASE.LOBBY) return;
     if (!active) {
       if (store.get().match?.result) return;

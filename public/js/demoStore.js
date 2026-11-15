@@ -12,7 +12,7 @@ const STORE = 'demos';
 // A small catalogue of the documents (id, when, mode, steps) in localStorage: 对局记录 can then tell which row has a
 // demo without reading every document out of IndexedDB (a 15-minute match is a few hundred KB).
 const INDEX_KEY = 'demoIndex';
-const INDEX_MAX = 400;
+const INDEX_MAX = 2000; // 本机 Demo 不限局数；目录只是快速索引（旧文件仍留在 IndexedDB）
 
 let dbPromise = null;
 function openDb() {

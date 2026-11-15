@@ -310,7 +310,7 @@ function wireNet() {
     // it arrives after the room is gone, also to a freshly loaded page; only a non-default one is written)
     const s = store.get();
     const version = s.room ? roomVersion(s.room) : matchFrameVersion({ result: res, public: s.match.public });
-    if (s.room?.test !== true && s.match.public?.test !== true) recordResult(res, { myId: s.me.playerId, roomMode: s.room?.mode ?? null, vs: s.room?.content?.vs ?? null, content: s.room?.content ?? null, version: isDefaultVersion(version) ? null : version, now: Date.now(), demoId: currentDemoId() });
+    if (s.room?.test !== true && s.match.public?.test !== true && s.room?.code !== 'DEMO') recordResult(res, { myId: s.me.playerId, roomMode: s.room?.mode ?? null, vs: s.room?.content?.vs ?? null, content: s.room?.content ?? null, version: isDefaultVersion(version) ? null : version, now: Date.now(), demoId: currentDemoId() });
   });
   net.on('m.toast', (msg) => {
     const kind = ['info', 'success', 'warn', 'error'].includes(msg.kind) ? msg.kind : 'info';

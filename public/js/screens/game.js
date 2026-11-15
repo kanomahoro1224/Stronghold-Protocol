@@ -839,7 +839,7 @@ function MatchScreen() {
     // loading. Subscribe first so the reshow's metadata and snapshot take the ordinary buffered re-entry path.
     if (view && !showPrep && field?.fieldId) {
       if (field.local) battleRunner?.reshow();
-      else if (combat || watchingOther) {
+      else if ((combat || watchingOther) && store.get().room?.code !== 'DEMO') {
         const who = watchWho?.fieldId === field.fieldId ? watchWho.playerId : null;
         net.request('g.watch', { fieldId: field.fieldId, ...(who ? { playerId: who } : {}) }).catch(() => {});
       }
@@ -1705,6 +1705,7 @@ function MatchScreen() {
   useEffect(() => {
     if (prepStatsUid == null) return undefined;
     const t = setTimeout(() => {
+      if (store.get().room?.code === 'DEMO') return; // 回放：不发网络请求
       statsSeqRef.current = (statsSeqRef.current % 1e9) + 1;
       try { Promise.resolve(net.request('g.unitStats', { seq: statsSeqRef.current })).catch(() => {}); } catch { /* offline */ }
     }, 120);

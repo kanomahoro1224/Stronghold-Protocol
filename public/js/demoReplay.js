@@ -13,7 +13,7 @@ import { html } from './ui/components.js';
 import { useEffect, useState } from '../vendor/hooks.module.js';
 import { render } from '../vendor/preact.module.js';
 import { net } from './net.js';
-import { store, emptyMatch } from './store.js';
+import { store, emptyMatch, selectRoute } from './store.js';
 import { battleRunner } from './battle/runner.js';
 import { t } from '../shared/i18n.js';
 
@@ -57,17 +57,25 @@ const fmt = (ms) => {
 const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
 
 /** HUD 的回合倒计时读 serverNow()：把全局时钟偏移调到「录制开始 + 回放游标」，右上角时间才会随回放流动。 */
-function syncReplayClock(s) {
+function syncReplayClock(s, force = false) {
   const startedAt = Number(s.doc.startedAt);
   if (!Number.isFinite(startedAt)) return;
+  const now = Date.now();
+  if (!force && now - (s.clockAt || 0) < 200) return;
+  s.clockAt = now;
   const off = startedAt + s.cursor - Date.now();
-  if (Math.abs((store.get().clock?.offset || 0) - off) > 50) store.patch('clock', { offset: off, synced: true });
+  if (force || Math.abs((store.get().clock?.offset || 0) - off) > 100) store.patch('clock', { offset: off, synced: true });
 }
 const speedLabel = (v) => (v === 0.25 ? '¼×' : v === 0.5 ? '½×' : `${v}×`);
 
 /** 回合标记：优先用录制时记下的 marks；老文档从 wire 的 m.public 回合变化推导。 */
 function marksOf(doc) {
-  if (Array.isArray(doc.marks) && doc.marks.length) return doc.marks.map((m) => ({ at: m.at || 0, round: m.round ?? 0 }));
+  if (Array.isArray(doc.marks) && doc.marks.length) {
+    const seen = new Set();
+    return doc.marks.map((m) => ({ at: Math.max(0, Number(m.at) || 0), round: m.round ?? 0 }))
+      .filter((m) => (seen.has(m.round) ? false : seen.add(m.round)))
+      .sort((a, b) => a.at - b.at);
+  }
   const out = [];
   let last = null;
   for (const f of doc.wire || []) {
@@ -87,16 +95,21 @@ function Bar({ s }) {
     for (const m of s.marks) if (m.at <= s.cursor) r = m.round;
     return r;
   })();
-  const seekTo = (clientX, el) => {
+  const at = (clientX, el) => {
     const rect = el.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    s.seek(ratio * total);
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * total;
   };
   return html`<div class="dr-bar">
     <div class="dr-track" onPointerDown=${(e) => {
       e.currentTarget.setPointerCapture?.(e.pointerId);
-      seekTo(e.clientX, e.currentTarget);
-    }} onPointerMove=${(e) => { if (e.buttons) seekTo(e.clientX, e.currentTarget); }}>
+      s.drag = true;
+      s.preview(at(e.clientX, e.currentTarget));
+    }} onPointerMove=${(e) => { if (s.drag) s.preview(at(e.clientX, e.currentTarget)); }}
+      onPointerUp=${(e) => {
+        if (!s.drag) return;
+        s.drag = false;
+        s.seek(at(e.clientX, e.currentTarget));
+      }} onPointerCancel=${() => { s.drag = false; }}>
       <div class="dr-fill" style=${`width:${pct}%`}></div>
       ${s.marks.map((m) => html`<span key=${m.round} class="dr-mark" style=${`left:${(m.at / total) * 100}%`}
         title=${t('回合 {n} 开始', { n: m.round })}></span>`)}
@@ -142,6 +155,8 @@ function runTo(s, target) {
   if (s.idx >= wire.length) {
     s.playing = false;
     s.cursor = s.duration;
+    // 播完停在最后一帧：冻结战斗 sim，不继续在后台空跑
+    battleRunner?.setPaused?.(true);
     s.onTick?.();
   }
 }
@@ -161,12 +176,13 @@ function pause(s) {
   clearTimeout(s.timer);
   // 真暂停：冻结战斗 sim 时钟与回放时钟（右上角倒计时停在同一秒）
   battleRunner?.setPaused?.(true);
-  syncReplayClock(s);
+  syncReplayClock(s, true);
   s.onTick?.();
 }
 
 function play(s) {
-  if (s.playing || s.idx >= (s.doc.wire || []).length) return;
+  if (s.playing) return;
+  if (s.idx >= (s.doc.wire || []).length) { seek(s, 0); return; }
   battleRunner?.setPaused?.(false);
   s.playing = true;
   s.base = Date.now() - s.cursor / s.speed;
@@ -186,6 +202,10 @@ function seek(s, ms) {
   const target = Math.max(0, Math.min(s.duration, ms));
   s.playing = false;
   clearTimeout(s.timer);
+  // 先恢复战斗时钟再重建：否则暂停期间的 setPaused(false) 会把新 b.start 的 t0 平移整个暂停时长
+  try { battleRunner?.setPaused?.(false); } catch { /* ignore */ }
+  // 清掉上一位置的战斗 sim，避免拖动时新旧战斗重叠
+  try { battleRunner?.clear?.(); } catch { /* ignore */ }
   store.set({ match: emptyMatch() });
   const wire = s.doc.wire || [];
   /** @type {Map<string, any>} fieldId → 该战斗最近一次 b.start 帧（b.end 前的） */
@@ -223,32 +243,39 @@ export function startDemoReplay(doc) {
   if (!canReplayVisual(doc)) return false;
   stopDemoReplay();
   const prev = store.get();
-  const owner = doc.owner?.playerId || (doc.players || []).find((p) => !p.isBot)?.playerId || 'p_demo';
-  const name = doc.owner?.name || (doc.players || []).find((p) => !p.isBot)?.name || t('博士');
+  const ownerId = doc.owner?.playerId
+    || (doc.wire || []).find((f) => f.t === 'm.private' && f.m?.playerId)?.m.playerId
+    || (doc.players || []).find((p) => !p.isBot)?.playerId || 'p_demo';
+  const ownerName = doc.owner?.name || (doc.players || []).find((p) => p.playerId === ownerId)?.name
+    || (doc.players || []).find((p) => !p.isBot)?.name || t('博士');
   const seats = (doc.players || []).map((p, i) => ({
     seat: Number.isInteger(p.seat) ? p.seat : i, playerId: p.playerId, name: p.name,
     isBot: !!p.isBot, connected: true, ready: true,
   }));
-  const me = { ...prev.me, playerId: owner, name, token: null };
+  const me = { ...prev.me, playerId: ownerId, name: ownerName, token: null };
   const room = {
     ...prev.room, code: 'DEMO', inMatch: true, seats, spectators: [], mode: 'coop',
-    difficulty: doc.difficulty || prev.room?.difficulty || 'NORMAL', hostId: owner, matchCount: 1,
+    difficulty: doc.difficulty || prev.room?.difficulty || 'NORMAL', hostId: ownerId, matchCount: 1,
   };
+  try { battleRunner?.clear?.(); } catch { /* ignore */ }
   store.set({ me, room, match: emptyMatch(), session: { ...prev.session, entered: true } });
 
   ensureStyle();
   if (!uiHost) { uiHost = document.createElement('div'); uiHost.className = 'demo-replay-host'; document.body.appendChild(uiHost); }
 
   const last = (doc.wire || []).reduce((max, f) => Math.max(max, f.at || 0), 0);
+  const endAt = Number.isFinite(Number(doc.endedAt)) ? Number(doc.endedAt) - Number(doc.startedAt) : 0;
+  const duration = Math.max(last, endAt, (doc.snapshots || []).reduce((m, f) => Math.max(m, f.at || 0), 0));
   const s = {
-    doc, idx: 0, cursor: 0, duration: last, playing: true, speed: 1,
+    doc, idx: 0, cursor: 0, duration, playing: true, speed: 1,
     base: Date.now(), timer: 0, prev, onTick: null, active: new Map(), lastSync: 0,
-    marks: marksOf(doc).filter((m) => m.at <= last),
+    marks: marksOf(doc).filter((m) => m.at <= duration), drag: false,
   };
   session = s;
 
   s.exit = () => stopDemoReplay();
-  s.toggle = () => (s.playing ? pause(s) : play(s));
+  s.toggle = () => (s.playing ? pause(s) : (s.idx >= (s.doc.wire || []).length ? seek(s, 0) : play(s)));
+  s.preview = (ms) => { s.cursor = Math.max(0, Math.min(s.duration, ms)); s.onTick?.(); };
   s.setSpeed = (v) => { s.speed = v; if (s.playing) s.base = Date.now() - s.cursor / s.speed; s.onTick?.(); };
   s.seek = (ms) => seek(s, ms);
   s.prevRound = () => {
@@ -261,7 +288,24 @@ export function startDemoReplay(doc) {
     seek(s, next ? next.at : s.duration);
   };
 
+  // 老 Demo 的 wire 从第二条消息起录（首帧 m.public 漏录）：用首张快照补一条，保证回放直接进对局画面
+  const first = (doc.wire || [])[0];
+  const snap0 = (doc.snapshots || [])[0];
+  if (snap0 && first?.t !== 'm.public') {
+    dispatch({ t: 'm.public', m: { ...snap0, players: doc.players || snap0.players || [] } });
+  }
   syncReplayClock(s);
+  // 玩家从游戏自己的「离开」退出（而不是回放条）时，回放必须跟着结束，否则 timer 会继续喂帧把人拉回对局
+  s.unsub = store.subscribe(() => {
+    if (session !== s || s.suppress) return;
+    const st = store.get();
+    if (st.room?.code !== 'DEMO' || !st.session?.entered || selectRoute(st) !== 'game') {
+      s.suppress = true;
+      stopDemoReplay();
+      s.suppress = false;
+    }
+  });
+
   render(html`<${Bar} s=${s} />`, uiHost);
   tick();
   return true;
@@ -273,9 +317,11 @@ export function stopDemoReplay() {
   const s = session;
   session = null;
   clearTimeout(s.timer);
+  try { s.unsub?.(); } catch { /* ignore */ }
   try { render(null, uiHost); } catch { /* host gone */ }
   try { uiHost?.remove(); } catch { /* ignore */ }
   uiHost = null;
   try { battleRunner?.setPaused?.(false); } catch { /* ignore */ }
+  try { battleRunner?.clear?.(); } catch { /* ignore */ }
   try { store.set(s.prev); } catch { /* the app is gone */ }
 }
