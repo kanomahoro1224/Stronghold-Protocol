@@ -1,0 +1,172 @@
+path	category	resolution	status
+data/versions/act3autochess-v3_1/chess.json	both-added	take-upstream-changed	done
+data/versions/act3autochess-v3_1/choices.json	both-added	take-upstream-changed	done
+data/versions/act3autochess-v3_1/effects.json	both-added	take-upstream-changed	done
+data/versions/act3autochess-v3_1/enemies.json	both-added	take-upstream-changed	done
+data/versions/act3autochess-v3_1/items.json	both-added	take-upstream-changed	done
+data/versions/act3autochess-v3_1/stages.json	both-added	take-upstream-changed	done
+docs/THEMES.md	both-added	take-upstream-changed	done
+docs/examples/ui-theme/theme.json	both-added	take-upstream-changed	done
+public/css/screens/game-reghud.css	both-added	take-upstream-changed	done
+public/css/ui-theme.css	both-added	take-upstream-changed	done
+public/js/ui/entryFilm.js	both-added	take-upstream-changed	done
+public/js/ui/prefab/banners.js	both-added	take-upstream-changed	done
+public/js/ui/prefab/view.js	both-added	take-upstream-changed	done
+public/js/ui/regHud.js	both-added	take-upstream-changed	done
+public/js/ui/themeCharacter.js	both-added	take-upstream-changed	done
+public/js/ui/themeSettings.js	both-added	take-upstream-changed	done
+public/js/uiTheme.js	both-added	take-upstream-changed	done
+public/sw.js	local-deleted	restore-upstream	done
+server/match/bandCommands.js	both-added	take-upstream-changed	done
+server/match/showTags.js	both-added	take-upstream-changed	done
+server/peerRelay.js	both-added	take-upstream-changed	done
+server/sim/content/bonds/regulation.js	both-added	take-upstream-changed	done
+server/sim/content/enemies/regulation.js	both-added	take-upstream-changed	done
+server/sim/content/regulation-bosses.js	both-added	take-upstream-changed	done
+shared/itemRules.js	both-added	take-upstream-changed	done
+shared/uiTheme.js	both-added	take-upstream-changed	done
+test/ai-takeover-version.test.js	both-added	take-upstream-changed	done
+test/bands/regulation-commands.test.js	both-added	take-upstream-changed	done
+test/bonds/regulation.test.js	both-added	take-upstream-changed	done
+test/garrisons/regulation.test.js	both-added	take-upstream-changed	done
+test/golden/act3autochess-v3_1/bonds.json	both-added	take-upstream-changed	done
+test/golden/act3autochess-v3_1/diy.json	both-added	take-upstream-changed	done
+test/golden/act3autochess-v3_1/fields.json	both-added	take-upstream-changed	done
+test/golden/act3autochess-v3_1/matches.json	both-added	take-upstream-changed	done
+test/golden/act3autochess-v3_1/roster.json	both-added	take-upstream-changed	done
+test/golden/act3autochess-v3_1/standins.json	both-added	take-upstream-changed	done
+test/items/regulation.test.js	both-added	take-upstream-changed	done
+test/match/bond-groups.test.js	both-added	take-upstream-changed	done
+test/match/show-tags.test.js	both-added	take-upstream-changed	done
+test/sim/regulation-enemies.test.js	both-added	take-upstream-changed	done
+test/ui/asset-download.browser.test.js	local-deleted	restore-upstream	待测试
+test/ui/asset-download.test.js	local-deleted	restore-upstream	待测试
+test/ui/asset-import.browser.test.js	local-deleted	restore-upstream	待测试
+test/ui/asset-import.test.js	local-deleted	restore-upstream	待测试
+test/ui/entry-film.test.js	both-added	take-upstream-changed	done
+test/ui/match-bond-info.e2e.test.js	both-added	take-upstream-changed	done
+test/ui/reg-hud.test.js	both-added	take-upstream-changed	done
+test/ui/theme-frames.test.js	both-added	take-upstream-changed	done
+test/ui/themes.test.js	both-added	take-upstream-changed	done
+test/versions-regulation.test.js	both-added	take-upstream-changed	done
+tools/local-extract/autochess_themes.py	both-added	take-upstream-changed	done
+tools/versions/act3autochess-v3_1.mjs	both-added	take-upstream-changed	done
+docs/ASSETS.md	text-conflict	upstream x112061	merged
+docs/DATA.md	text-conflict	upstream x136555	merged
+docs/DEPLOY.md	text-conflict	upstream x45477	merged
+docs/DESIGN.md	text-conflict	upstream x19585	merged
+docs/EXTERNAL_AI.md	text-conflict	upstream x74670	merged
+docs/EXTERNAL_AI_ZH.md	text-conflict	upstream x25287	merged
+docs/META.md	text-conflict	upstream x146632	merged
+docs/PLAYING.md	text-conflict	upstream x46348	merged
+docs/PLUGIN-API.md	text-conflict	upstream x62290	merged
+docs/PLUGIN-GUIDE.md	text-conflict	upstream x61638	merged
+docs/PLUGINS.md	text-conflict	upstream x289250	merged
+docs/SIM.md	text-conflict	upstream x171870	merged
+docs/design/client.md	text-conflict	upstream x163201	merged
+docs/design/match.md	text-conflict	upstream x68240	merged
+docs/design/network.md	text-conflict	upstream x97433	merged
+docs/design/overview.md	text-conflict	upstream x16116	merged
+docs/design/vfx-format.md	text-conflict	upstream x183096	merged
+docs/ASSETS.md	text-conflict	upstream x1	merged
+docs/DATA.md	text-conflict	upstream x2	merged
+docs/DEPLOY.md	text-conflict	upstream x1	merged
+docs/DESIGN.md	text-conflict	upstream x4	merged
+docs/EXTERNAL_AI.md	text-conflict	upstream x2	merged
+docs/EXTERNAL_AI_ZH.md	text-conflict	upstream x2	merged
+docs/META.md	text-conflict	upstream x2	merged
+docs/PLAYING.md	text-conflict	upstream x1	merged
+docs/PLUGIN-API.md	text-conflict	upstream x2	merged
+docs/PLUGIN-GUIDE.md	text-conflict	upstream x1	merged
+docs/PLUGINS.md	text-conflict	upstream x2	merged
+docs/SIM.md	text-conflict	upstream x3	merged
+docs/design/client.md	text-conflict	upstream x5	merged
+docs/design/match.md	text-conflict	upstream x3	merged
+docs/design/network.md	text-conflict	upstream x3	merged
+docs/design/overview.md	text-conflict	upstream x1	merged
+docs/design/vfx-format.md	text-conflict	upstream x3	merged
+CHANGELOG.md	text-conflict	upstream x1	merged
+data/assets.json	text-conflict	local x1	merged
+public/css/components.css	text-conflict	local x3	merged
+public/css/screens/draft.css	text-conflict	local x1	merged
+public/css/screens/game-panels.css	text-conflict	local x1	merged
+public/css/screens/game.css	text-conflict	local x1	merged
+public/css/screens/loadout.css	text-conflict	local x2	merged
+public/css/screens/lobby.css	text-conflict	local x1	merged
+public/css/screens/room.css	text-conflict	local x1	merged
+public/css/screens/title.css	text-conflict	local x4	merged
+public/dev/game-mock.html	text-conflict	local x1	merged
+public/i18n/en.json	text-conflict	local x1	merged
+public/i18n/ja.json	text-conflict	local x1	merged
+public/i18n/ko.json	text-conflict	local x1	merged
+public/i18n/zh-TW.json	text-conflict	local x1	merged
+public/index.html	text-conflict	local x1	merged
+public/js/audio.js	text-conflict	local x4	merged
+public/js/battle/observe.js	text-conflict	local x1	merged
+public/js/main.js	text-conflict	local x1	merged
+public/js/net.js	text-conflict	local x2	merged
+public/js/render/board3d/scene.js	text-conflict	local x1	merged
+public/js/render/units.js	text-conflict	local x2	merged
+public/js/screens/bandDraft.js	text-conflict	local x1	merged
+public/js/screens/game.js	text-conflict	manual x7	merged
+public/js/screens/lobby.js	text-conflict	local x8	merged
+public/js/screens/room.js	text-conflict	local x1	merged
+public/js/screens/stats.js	text-conflict	local x1	merged
+public/js/screens/title.js	text-conflict	local x3	merged
+public/js/ui/bondStrip.js	text-conflict	local x3	merged
+public/js/ui/choiceOverlay.js	text-conflict	local x4	merged
+public/js/ui/components.js	text-conflict	local x4	merged
+public/js/ui/detailPanel.js	text-conflict	local x2	merged
+public/js/ui/effectsList.js	text-conflict	local x3	merged
+public/js/ui/facingWheel.js	text-conflict	local x1	merged
+public/js/ui/gameActions.js	text-conflict	local x1	merged
+public/js/ui/gameLogic.js	text-conflict	local x1	merged
+public/js/ui/gameLogic/bonds.js	text-conflict	local x2	merged
+public/js/ui/gameLogic/camera.js	text-conflict	local x2	merged
+public/js/ui/gameLogic/placement.js	text-conflict	local x2	merged
+public/js/ui/gameLogic/settings.js	text-conflict	local x6	merged
+public/js/ui/hud.js	text-conflict	local x1	merged
+public/js/ui/lang.js	text-conflict	local x3	merged
+public/js/ui/matchInfo.js	text-conflict	local x1	merged
+public/js/ui/seatArt.js	text-conflict	local x1	merged
+public/js/ui/settings.js	text-conflict	local x6	merged
+public/js/ui/settingsStore.js	text-conflict	local x1	merged
+public/js/ui/shopBar.js	text-conflict	local x18	merged
+server/ai/strategy.js	text-conflict	local x1	merged
+server/http/static.js	text-conflict	local x1	merged
+server/lobby.js	text-conflict	manual x10	merged
+server/match/Match.js	text-conflict	local x2	merged
+server/match/bondsMeta.js	text-conflict	local x1	merged
+server/match/bot.js	text-conflict	local x6	merged
+server/match/builtinMeta.js	text-conflict	local x1	merged
+server/match/gamedata.js	text-conflict	local x2	merged
+server/match/match/prep.js	text-conflict	local x2	merged
+server/match/player/acquire.js	text-conflict	local x2	merged
+server/match/player/items.js	text-conflict	local x1	merged
+server/match/player/round.js	text-conflict	local x1	merged
+server/match/player/views.js	text-conflict	local x2	merged
+server/match/pool.js	text-conflict	local x1	merged
+server/sim/battle/summons.js	text-conflict	local x1	merged
+server/sim/content/devices.js	text-conflict	local x4	merged
+server/sim/content/garrisons/meta.js	text-conflict	local x1	merged
+server/sim/grid.js	text-conflict	local x2	merged
+shared/plugins/catalog.js	text-conflict	local x1	merged
+shared/plugins/surface.js	text-conflict	local x1	merged
+shared/plugins/ui.js	text-conflict	local x1	merged
+shared/protocol.js	text-conflict	local x2	merged
+test/client-static.test.js	text-conflict	local x1	merged
+test/golden/matches.json	text-conflict	upstream x30	merged
+test/golden/roster.json	text-conflict	upstream x13	merged
+test/lobby-card.test.js	text-conflict	local x1	merged
+test/match/bosshp.test.js	text-conflict	local x1	merged
+test/match/runner.test.js	text-conflict	local x1	merged
+test/plugins/surface.test.js	text-conflict	local x1	merged
+test/ui/gameLogic.test.js	text-conflict	local x2	merged
+test/ui/issue5-fold-camera.test.js	text-conflict	local x1	merged
+test/ui/issue602-deploy-fold.test.js	text-conflict	local x2	merged
+test/ui/match-info.test.js	text-conflict	local x1	merged
+test/ui/text-scale.test.js	text-conflict	local x1	merged
+tools/ai/llm-agent.mjs	text-conflict	local x1	merged
+tools/build-data.mjs	text-conflict	local x5	merged
+tools/package.mjs	text-conflict	local x11	merged
+tools/versions/profiles.mjs	text-conflict	local x1	merged

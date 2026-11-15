@@ -104,7 +104,9 @@ export const ROOT_FILES = ['package.json', 'package-lock.json', 'LICENSE', 'NOTI
 /** The player docs. */
 export const PLAYER_DOCS = ['docs/PLAYING.md', 'docs/DEPLOY.md', 'docs/PLUGINS.md', 'docs/PLUGIN-GUIDE.md',
   'docs/PLUGIN-DSL.md', 'docs/PLUGIN-API.md', 'docs/SKINS.md', 'docs/plugin-catalog.example.json',
-  'docs/THEMES.md', 'docs/examples/ui-theme/theme.json'];
+  'docs/THEMES.md', 'docs/THEME-GUIDE.md', 'docs/examples/ui-theme/theme.json'];
+/** Player doc folders that ship whole: the theme guide's example pack, importable from the install (§37.234). */
+export const PLAYER_DOC_DIRS = ['docs/examples/ui-theme-demo/'];
 /** The author harness has no test-only dependencies; the rest of test/ stays out. */
 export const AUTHOR_TEST_FILES = ['test/helpers/battleHarness.js'];
 /** Only these repository-owned plugin resources ship, even if an owner's plugin was accidentally tracked. */
@@ -170,6 +172,71 @@ export const FULL_ZIP_FX = true;
 export const FX_ART_PREFIX = 'public/assets/local/fx/';
 
 /**
+ * Official theme groups the packages hold back (§37.232; the maintainer, 2026-11-15: 「可露希尔主题可以支持单独导入吗，
+ * 不想直接内置」). The full, update and asset zips leave out the group's folder and its entry in the shipped
+ * data/local-assets.json; `--theme-packs` writes each one as an importable pack (设置 → 界面主题 → 导入主题包) that
+ * the maintainer offers for download beside the asset pack — not a release asset.
+ */
+export const HELD_THEME_GROUPS = Object.freeze(['themes/ac_s_closur']);
+/**
+ * Sprites of the held themes that other extracted groups carry: in ui/outer (the official outer interface atlas) the
+ * skin preview, its background, the card thumbnail and nine small stickers of 可露希尔. The client draws none of them;
+ * they are held back with their theme.
+ */
+export const HELD_THEME_ENTRIES = Object.freeze({
+  'ui/outer': Object.freeze(['background_pre_closur', 'skin_pre_closur', 'thumbnail_ac_s_closur',
+    ...Array.from({ length: 9 }, (_, i) => `closur_${i + 1}`)]),
+});
+/** The folder of an extracted theme group. @param {string} group */
+const themeGroupDir = (group) => `public/assets/local/${group}/`;
+
+/**
+ * data/local-assets.json without the held theme groups and sprites (`count`, the number of entries, lowered by theirs).
+ * The same object when it has none of them.
+ * @param {any} local
+ * @param {readonly string[]} [held]
+ * @param {Readonly<Record<string, readonly string[]>>} [heldEntries]
+ */
+export function withoutHeldThemes(local, held = HELD_THEME_GROUPS, heldEntries = HELD_THEME_ENTRIES) {
+  const groups = local && typeof local === 'object' && local.groups && typeof local.groups === 'object' ? local.groups : null;
+  if (!groups) return local;
+  const drop = held.filter((g) => Object.hasOwn(groups, g));
+  const trim = Object.entries(heldEntries).filter(([g, names]) => groups[g] && typeof groups[g] === 'object' && names.some((n) => Object.hasOwn(groups[g], n)));
+  if (!drop.length && !trim.length) return local;
+  const next = { ...groups };
+  let removed = 0;
+  for (const g of drop) {
+    removed += Object.keys(next[g] || {}).length;
+    delete next[g];
+  }
+  for (const [g, names] of trim) {
+    const kept = { ...next[g] };
+    for (const n of names) if (Object.hasOwn(kept, n)) { delete kept[n]; removed += 1; }
+    next[g] = kept;
+  }
+  const out = { ...local, groups: next };
+  if (Number.isFinite(local.count)) out.count = Math.max(0, local.count - removed);
+  return out;
+}
+
+/**
+ * The public/… files of the held sprites (HELD_THEME_ENTRIES) a manifest lists. The held groups go by their folder.
+ * @param {any} local @param {Readonly<Record<string, readonly string[]>>} [heldEntries]
+ */
+function heldEntryFiles(local, heldEntries = HELD_THEME_ENTRIES) {
+  const out = new Set();
+  const groups = local?.groups;
+  if (!groups || typeof groups !== 'object') return out;
+  for (const [g, names] of Object.entries(heldEntries)) {
+    for (const n of names) {
+      const p = groups[g]?.[n]?.path;
+      if (typeof p === 'string' && p.startsWith('/assets/')) out.add(`public${p}`);
+    }
+  }
+  return out;
+}
+
+/**
  * Refused in a plan and in a stage: 0.1.x's list (owner-only notes, the promo project, caches, per-machine config) and
  * what 0.2.0 leaves out on purpose. A path is refused when it is one of these or lies under one.
  */
@@ -215,6 +282,7 @@ export function isPlayerFile(rel) {
   if (NOT_TRACKED_SHIP.some((d) => p.startsWith(d))) return false;
   if (isPluginResource(p) || AUTHOR_TEST_FILES.includes(p)) return true;
   if (RUNTIME_DIRS.some((d) => p.startsWith(d)) || PLAYER_TOOL_DIRS.some((d) => p.startsWith(d))) return true;
+  if (PLAYER_DOC_DIRS.some((d) => p.startsWith(d))) return true;
   return ROOT_FILES.includes(p) || PLAYER_DOCS.includes(p) || RUNTIME_RESEARCH.includes(p) || PLAYER_SCRIPTS.includes(p) || PLAYER_TOOLS.includes(p);
 }
 
@@ -302,15 +370,20 @@ export function manifestFiles(manifest) {
  * `scenes`: the files under public/assets/local/scene/ (one folder per battlefield, plus the shared scene/tex). They are also in `files`.
  * A lite plan and a machine that has not extracted them return `scenes: []`; packaging still succeeds.
  */
-export function artPlan(root, { lite = false, jpVoice = FULL_ZIP_JP_VOICE, optionalVoice = FULL_ZIP_OPTIONAL_VOICE, fx = FULL_ZIP_FX } = {}) {
-  if (lite) return { files: [], missing: [], orphans: [], held: [], fxHeld: [], local: false, scenes: [] };
+export function artPlan(root, { lite = false, jpVoice = FULL_ZIP_JP_VOICE, optionalVoice = FULL_ZIP_OPTIONAL_VOICE, fx = FULL_ZIP_FX, heldThemes = HELD_THEME_GROUPS } = {}) {
+  if (lite) return { files: [], missing: [], orphans: [], held: [], fxHeld: [], themeHeld: [], local: false, scenes: [] };
   const listed = manifestFiles(readJson(path.join(root, 'data', 'assets.json')) ?? {});
   const local = isFile(path.join(root, 'data', 'local-assets.json'));
-  if (local) for (const f of manifestFiles(readJson(path.join(root, 'data', 'local-assets.json')) ?? {})) listed.add(f);
+  const rawLocal = local ? readJson(path.join(root, 'data', 'local-assets.json')) : null;
+  // the held theme groups and sprites (§37.232) are not listed in the shipped manifest: neither shipped nor missing
+  if (local) for (const f of manifestFiles(withoutHeldThemes(rawLocal ?? {}, heldThemes) ?? {})) listed.add(f);
+  const heldFiles = heldThemes.length ? heldEntryFiles(rawLocal) : new Set();
   const files = new Set();
   const missing = [];
   const held = [];
   const fxHeld = [];
+  const themeHeld = [];
+  const heldDirs = heldThemes.map(themeGroupDir);
   for (const f of listed) {
     if (!jpVoice && f.startsWith(JP_VOICE_DIR)) held.push(f);
     else if (!optionalVoice && OPTIONAL_VOICE_DIRS.some((d) => f.startsWith(d))) held.push(f);
@@ -320,17 +393,18 @@ export function artPlan(root, { lite = false, jpVoice = FULL_ZIP_JP_VOICE, optio
   for (const f of listTree(root, 'public/fonts')) files.add(f);
   const fxList = isFile(path.join(root, 'data', 'local-fx.json'));
   for (const f of listTree(root, 'public/assets/local')) {
-    if (!f.startsWith(FX_ART_PREFIX)) { if (local) files.add(f); } else if (fx && fxList) files.add(f); else fxHeld.push(f);
+    if (heldDirs.some((d) => f.startsWith(d)) || heldFiles.has(f)) themeHeld.push(f);
+    else if (!f.startsWith(FX_ART_PREFIX)) { if (local) files.add(f); } else if (fx && fxList) files.add(f); else fxHeld.push(f);
   }
   if (isFile(path.join(root, 'data', 'asset-hashes.json'))) files.add('data/asset-hashes.json');
   if (local) files.add('data/local-assets.json');
   if (fx && fxList) files.add('data/local-fx.json');
   // without case: on Windows / macOS a file whose name differs only in case is the listed one (fetch-assets orphanFiles)
-  const lower = new Set([...files, ...held, ...fxHeld].map((f) => f.toLowerCase()));
+  const lower = new Set([...files, ...held, ...fxHeld, ...themeHeld].map((f) => f.toLowerCase()));
   const orphans = listTree(root, 'public/assets').filter((f) => !lower.has(f.toLowerCase()));
   const sorted = [...files].sort();
   return {
-    files: sorted, missing: missing.sort(), orphans, held: held.sort(), fxHeld: fxHeld.sort(), local,
+    files: sorted, missing: missing.sort(), orphans, held: held.sort(), fxHeld: fxHeld.sort(), themeHeld: themeHeld.sort(), local,
     scenes: sorted.filter((f) => f.startsWith(SCENE_ART_PREFIX)),
   };
 }
@@ -605,7 +679,7 @@ export function plan(root, opts = {}) {
   const dropBytes = Object.values(dropped).reduce((n, g) => n + g.bytes, 0);
   return {
     version: pkg.version || '0.0.0', lite, tracked: keep, art: art.files, generated, files, dropped, orphans: art.orphans,
-    held: art.held, fxHeld: art.fxHeld, localArt: art.local, problems, names: names.length, scanned,
+    held: art.held, fxHeld: art.fxHeld, themeHeld: art.themeHeld || [], localArt: art.local, problems, names: names.length, scanned,
     scenes: { files: art.scenes || [], bytes: sumBytes(root, art.scenes || []) },
     bytes: {
       tracked: trackedBytes, art: artBytes, modules: modulesBytes, vendor: vendorBytes,
@@ -645,6 +719,7 @@ export function formatSummary(p) {
   if (!p.lite && p.orphans.length) lines.push(`left out art: ${p.orphans.length} files under public/assets that nothing lists (${MB(p.bytes.orphans)})`);
   if (!p.lite && p.held?.length) lines.push(`held back: ${p.held.length} voice files (FULL_ZIP_JP_VOICE / FULL_ZIP_OPTIONAL_VOICE off: setup downloads them on the first start)`);
   if (!p.lite && p.fxHeld?.length) lines.push(`held back: ${p.fxHeld.length} official effect files (public/assets/local/fx with data/local-fx.json, FULL_ZIP_FX off: extracted on this machine, not shipped)`);
+  if (!p.lite && p.themeHeld?.length) lines.push(`held back: ${p.themeHeld.length} files of ${HELD_THEME_GROUPS.join(', ')} (its group and its ui/outer sprites, with their data/local-assets.json entries: HELD_THEME_GROUPS / HELD_THEME_ENTRIES, an importable pack, --theme-packs)`);
   lines.push(`personal-info scan: ${p.scanned} files, ${p.names ? `home paths + ${p.names} account name(s)` : 'home paths only (no account name to refuse)'}`);
   lines.push(p.problems.length ? `PROBLEMS (${p.problems.length}):\n${p.problems.map((x) => `  ${x}`).join('\n')}` : 'checks: ok');
   return lines.join('\n') + '\n';
@@ -766,6 +841,22 @@ function freshTargets(targets, force) {
 }
 
 /**
+ * The staged data/local-assets.json without the held theme groups and sprites (§37.232): the client then offers no card
+ * for them. Returns whether the file changed.
+ * @param {string} stage @param {(m: string) => void} [log]
+ */
+export function holdBackStagedThemes(stage, log = () => {}) {
+  const file = path.join(stage, 'data', 'local-assets.json');
+  if (!isFile(file)) return false;
+  const doc = readJson(file);
+  const next = withoutHeldThemes(doc);
+  if (!doc || next === doc) return false;
+  fs.writeFileSync(file, JSON.stringify(next));
+  log(`data/local-assets.json: without ${HELD_THEME_GROUPS.join(', ')} (an importable pack, --theme-packs)`);
+  return true;
+}
+
+/**
  * Copy the plan into `stage`, write the pack index, npm ci (node_modules, public/vendor), write MANIFEST.json, check the
  * stage: what `build` zips and `buildUpdate` compares. Throws on a problem. Returns the staged files.
  */
@@ -774,6 +865,7 @@ function makeStage(root, p, stage, { install, env, log }) {
   log(`copying ${p.files.length - generated.size} files → ${stage}`);
   for (const rel of p.files) if (!generated.has(rel)) copyInto(root, stage, rel);
   rewritePlayerStage(stage, p);
+  holdBackStagedThemes(stage, log);
   if (generated.has(GENERATED_PACK_INDEX)) {
     const index = writePackIndex(stage, path.join(stage, GENERATED_PACK_INDEX));
     log(`${GENERATED_PACK_INDEX}: ${index.packs.map((x) => `${x.type} ${x.id}`).join(', ') || 'no pack'}`);

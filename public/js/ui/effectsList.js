@@ -29,6 +29,21 @@ const SOURCES = ['effects', 'bands', 'items', 'garrisons'];
  */
 export function effectDesc(e) {
   const desc = e.desc || '';
+  const ref = e.descRef;
+  if (ref?.kind === 'bandSkill') {
+    const band = typeof ref.bandId === 'string' ? data.lookup('bands', ref.bandId) : null;
+    const skill = band?.skills?.find((s) => s?.effectId === ref.effectId) || null;
+    if (skill) return commandDisplayText(skill.descRaw || skill.desc || desc);
+  }
+  if (ref?.kind === 'effect') {
+    const effect = typeof ref.effectId === 'string' ? data.lookup('effects', ref.effectId) : null;
+    if (effect) return effect.descRaw || effect.desc || desc;
+  }
+  if (ref?.kind === 'bondEffect') {
+    const bond = typeof ref.bondId === 'string' ? data.lookup('bonds', ref.bondId) : null;
+    const effect = typeof ref.effectId === 'string' ? data.lookup('effects', ref.effectId) : null;
+    if (bond && effect) return formatBondEffect(bondEffectRecord(bond, effect, ref.layers), ref.layers);
+  }
   if (!desc) return desc;
   for (const file of SOURCES) {
     for (const id of [e.id, e.iconId]) {

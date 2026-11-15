@@ -596,10 +596,13 @@ function Replay({ rec, onBack }) {
   const gd = useGameData();
   const res = useMemo(() => recordToResult(rec), [rec]);
   const version = recordVersion(rec);
-  const versionReady = useStore((c) => (version === DEFAULT_VERSION ? c.kind !== 'version' : c.kind === 'version' && c.version === version && c.status === 'ready'), Object.is, contentSet);
-  const failed = useStore((c) => version !== DEFAULT_VERSION && c.kind === 'version' && c.version === version && c.status === 'failed', Object.is, contentSet);
-  const shown = useStore(shownVersion);
   const inRoom = useStore((s) => !!s.room);
+  // the default data: any set but another version's; another version: its own set or the room's plugin set on it (§37.210)
+  const roomCs = useStore(roomPluginCs);
+  const versionState = useStore((c) => (version === DEFAULT_VERSION ? (c.kind === 'version' ? 'loading' : 'ready') : versionContentStatus(c, version, roomCs)), Object.is, contentSet);
+  const versionReady = versionState === 'ready';
+  const failed = version !== DEFAULT_VERSION && versionState === 'failed';
+  const shown = useStore(shownVersion);
   const offered = useStore((s) => versionOffered(s, version));
   if (!gd.ready || !versionReady || shown !== version) {
     return html`<${ReplayWait} version=${version} otherInRoom=${inRoom && shown !== version} offered=${offered} failed=${failed} inRoom=${inRoom} onBack=${onBack} />`;

@@ -100,6 +100,8 @@ SP_ACCOUNTS_DEV=1 npm start
 
 Demo **不存服务器**（用户 2026-11-15 决定：播放不能在服务端重跑，性能会爆炸）。全部在玩家浏览器完成：
 
+联机四人合并与视角切换方案见 `docs/TEAM_DEMO_MERGE.md`（服务端只合并帧，不重跑战斗）。
+
 - `public/js/demoRecorder.js`：对局中记录自己的每个 `g.*` 操作（`net.send` 包装）、`m.public` 棋盘帧，以及整条 S2C 消息流 `wire`（`net._emit` 包装，最多 40000 帧 / 8 MB），并录本地战斗真正喂给渲染器的 `b.snap` / `b.ev` / `m.field`（含玩家切去查看队友时仍在后台运行的自己那场战斗）；局末写入 IndexedDB；登录后后台再上传一份到云端。
 - **收尾规则**（用户 2026-11-15「不管是模拟中断，还是中途退出啥的，通通记录」）：`m.result` 结算 → 存；放弃模拟 / 房间散去 → 存；掉线（`net` status 变 `reconnecting` / `closed`）与页面隐藏 / `pagehide` → **先落盘再继续录**（同一 `id`，玩家回得来就用完整版覆盖，回不来也不会丢这一局）；另一标签页顶掉会话 → 存。唯一的例外是**没清完第一个回合就退出**的对局：不写 Demo（已落盘的副本会删掉），与统计的 `countsTowardStats` 同一条规则（`clearedRounds`）。
 - `public/js/demoStore.js`：IndexedDB `sp-demos` 库，按 `id` 存 `{ startedAt, endedAt, end, rounds, mode, difficulty, players, events, snapshots }`；**本机不限局数**（用户 2026-11-15）。另有一份 `sp.pref.demoIndex` 摘要（id / 开始时间 / 模式 / 步数 / 结局），供统计数据页判断哪一行有 Demo，不必把整份文档读出来。

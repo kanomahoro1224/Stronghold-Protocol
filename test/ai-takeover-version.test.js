@@ -6,8 +6,7 @@ import { startServer } from '../server/index.js';
 import { TestClient } from './helpers/wsClient.js';
 
 const VERSION = 'act1autochess';
-// 版本 host 首次 boot 要编译 kits/ops 270 个模块（本机 14.7 s），20 s 的预算会被启动吃掉一半
-const SLOW = 40000;
+const SLOW = 20000;
 
 test.describe('AI handover in an official version host', { concurrency: 1 }, () => {
   /** @type {Awaited<ReturnType<typeof startServer>> | null} */

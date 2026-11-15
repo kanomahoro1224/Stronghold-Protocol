@@ -1,0 +1,903 @@
+path	category	action	before	after	added	removed	status
+.gitattributes	upstream-added	待确认：路径已存在	e3a2b0b8ef31	d423c4f6d10e	2	0	adopted
+.github/workflows/local-extract-python.yml	auto-merge	三方无冲突合并	c34d0c20ec44	c34d0c20ec44	0	0	no-change
+.gitignore	auto-merge	三方无冲突合并	db3630094559	db3630094559	0	0	no-change
+CHANGELOG.md	text-conflict	冲突 1 处：采用上游	0afa14d78992	475f3e6cb704	29	2	merged-upstream
+README.md	auto-merge	三方无冲突合并	4e4036db8553	46e3747c4bd6	2	2	no-change
+data/assets.json	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	377dec5f4b93	377dec5f4b93	0	0	merged-local
+data/backups.json	auto-merge	三方无冲突合并	bdb67ae5d396	bdb67ae5d396	0	0	no-change
+data/chess.json	auto-merge	三方无冲突合并	1316abff8dfd	1316abff8dfd	0	0	no-change
+data/i18n/en.json	auto-merge	三方无冲突合并	f413cf3622e1	f413cf3622e1	0	0	no-change
+data/i18n/ja.json	auto-merge	三方无冲突合并	fe0a5272099c	fe0a5272099c	0	0	no-change
+data/i18n/ko.json	auto-merge	三方无冲突合并	b0741c057592	b0741c057592	0	0	no-change
+data/i18n/zh-TW.json	auto-merge	三方无冲突合并	92f5b81ab59d	92f5b81ab59d	0	0	no-change
+data/items.json	auto-merge	三方无冲突合并	8fac4e6a66b2	8fac4e6a66b2	0	0	no-change
+data/tokens.json	auto-merge	三方无冲突合并	8eec45782102	8eec45782102	0	0	no-change
+data/versions/act1autochess-v1_1/backups.json	auto-merge	三方无冲突合并	50f1eaa03df2	50f1eaa03df2	0	0	no-change
+data/versions/act1autochess-v1_1/config.json	auto-merge	三方无冲突合并	39047611ab68	39047611ab68	0	0	no-change
+data/versions/act1autochess-v1_1/enemies.json	auto-merge	三方无冲突合并	9dfb0153f522	9dfb0153f522	0	0	no-change
+data/versions/act1autochess-v1_1/items.json	auto-merge	三方无冲突合并	a955cb867c44	a955cb867c44	0	0	no-change
+data/versions/act1autochess/backups.json	auto-merge	三方无冲突合并	62d42f72372f	62d42f72372f	0	0	no-change
+data/versions/act1autochess/config.json	auto-merge	三方无冲突合并	8cdf95beeb5f	8cdf95beeb5f	0	0	no-change
+data/versions/act1autochess/enemies.json	auto-merge	三方无冲突合并	2d1461e487aa	2d1461e487aa	0	0	no-change
+data/versions/act1autochess/items.json	auto-merge	三方无冲突合并	a955cb867c44	a955cb867c44	0	0	no-change
+data/versions/act2autochess-v2_1/backups.json	auto-merge	三方无冲突合并	103bf0eca370	103bf0eca370	0	0	no-change
+data/versions/act2autochess-v2_1/items.json	auto-merge	三方无冲突合并	85c623065f84	85c623065f84	0	0	no-change
+data/versions/act3autochess-v3_1/backups.json	already-same	本地已有且内容一致，不改	91e5f5f0f296	91e5f5f0f296	0	0	no-change
+data/versions/act3autochess-v3_1/bands.json	already-same	本地已有且内容一致，不改	b2af8449c42d	b2af8449c42d	0	0	no-change
+data/versions/act3autochess-v3_1/bonds.json	already-same	本地已有且内容一致，不改	c19d17f7fd66	c19d17f7fd66	0	0	no-change
+data/versions/act3autochess-v3_1/bosses.json	already-same	本地已有且内容一致，不改	a7ba5b69bf6b	a7ba5b69bf6b	0	0	no-change
+data/versions/act3autochess-v3_1/chess.json	both-added	采用上游 0.4.0	14944490a8ad	b117255551a8	1	1	upstream
+data/versions/act3autochess-v3_1/choices.json	both-added	采用上游 0.4.0	ae722e3f35b4	beea74cf748a	1	1	upstream
+data/versions/act3autochess-v3_1/config.json	already-same	本地已有且内容一致，不改	c5a5e7e616ea	c5a5e7e616ea	0	0	no-change
+data/versions/act3autochess-v3_1/effects.json	both-added	采用上游 0.4.0	c7fee8540037	676b6a45dd96	1	1	upstream
+data/versions/act3autochess-v3_1/enemies.json	both-added	采用上游 0.4.0	d894e1433a1e	7aa99a6fb4cc	1	1	upstream
+data/versions/act3autochess-v3_1/factions.json	already-same	本地已有且内容一致，不改	12e3ca617906	12e3ca617906	0	0	no-change
+data/versions/act3autochess-v3_1/garrisons.json	already-same	本地已有且内容一致，不改	77fae76eb5eb	77fae76eb5eb	0	0	no-change
+data/versions/act3autochess-v3_1/items.json	both-added	采用上游 0.4.0	07d34bfdebbb	b89d45720c30	1	1	upstream
+data/versions/act3autochess-v3_1/stages.json	both-added	采用上游 0.4.0	e2823989709c	ab0b1ee503fa	1	1	upstream
+data/versions/act3autochess-v3_1/tokens.json	already-same	本地已有且内容一致，不改	a6d1189a3670	a6d1189a3670	0	0	no-change
+data/versions/act3autochess-v3_1/tuning.json	already-same	本地已有且内容一致，不改	931253292844	931253292844	0	0	no-change
+data/versions/act3autochess-v3_1/waves.json	already-same	本地已有且内容一致，不改	758206947ff7	758206947ff7	0	0	no-change
+docs/AI-STRATEGY.md	auto-merge	三方无冲突合并	e5516b6a1610	e5516b6a1610	0	0	no-change
+docs/ARCHITECTURE.md	auto-merge	三方无冲突合并	aa2237cc54b2	aa2237cc54b2	0	0	no-change
+docs/ASSETS.md	text-conflict	文档冲突 1 处采用上游；非冲突本地内容保留	a1c1ccd0cec2	fa8d724f2409	2	2	merged-doc-upstream
+docs/BALANCE.md	auto-merge	三方无冲突合并	2e0d0fa68010	2e0d0fa68010	0	0	no-change
+docs/BOT_STRATEGIES.md	auto-merge	三方无冲突合并	d0595c1560e7	d0595c1560e7	0	0	no-change
+docs/CI.md	auto-merge	三方无冲突合并	b9459522dae1	b9459522dae1	0	0	no-change
+docs/DATA.md	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	ad6a06d6f99b	c5ccfc8d952a	45	2	merged-doc-upstream
+docs/DEPLOY.md	text-conflict	文档冲突 1 处采用上游；非冲突本地内容保留	f047c20e98d4	fc8b8caa7b10	3	1	merged-doc-upstream
+docs/DESIGN.md	text-conflict	文档冲突 4 处采用上游；非冲突本地内容保留	104bbf4765d5	308718d08935	4	4	merged-doc-upstream
+docs/EXTERNAL_AI.md	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	02ad6a2ce4d8	9a58153d75e5	5	5	merged-doc-upstream
+docs/EXTERNAL_AI_ZH.md	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	355ba0666731	79113dbd92dc	5	5	merged-doc-upstream
+docs/I18N.md	auto-merge	三方无冲突合并	a878b2b65470	a878b2b65470	0	0	no-change
+docs/META.md	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	94ea0fd7ae96	c8039e4b4532	34	3	merged-doc-upstream
+docs/PLAYING.md	text-conflict	文档冲突 1 处采用上游；非冲突本地内容保留	6c074c392b84	e1d7489942a2	2	2	merged-doc-upstream
+docs/PLUGIN-API.md	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	2d937e582a9f	cc44896d0335	2	2	merged-doc-upstream
+docs/PLUGIN-GUIDE.md	text-conflict	文档冲突 1 处采用上游；非冲突本地内容保留	240c613cae1e	5a8e1476bee6	1	1	merged-doc-upstream
+docs/PLUGINS.md	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	ca553536eb6f	99b4ead32ca5	5	5	merged-doc-upstream
+docs/SIM.md	text-conflict	文档冲突 3 处采用上游；非冲突本地内容保留	cf729bb0a631	2d78dacab287	32	7	merged-doc-upstream
+docs/SKINS.md	auto-merge	三方无冲突合并	886bd635352a	886bd635352a	0	0	no-change
+docs/THEME-GUIDE.md	upstream-added	采用上游版本（本地未改动）		45e4dc2dae53	339	0	added
+docs/THEMES.md	both-added	采用上游 0.4.0	6f89abc36a66	8330837e70b7	76	10	upstream
+docs/design/client.md	text-conflict	文档冲突 5 处采用上游；非冲突本地内容保留	0f41f058a06c	51ca022f03c7	37	6	merged-doc-upstream
+docs/design/engine.md	auto-merge	三方无冲突合并	e4df2bbff616	833e1a005638	35	1	merged
+docs/design/match.md	text-conflict	文档冲突 3 处采用上游；非冲突本地内容保留	b8907462d4b4	78a6544f5d32	56	10	merged-doc-upstream
+docs/design/network.md	text-conflict	文档冲突 3 处采用上游；非冲突本地内容保留	2652bb59be37	c366ca5ced30	3	3	merged-doc-upstream
+docs/design/overview.md	text-conflict	文档冲突 1 处采用上游；非冲突本地内容保留	2e5d3febcdc7	fcdfd4f86fed	1	1	merged-doc-upstream
+docs/design/vfx-format.md	text-conflict	文档冲突 3 处采用上游；非冲突本地内容保留	f233f5ae4ebd	6dc65b042aac	3	3	merged-doc-upstream
+docs/examples/offers-demo/plugin.json	upstream-added	采用上游版本（本地未改动）	b19f6bb82674	7996cb654e2b	1	1	adopted
+docs/examples/ui-theme-demo/banners/coop.webp	upstream-added	采用上游版本（本地未改动）		d0756d1df452	187	0	added
+docs/examples/ui-theme-demo/banners/result.png	upstream-added	采用上游版本（本地未改动）		6e1cfcfa7b89	28	0	added
+docs/examples/ui-theme-demo/character/neon.atlas	upstream-added	采用上游版本（本地未改动）		4f74914edcc2	27	0	added
+docs/examples/ui-theme-demo/character/neon.json	upstream-added	采用上游版本（本地未改动）		3e0867820af2	201	0	added
+docs/examples/ui-theme-demo/character/neon.png	upstream-added	采用上游版本（本地未改动）		2cf8ad09850d	29	0	added
+docs/examples/ui-theme-demo/theme.json	upstream-added	采用上游版本（本地未改动）		6f480a77ae97	64	0	added
+docs/examples/ui-theme-demo/thumb.png	upstream-added	采用上游版本（本地未改动）		9c486b54d1c6	44	0	added
+docs/examples/ui-theme-demo/ui/band.png	upstream-added	采用上游版本（本地未改动）		248f1cda84f8	10	0	added
+docs/examples/ui-theme-demo/ui/countdown.png	upstream-added	采用上游版本（本地未改动）		dca74a5a8417	32	0	added
+docs/examples/ui-theme-demo/ui/frame.png	upstream-added	采用上游版本（本地未改动）		9d448ddab876	10	0	added
+docs/examples/ui-theme-demo/ui/ready.png	upstream-added	采用上游版本（本地未改动）		be7aca730235	15	0	added
+docs/examples/ui-theme-demo/ui/shop.png	upstream-added	采用上游版本（本地未改动）		e3c315e0289d	267	0	added
+docs/examples/ui-theme/theme.json	both-added	采用上游 0.4.0	90b6c90aaffb	84af83dde023	2	0	upstream
+docs/history/0.3.3.md	auto-merge	三方无冲突合并	4349235d3053	4349235d3053	0	0	no-change
+docs/history/0.4.0.md	upstream-added	采用上游版本（本地未改动）		8f1b17df589b	4530	0	added
+docs/img/theme-guide/covenant-slots.jpg	upstream-added	采用上游版本（本地未改动）		cb93d4f68588	7862	0	added
+docs/img/theme-guide/regulation-slots.jpg	upstream-added	采用上游版本（本地未改动）		3a973181b862	7541	0	added
+docs/img/theme-guide/settings.jpg	upstream-added	采用上游版本（本地未改动）		6aff556dfb69	2351	0	added
+docs/img/theme-guide/unite.jpg	upstream-added	采用上游版本（本地未改动）		2a0d277a7cdd	2044	0	added
+docs/plugin-catalog.example.json	upstream-added	采用上游版本（本地未改动）	f00ce6ff3944	99ebb058a099	1	1	adopted
+docs/research/boss-hit-areas-20261112.json	upstream-added	采用上游版本（本地未改动）		61648e2df0af	2002	0	added
+docs/research/boss-hit-areas-20261112.md	upstream-added	采用上游版本（本地未改动）		4a76a1a036f9	101	0	added
+docs/research/cocoon-client-fields-20261112.json	upstream-added	采用上游版本（本地未改动）		ab523b0cd044	239	0	added
+docs/research/cocoon-client-fields-20261112.md	upstream-added	采用上游版本（本地未改动）		5acdaa956f7a	21	0	added
+docs/research/regulation-core-ban-video-20261114.json	upstream-added	采用上游版本（本地未改动）		c3c6597803c8	41	0	added
+docs/research/regulation-core-ban-video-20261114.md	upstream-added	采用上游版本（本地未改动）		bef77b195929	44	0	added
+docs/research/regulation-map09-20261112.json	upstream-added	采用上游版本（本地未改动）		cea79d51aa92	574	0	added
+docs/research/sarkaz-death-spawns-20261113.json	upstream-added	采用上游版本（本地未改动）		4c6ab633d405	206	0	added
+docs/research/sarkaz-death-spawns-20261113.md	upstream-added	采用上游版本（本地未改动）		cd2f50175c0a	39	0	added
+docs/research/versions/blackboard-review.json	auto-merge	三方无冲突合并	c2e69c44f4cf	c2e69c44f4cf	0	0	no-change
+package-lock.json	auto-merge	三方无冲突合并	859dd5c479f1	f507cdc2d4d3	2	2	merged
+package.json	auto-merge	三方无冲突合并	16b9172fa252	1f4a11917f77	1	1	no-change
+plugins/README.md	upstream-added	待确认：路径已存在	1b73f02cbe0d	fdba33c0ee9c	1	1	adopted
+plugins/_template/content/plugin.json	upstream-added	待确认：路径已存在	26e0d463b8bc	0ce562425a73	1	1	adopted
+plugins/_template/cosmetic/plugin.json	upstream-added	待确认：路径已存在	ab580b956efd	7a7cff78ea57	1	1	adopted
+plugins/_template/script/plugin.json	upstream-added	待确认：路径已存在	5280a6aae98f	373cfac3e5c1	1	1	adopted
+plugins/_template/ui/plugin.json	upstream-added	待确认：路径已存在	0654c509df28	ecf6b2897c06	1	1	adopted
+public/css/components.css	text-conflict	冲突 3 处：保留本地功能，上游非冲突内容保留	cfaad8a0af00	cfaad8a0af00	0	0	merged-local
+public/css/devices.css	auto-merge	三方无冲突合并	342577897339	342577897339	0	0	no-change
+public/css/screens/briefing.css	auto-merge	三方无冲突合并	0443071df342	0443071df342	0	0	no-change
+public/css/screens/diy-check.css	already-same	本地已有且内容一致，不改	ba25c71c627f	ba25c71c627f	0	0	no-change
+public/css/screens/draft.css	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	6ec358ee0a6a	6ec358ee0a6a	0	0	merged-local
+public/css/screens/game-panels.css	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	3182c4e8f3ee	28ffa770b907	5	0	merged-local
+public/css/screens/game-reghud.css	both-added	采用上游 0.4.0	0748213d0503	07e0c988050e	82	39	upstream
+public/css/screens/game-shop.css	auto-merge	三方无冲突合并	6a421d57af7d	d214663f8613	24	0	no-change
+public/css/screens/game.css	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	5402699be1bb	8617cccc4ba5	5	1	merged-local
+public/css/screens/loadout.css	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	5f9a6e687c37	5f9a6e687c37	0	0	merged-local
+public/css/screens/lobby.css	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	85395a539a7e	85395a539a7e	0	0	merged-local
+public/css/screens/room.css	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	ef3cf7cb1f7e	ef3cf7cb1f7e	0	0	merged-local
+public/css/screens/sweep.css	auto-merge	三方无冲突合并	7833cbb38498	7833cbb38498	0	0	no-change
+public/css/screens/title.css	text-conflict	冲突 4 处：保留本地功能，上游非冲突内容保留	d907289ce132	d907289ce132	0	0	merged-local
+public/css/ui-theme.css	both-added	采用上游 0.4.0	7eb9f3da04dc	3f63a85f6431	45	15	upstream
+public/dev/game-mock.html	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	378ba00d7742	378ba00d7742	0	0	merged-local
+public/dev/game-mock.js	auto-merge	三方无冲突合并	3f1310cd3228	3f1310cd3228	0	0	no-change
+public/dev/prefab-lab.html	already-same	本地已有且内容一致，不改	18d51b3cdab2	18d51b3cdab2	0	0	no-change
+public/dev/prefab-lab.js	already-same	本地已有且内容一致，不改	4f8381020c15	4f8381020c15	0	0	no-change
+public/dev/render-demo.js	auto-merge	三方无冲突合并	0ab6ed2e5bfd	0ab6ed2e5bfd	0	0	no-change
+public/i18n/en.json	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	528c8a008dd0	528c8a008dd0	0	0	merged-local
+public/i18n/ja.json	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	6431859302c8	6431859302c8	0	0	merged-local
+public/i18n/ko.json	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	ede44e16b272	ede44e16b272	0	0	merged-local
+public/i18n/zh-TW.json	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	c353787aa952	c353787aa952	0	0	merged-local
+public/index.html	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	a2aede9d624b	a2aede9d624b	0	0	merged-local
+public/js/assetCache.js	auto-merge	三方无冲突合并	950075c98270	950075c98270	0	0	no-change
+public/js/assetDownload.js	auto-merge	三方无冲突合并	a331167aacbd	a331167aacbd	0	0	no-change
+public/js/assetPack.js	auto-merge	三方无冲突合并	8b165f642af5	8b165f642af5	0	0	no-change
+public/js/assets.js	auto-merge	三方无冲突合并	ec62099cc84a	ec62099cc84a	0	0	no-change
+public/js/audio.js	text-conflict	冲突 4 处：保留本地功能，上游非冲突内容保留	d7a63c2b304e	7039b76eb208	12	8	merged-local
+public/js/battle/observe.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	5cd39699a826	6c5ad6fc4196	20	6	merged-local
+public/js/battle/runner.js	auto-merge	三方无冲突合并	be89c263819e	be89c263819e	0	0	no-change
+public/js/battle/simHost.js	auto-merge	三方无冲突合并	02572f2b55dd	02572f2b55dd	0	0	no-change
+public/js/battle/simWorkerRuntime.js	auto-merge	三方无冲突合并	74dfc6e84c1f	74dfc6e84c1f	0	0	no-change
+public/js/content.js	auto-merge	三方无冲突合并	8485e4376f6c	8485e4376f6c	0	0	no-change
+public/js/data.js	auto-merge	三方无冲突合并	61067551ccd7	689ee31ad098	5	1	no-change
+public/js/itemProgress.js	already-same	本地已有且内容一致，不改	b806868a7bc4	b806868a7bc4	0	0	no-change
+public/js/main.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	d148f7c0e20e	d148f7c0e20e	0	0	merged-local
+public/js/net.js	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	60269aef971a	60269aef971a	0	0	merged-local
+public/js/p2p.js	already-same	本地已有且内容一致，不改	9fcee0c40d89	9fcee0c40d89	0	0	no-change
+public/js/render/app.js	auto-merge	三方无冲突合并	c2214927187d	e5577936c392	30	0	no-change
+public/js/render/app/info.js	auto-merge	三方无冲突合并	84bea0ad3f4f	84bea0ad3f4f	0	0	no-change
+public/js/render/app/windup.js	auto-merge	三方无冲突合并	38f6857d55a3	38f6857d55a3	0	0	no-change
+public/js/render/board3d/layout.js	upstream-added	待确认：路径已存在	83c7fdcba025	2867c63b9ca9	12	1	adopted
+public/js/render/board3d/load.js	auto-merge	三方无冲突合并	d4799a4d9718	d4799a4d9718	0	0	no-change
+public/js/render/board3d/materials.js	auto-merge	三方无冲突合并	1f6d0eb245a7	a5d91130407a	16	0	no-change
+public/js/render/board3d/scene.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	5055ddd02f4c	0995bca11f12	4	2	merged-local
+public/js/render/drag.js	auto-merge	三方无冲突合并	1c29a2ecac3a	1c29a2ecac3a	0	0	no-change
+public/js/render/fx/fonts.js	auto-merge	三方无冲突合并	ff17f954ce4c	ff17f954ce4c	0	0	no-change
+public/js/render/fx/kinds.js	auto-merge	三方无冲突合并	13092a8471bc	13092a8471bc	0	0	no-change
+public/js/render/fx/numbers.js	auto-merge	三方无冲突合并	1aa86b13de19	1aa86b13de19	0	0	no-change
+public/js/render/fx/simfx.js	auto-merge	三方无冲突合并	d30b1a54e49a	d30b1a54e49a	0	0	no-change
+public/js/render/fx/system.js	auto-merge	三方无冲突合并	35b990f4190f	35b990f4190f	0	0	no-change
+public/js/render/fx/zones.js	auto-merge	三方无冲突合并	c2fbe62b49b4	c2fbe62b49b4	0	0	no-change
+public/js/render/interp.js	auto-merge	三方无冲突合并	7e434b7b66d0	7e434b7b66d0	0	0	no-change
+public/js/render/projection.js	auto-merge	三方无冲突合并	00609e8f1b37	00609e8f1b37	0	0	no-change
+public/js/render/resourceNumbers.js	already-same	本地已有且内容一致，不改	13f3a5452a49	13f3a5452a49	0	0	no-change
+public/js/render/style.js	auto-merge	三方无冲突合并	00a97ab45431	c6f43a9045b8	2	1	no-change
+public/js/render/textures.js	upstream-added	待确认：路径已存在	2ac64701c13f	b9d362814a73	11	1	adopted
+public/js/render/tiles.js	auto-merge	三方无冲突合并	27f6749c909b	0187866f672d	4	3	no-change
+public/js/render/units.js	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	f138c15d4b96	65a6b82b5da0	17	6	merged-local
+public/js/render/vfx/effect.js	auto-merge	三方无冲突合并	b86bbafc7b9c	b86bbafc7b9c	0	0	no-change
+public/js/render/vfx/skillfx.js	auto-merge	三方无冲突合并	a730a1f8139f	a730a1f8139f	0	0	no-change
+public/js/render/vfx/skills.js	auto-merge	三方无冲突合并	567738d26316	567738d26316	0	0	no-change
+public/js/render/vfx/system.js	auto-merge	三方无冲突合并	0958f158f566	0958f158f566	0	0	no-change
+public/js/render/vfx/talentfx.js	auto-merge	三方无冲突合并	4b0f569cb0c4	4b0f569cb0c4	0	0	no-change
+public/js/render/vfx/talents.js	auto-merge	三方无冲突合并	b5adea8bdf5d	b5adea8bdf5d	0	0	no-change
+public/js/render/vfx/wiring.js	auto-merge	三方无冲突合并	844c6599e8ff	844c6599e8ff	0	0	no-change
+public/js/resourceCheck.js	already-same	本地已有且内容一致，不改	d1353a668ae5	d1353a668ae5	0	0	no-change
+public/js/screens/bandDraft.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	8a4565d7bb99	8a4565d7bb99	0	0	merged-local
+public/js/screens/briefing.js	auto-merge	三方无冲突合并	497a02a78ad0	497a02a78ad0	0	0	no-change
+public/js/screens/cultivation.js	auto-merge	三方无冲突合并	9682e8035bb8	9682e8035bb8	0	0	no-change
+public/js/screens/diy.js	auto-merge	三方无冲突合并	add73904c44b	add73904c44b	0	0	no-change
+public/js/screens/diyCheck.js	already-same	本地已有且内容一致，不改	a2e1494d6dfc	a2e1494d6dfc	0	0	no-change
+public/js/screens/game.js	text-conflict	冲突 7 处：保留本地功能，上游非冲突内容保留	ae2dc0c9dbb0	a493c2160ba9	29	15	merged-manual
+public/js/screens/game/range.js	upstream-added	待确认：路径已存在	a122ac7e6ae4	4ef13cd8d709	2	1	adopted
+public/js/screens/loadout.js	auto-merge	三方无冲突合并	bdc55c5ed942	5eac308bba50	1	1	no-change
+public/js/screens/lobby.js	text-conflict	冲突 8 处：保留本地功能，上游非冲突内容保留	85fb4c432296	85fb4c432296	0	0	merged-local
+public/js/screens/room.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	de2f15ad5f03	de2f15ad5f03	0	0	merged-local
+public/js/screens/settle.js	auto-merge	三方无冲突合并	27f954ce8376	27f954ce8376	0	0	no-change
+public/js/screens/stats.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	57c8c636fe65	9b1d8608b038	6	3	merged-local
+public/js/screens/sweep.js	auto-merge	三方无冲突合并	a8741a929107	a8741a929107	0	0	no-change
+public/js/screens/title.js	text-conflict	冲突 3 处：保留本地功能，上游非冲突内容保留	a4b8b2d3d216	a4b8b2d3d216	0	0	merged-local
+public/js/themeSpine.js	upstream-added	新增（采用上游）		50f6cfe05573	71	0	added
+public/js/ui/allianceScene.js	already-same	本地已有且内容一致，不改	14c5adb3b3aa	14c5adb3b3aa	0	0	no-change
+public/js/ui/assetDownload.js	auto-merge	三方无冲突合并	500023670d25	500023670d25	0	0	no-change
+public/js/ui/assetImport.js	auto-merge	三方无冲突合并	bd2858d4ad61	bd2858d4ad61	0	0	no-change
+public/js/ui/assetUrls.js	auto-merge	三方无冲突合并	56d3b0c26cab	0c681449ee1c	6	0	no-change
+public/js/ui/avatarBadges.js	already-same	本地已有且内容一致，不改	eede30d27ad3	eede30d27ad3	0	0	no-change
+public/js/ui/bandCommand.js	already-same	本地已有且内容一致，不改	29208094aa84	29208094aa84	0	0	no-change
+public/js/ui/bondEffect.js	upstream-added	新增（采用上游）		222f4c3f1db9	27	0	added
+public/js/ui/bondStrip.js	text-conflict	冲突 3 处：保留本地功能，上游非冲突内容保留	7096d405c916	c7c04f615125	14	8	merged-local
+public/js/ui/bossPlates.js	auto-merge	三方无冲突合并	89aa1fd14801	89aa1fd14801	0	0	no-change
+public/js/ui/choiceOverlay.js	text-conflict	冲突 4 处：保留本地功能，上游非冲突内容保留	73f3aaa4711c	73f3aaa4711c	0	0	merged-local
+public/js/ui/comboBox.js	already-same	本地已有且内容一致，不改	135ff2a9bef3	135ff2a9bef3	0	0	no-change
+public/js/ui/components.js	text-conflict	冲突 4 处：保留本地功能，上游非冲突内容保留	fdd9ae1e59b5	563d530844b9	1	1	merged-local
+public/js/ui/detailPanel.js	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	f81a4bd456fd	433ab3bf5e7c	27	4	merged-local
+public/js/ui/effectsList.js	text-conflict	冲突 3 处：保留本地功能，上游非冲突内容保留	940ed561a779	3097c40993e7	15	0	merged-local
+public/js/ui/enemyDrawer.js	auto-merge	三方无冲突合并	7b774b2b09b1	7b774b2b09b1	0	0	no-change
+public/js/ui/entryFilm.js	both-added	采用上游 0.4.0	3131a3930785	e93fd86e310b	40	10	upstream
+public/js/ui/equipReplace.js	auto-merge	三方无冲突合并	cc2ac701d366	ef9f23ec215b	9	6	no-change
+public/js/ui/facing.js	auto-merge	三方无冲突合并	ab65da39263d	4c00dc0b556a	7	1	no-change
+public/js/ui/facingWheel.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	f2ae8140b8e8	a83e61800345	19	17	merged-local
+public/js/ui/fallbackField.js	auto-merge	三方无冲突合并	594dd6f658a1	43415c32920a	9	4	no-change
+public/js/ui/fieldHost.js	auto-merge	三方无冲突合并	0ce4564e07db	0ce4564e07db	0	0	no-change
+public/js/ui/gameActions.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	9d86f3f78737	9d86f3f78737	0	0	merged-local
+public/js/ui/gameComponents.js	auto-merge	三方无冲突合并	969cef29e861	68bc21f9f24f	7	1	no-change
+public/js/ui/gameLogic.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	7942375c50c8	7942375c50c8	0	0	merged-local
+public/js/ui/gameLogic/bonds.js	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	562527755f33	562527755f33	0	0	merged-local
+public/js/ui/gameLogic/camera.js	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	e339038dd395	e339038dd395	0	0	merged-local
+public/js/ui/gameLogic/diy.js	upstream-added	待确认：路径已存在	6e95eacddc38	5f4957b917a0	1	1	adopted
+public/js/ui/gameLogic/panel.js	auto-merge	三方无冲突合并	1d5ebeaa6aee	1d5ebeaa6aee	0	0	no-change
+public/js/ui/gameLogic/phases.js	auto-merge	三方无冲突合并	af8d5db4f198	aa1f39e30e4d	19	3	no-change
+public/js/ui/gameLogic/placement.js	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	0b037ccc40f6	b298eb44bd65	3	2	merged-local
+public/js/ui/gameLogic/settings.js	text-conflict	冲突 6 处：保留本地功能，上游非冲突内容保留	7eaa11cdfa0b	7eaa11cdfa0b	0	0	merged-local
+public/js/ui/gameLogic/shop.js	auto-merge	三方无冲突合并	9146e50c5719	9146e50c5719	0	0	no-change
+public/js/ui/gameLogic/terrain.js	upstream-added	待确认：路径已存在	051abe81dc3c	bf9436374671	8	1	adopted
+public/js/ui/hud.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	f57bc602d9ee	f57bc602d9ee	0	0	merged-local
+public/js/ui/lang.js	text-conflict	冲突 3 处：保留本地功能，上游非冲突内容保留	e3e4dffa6e46	e3e4dffa6e46	0	0	merged-local
+public/js/ui/leaderRank.js	already-same	本地已有且内容一致，不改	c3659d476193	c3659d476193	0	0	no-change
+public/js/ui/loadoutSync.js	auto-merge	三方无冲突合并	03de8457b6fb	03de8457b6fb	0	0	no-change
+public/js/ui/lobbyMedia.js	auto-merge	三方无冲突合并	cbc77080c08e	cbc77080c08e	0	0	no-change
+public/js/ui/matchChrome.js	auto-merge	三方无冲突合并	9a8f25e6cbfe	9a8f25e6cbfe	0	0	no-change
+public/js/ui/matchEnemies.js	auto-merge	三方无冲突合并	c1afd83d5d24	c1afd83d5d24	0	0	no-change
+public/js/ui/matchInfo.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	479ae09c2b24	479ae09c2b24	0	0	merged-local
+public/js/ui/matchPopups.js	auto-merge	三方无冲突合并	2d67c8d690e6	2d67c8d690e6	0	0	no-change
+public/js/ui/operatorVoice.js	auto-merge	三方无冲突合并	936ee7de9581	936ee7de9581	0	0	no-change
+public/js/ui/pluginPanel.js	auto-merge	三方无冲突合并	86f1c024a1f0	86f1c024a1f0	0	0	no-change
+public/js/ui/pluginSettings.js	auto-merge	三方无冲突合并	ab5f3efe1e50	ab5f3efe1e50	0	0	no-change
+public/js/ui/prefab/anim.js	already-same	本地已有且内容一致，不改	e67a82a0f6a6	e67a82a0f6a6	0	0	no-change
+public/js/ui/prefab/banners.js	both-added	采用上游 0.4.0	e24e23818f5c	fdf894a6800d	7	4	upstream
+public/js/ui/prefab/color.js	already-same	本地已有且内容一致，不改	3f95c31f937d	3f95c31f937d	0	0	no-change
+public/js/ui/prefab/hud.js	already-same	本地已有且内容一致，不改	04e2f404e291	04e2f404e291	0	0	no-change
+public/js/ui/prefab/layout.js	already-same	本地已有且内容一致，不改	a63d962d0550	a63d962d0550	0	0	no-change
+public/js/ui/prefab/player.js	already-same	本地已有且内容一致，不改	9037e4979b80	9037e4979b80	0	0	no-change
+public/js/ui/prefab/stage.js	already-same	本地已有且内容一致，不改	17f8da855838	17f8da855838	0	0	no-change
+public/js/ui/prefab/view.js	both-added	采用上游 0.4.0	64529e088948	635d77151760	25	9	upstream
+public/js/ui/protocolBoot.js	auto-merge	三方无冲突合并	ec4ef05ec925	ec4ef05ec925	0	0	no-change
+public/js/ui/rangeStyle.js	upstream-added	新增（采用上游）		ae48ee4da90c	16	0	added
+public/js/ui/regHud.js	both-added	采用上游 0.4.0	4996659e3929	a7a97d0d60b4	502	3	upstream
+public/js/ui/regulationBackdrop.js	already-same	本地已有且内容一致，不改	91bf1746983d	91bf1746983d	0	0	no-change
+public/js/ui/regulationBriefing.js	already-same	本地已有且内容一致，不改	ca39790c1688	ca39790c1688	0	0	no-change
+public/js/ui/regulationFilm.js	already-same	本地已有且内容一致，不改	9a425f9ad3bc	9a425f9ad3bc	0	0	no-change
+public/js/ui/releaseNotes.js	already-same	本地已有且内容一致，不改	5e8b2c61679e	5e8b2c61679e	0	0	no-change
+public/js/ui/releaseNotesModel.js	already-same	本地已有且内容一致，不改	57997b1a06da	57997b1a06da	0	0	no-change
+public/js/ui/resourceCheck.js	already-same	本地已有且内容一致，不改	e6ed44569a24	e6ed44569a24	0	0	no-change
+public/js/ui/resourceManager.js	already-same	本地已有且内容一致，不改	c8a7aa9ad866	c8a7aa9ad866	0	0	no-change
+public/js/ui/richText.js	auto-merge	三方无冲突合并	6a2ad40f0452	6a2ad40f0452	0	0	no-change
+public/js/ui/screenFit.js	auto-merge	三方无冲突合并	ac5833cf0769	ac5833cf0769	0	0	no-change
+public/js/ui/seatArt.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	e1743ed8da6b	e1743ed8da6b	0	0	merged-local
+public/js/ui/settings.js	text-conflict	冲突 6 处：保留本地功能，上游非冲突内容保留	8bc0dd1ffbcf	8bc0dd1ffbcf	0	0	merged-local
+public/js/ui/settingsStore.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	a54b06f56a61	a54b06f56a61	0	0	merged-local
+public/js/ui/shopBar.js	text-conflict	冲突 18 处：保留本地功能，上游非冲突内容保留	aa25714adb63	33c7c831ea6f	23	12	merged-local
+public/js/ui/showTags.js	already-same	本地已有且内容一致，不改	5ec2d8b04915	5ec2d8b04915	0	0	no-change
+public/js/ui/skins.js	auto-merge	三方无冲突合并	aed135fd9985	aed135fd9985	0	0	no-change
+public/js/ui/stagePreview.js	already-same	本地已有且内容一致，不改	4db3205da791	4db3205da791	0	0	no-change
+public/js/ui/stageThumb.js	already-same	本地已有且内容一致，不改	e307e2e33663	e307e2e33663	0	0	no-change
+public/js/ui/strategyProgress.js	already-same	本地已有且内容一致，不改	eefc99b951c2	eefc99b951c2	0	0	no-change
+public/js/ui/teamPanel.js	auto-merge	三方无冲突合并	2eae42c9d80b	2eae42c9d80b	0	0	no-change
+public/js/ui/themeCharacter.js	both-added	采用上游 0.4.0	d7f49fc2646e	f4689834b9fe	22	10	upstream
+public/js/ui/themeSettings.js	both-added	采用上游 0.4.0	4b3031f77cb9	cd04817f776c	2	1	upstream
+public/js/ui/toasts.js	auto-merge	三方无冲突合并	4bc7808b8a76	4bc7808b8a76	0	0	no-change
+public/js/ui/turnPopup.js	upstream-added	待确认：路径已存在	1afc0d0ee449	88ab48a55a99	11	13	adopted
+public/js/ui/underframe.js	auto-merge	三方无冲突合并	b9c5a18ad614	b9c5a18ad614	0	0	no-change
+public/js/ui/versionPicker.js	auto-merge	三方无冲突合并	efdd759d884a	efdd759d884a	0	0	no-change
+public/js/ui/voiceLibrary.js	already-same	本地已有且内容一致，不改	4a972c286102	4a972c286102	0	0	no-change
+public/js/ui/watchBonds.js	auto-merge	三方无冲突合并	5a27925ef57e	5a27925ef57e	0	0	no-change
+public/js/uiTheme.js	both-added	采用上游 0.4.0	79c7507e99e6	bfbb012cd644	305	45	upstream
+public/js/versions.js	auto-merge	三方无冲突合并	1c4bea495f17	6e3f6cbe4a4b	24	0	no-change
+public/js/voiceDownloads.js	already-same	本地已有且内容一致，不改	fd90cab44ea8	fd90cab44ea8	0	0	no-change
+public/studio/js/info.js	auto-merge	三方无冲突合并	9ae62b360f22	9ae62b360f22	0	0	no-change
+public/sw.js	local-deleted	恢复上游 0.4.0		7494b9e4d836	42	0	restored-upstream
+schemas/catalog.schema.json	auto-merge	三方无冲突合并	5f004150c34e	5f004150c34e	0	0	no-change
+schemas/overlay.schema.json	auto-merge	三方无冲突合并	a4375c798216	a4375c798216	0	0	no-change
+schemas/plugin.schema.json	auto-merge	三方无冲突合并	f6139f3dc7cd	69437c6349ad	1	1	no-change
+server/ai/community-candidates.js	auto-merge	三方无冲突合并	432a6b1613f2	432a6b1613f2	0	0	no-change
+server/ai/cycle-candidates.js	auto-merge	三方无冲突合并	6a9a78bbb734	6a9a78bbb734	0	0	no-change
+server/ai/knowledge.js	auto-merge	三方无冲突合并	5020587c46a4	5020587c46a4	0	0	no-change
+server/ai/playbook.js	auto-merge	三方无冲突合并	8df6b030faa7	8df6b030faa7	0	0	no-change
+server/ai/strategy-community.js	auto-merge	三方无冲突合并	2542f4a1fb73	2542f4a1fb73	0	0	no-change
+server/ai/strategy.js	text-conflict	冲突 1 处：采用上游 0.4.0 行为	5900c5cd40f4	325cd7816d7d	2	3	merged-upstream
+server/ai/transport.js	auto-merge	三方无冲突合并	bb332800bd09	bb332800bd09	0	0	no-change
+server/aiTakeover.js	auto-merge	三方无冲突合并	6fc5fd1be400	6fc5fd1be400	0	0	no-change
+server/http/config.js	auto-merge	三方无冲突合并	dba938d0fc37	dba938d0fc37	0	0	no-change
+server/http/static.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	0d1f88d85ef0	0d1f88d85ef0	0	0	merged-local
+server/index.js	auto-merge	三方无冲突合并	89eb3311e2fe	89eb3311e2fe	0	0	no-change
+server/lobby.js	text-conflict	冲突 10 处：保留本地功能，上游非冲突内容保留	18ce7f535d4a	37c3ed51527f	0	6	merged-manual
+server/match/Match.js	text-conflict	冲突 2 处：采用上游 0.4.0 行为	5c9e1cc5680a	0526e6e7f030	7	6	merged-upstream
+server/match/PlayerState.js	auto-merge	三方无冲突合并	c9f81c2fb5c3	c9f81c2fb5c3	0	0	no-change
+server/match/aiDigest.js	auto-merge	三方无冲突合并	fe119967a190	fe119967a190	0	0	no-change
+server/match/aiEconomy.js	auto-merge	三方无冲突合并	37ddc7f48768	37ddc7f48768	0	0	no-change
+server/match/aiPlan.js	auto-merge	三方无冲突合并	e39db4c51976	e39db4c51976	0	0	no-change
+server/match/audit.js	auto-merge	三方无冲突合并	3c4d760acdad	3c4d760acdad	0	0	no-change
+server/match/bandCommandEffects.js	already-same	本地已有且内容一致，不改	fd85463f7249	fd85463f7249	0	0	no-change
+server/match/bandCommands.js	both-added	采用上游 0.4.0	a3efb3fdd51b	e14337140d31	25	5	upstream
+server/match/bandProgress.js	already-same	本地已有且内容一致，不改	5cd89ec19d29	5cd89ec19d29	0	0	no-change
+server/match/bondsMeta.js	text-conflict	冲突 1 处：采用上游 0.4.0 行为	5023a612ddbc	4a1473b0945c	28	5	merged-upstream
+server/match/bot.js	text-conflict	冲突 6 处：采用上游 0.4.0 行为	cb6c7acff03d	1e4567a22bee	16	5	merged-upstream
+server/match/botBondGroups.js	already-same	本地已有且内容一致，不改	45afe37facea	45afe37facea	0	0	no-change
+server/match/botPrep.js	auto-merge	三方无冲突合并	de70ec25124c	de70ec25124c	0	0	no-change
+server/match/botStrategies.js	auto-merge	三方无冲突合并	c062de5bf8a4	c062de5bf8a4	0	0	no-change
+server/match/builtinMeta.js	text-conflict	冲突 1 处：采用上游 0.4.0 行为	70b704c208e4	e6e67c71eb2c	10	4	merged-upstream
+server/match/effectsMeta.js	auto-merge	三方无冲突合并	33ddfc8c7b42	9ac0bc5c781f	24	1	no-change
+server/match/externalAI.js	auto-merge	三方无冲突合并	cc2150240433	cc2150240433	0	0	no-change
+server/match/externalConfig.js	auto-merge	三方无冲突合并	0225b1cb794c	0225b1cb794c	0	0	no-change
+server/match/fields.js	auto-merge	三方无冲突合并	a080559cde9a	a080559cde9a	0	0	no-change
+server/match/finalAssault.js	auto-merge	三方无冲突合并	92f5a13aa5bf	92f5a13aa5bf	0	0	no-change
+server/match/gamedata.js	text-conflict	冲突 2 处：采用上游 0.4.0 行为	4049b52faa18	859f52baca0f	9	6	merged-upstream
+server/match/host/entry.js	auto-merge	三方无冲突合并	fd51ff8d50c7	fd51ff8d50c7	0	0	no-change
+server/match/host/ipc.js	auto-merge	三方无冲突合并	b6c7e352157a	b6c7e352157a	0	0	no-change
+server/match/host/proxy.js	auto-merge	三方无冲突合并	99d9a8edd86e	99d9a8edd86e	0	0	no-change
+server/match/invariants.js	auto-merge	三方无冲突合并	4ccac206f052	5dfc89096e9a	2	2	no-change
+server/match/itemProgress.js	already-same	本地已有且内容一致，不改	a558844e487d	a558844e487d	0	0	no-change
+server/match/leaderRank.js	already-same	本地已有且内容一致，不改	b8f1b9fd4338	b8f1b9fd4338	0	0	no-change
+server/match/llmGate.js	auto-merge	三方无冲突合并	a1263015d329	a1263015d329	0	0	no-change
+server/match/match/bossRounds.js	auto-merge	三方无冲突合并	b39f10c25f10	b39f10c25f10	0	0	no-change
+server/match/match/combat.js	auto-merge	三方无冲突合并	d33e58a7cdc2	d33e58a7cdc2	0	0	no-change
+server/match/match/infra.js	auto-merge	三方无冲突合并	3ed359cac473	65c7ba6c71ff	36	0	merged
+server/match/match/intents.js	auto-merge	三方无冲突合并	aa1ab2b01493	aa1ab2b01493	0	0	no-change
+server/match/match/offers.js	auto-merge	三方无冲突合并	6393024a7502	6393024a7502	0	0	no-change
+server/match/match/phases.js	auto-merge	三方无冲突合并	0ce3f1f1d095	0ce3f1f1d095	0	0	no-change
+server/match/match/platform.js	auto-merge	三方无冲突合并	e3c7de66cd93	e3c7de66cd93	0	0	no-change
+server/match/match/prep.js	text-conflict	冲突 2 处：采用上游 0.4.0 行为	f267440bb15f	cca198d5fb5e	9	14	merged-upstream
+server/match/match/reports.js	auto-merge	三方无冲突合并	92a80643303c	92a80643303c	0	0	no-change
+server/match/match/settle.js	auto-merge	三方无冲突合并	b822ddce77e0	b822ddce77e0	0	0	no-change
+server/match/match/setupVote.js	auto-merge	三方无冲突合并	8d8712b76888	8d8712b76888	0	0	no-change
+server/match/match/spDraft.js	auto-merge	三方无冲突合并	a097f37d853d	a097f37d853d	0	0	no-change
+server/match/match/testCommands.js	auto-merge	三方无冲突合并	80252e8ea74d	80252e8ea74d	0	0	no-change
+server/match/match/views.js	auto-merge	三方无冲突合并	cef0a67e0773	b6aad3d81eaf	4	2	no-change
+server/match/player/acquire.js	text-conflict	冲突 2 处：采用上游 0.4.0 行为	5dbc34b655e6	95616dba4ede	129	13	merged-upstream
+server/match/player/basics.js	auto-merge	三方无冲突合并	4bb93b76ebef	4bb93b76ebef	0	0	no-change
+server/match/player/commands.js	already-same	本地已有且内容一致，不改	c56c88f2edd0	c56c88f2edd0	0	0	no-change
+server/match/player/diy.js	auto-merge	三方无冲突合并	f7e1a9b9168d	f7e1a9b9168d	0	0	no-change
+server/match/player/economy.js	auto-merge	三方无冲突合并	3c479d68aefc	3c479d68aefc	0	0	no-change
+server/match/player/items.js	text-conflict	冲突 1 处：采用上游 0.4.0 行为	435a7e0fc469	59c3c8a4c8e0	4	4	merged-upstream
+server/match/player/pieces.js	auto-merge	三方无冲突合并	889655033096	889655033096	0	0	no-change
+server/match/player/placement.js	auto-merge	三方无冲突合并	00e271d98c72	00e271d98c72	0	0	no-change
+server/match/player/prep.js	auto-merge	三方无冲突合并	610f3627fdf0	610f3627fdf0	0	0	no-change
+server/match/player/round.js	text-conflict	冲突 1 处：采用上游 0.4.0 行为	2a86fc04cd05	2a86fc04cd05	0	0	merged-upstream
+server/match/player/views.js	text-conflict	冲突 2 处：采用上游 0.4.0 行为	2ddfc467b372	1f9c70c208d1	24	3	merged-upstream
+server/match/pool.js	text-conflict	冲突 1 处：采用上游 0.4.0 行为	0d40469f60d0	597156e73792	7	6	merged-upstream
+server/match/showTags.js	both-added	采用上游 0.4.0	c893da7a697c	997b7dadb0ce	5	1	upstream
+server/match/testReplay.js	auto-merge	三方无冲突合并	9cccb7a7de52	9cccb7a7de52	0	0	no-change
+server/match/testTrace.js	auto-merge	三方无冲突合并	58d9fab669a5	58d9fab669a5	0	0	no-change
+server/match/unite.js	auto-merge	三方无冲突合并	45f0045edda8	45f0045edda8	0	0	no-change
+server/match/waves.js	auto-merge	三方无冲突合并	1a7a42a48c59	1a7a42a48c59	0	0	no-change
+server/net.js	auto-merge	三方无冲突合并	1bcf740fa3bc	1bcf740fa3bc	0	0	no-change
+server/peerRelay.js	both-added	采用上游 0.4.0	cde3ae59278a	2a6f0e10cec6	1	1	upstream
+server/plugins/contentSet.js	auto-merge	三方无冲突合并	32eedc8b4d85	32eedc8b4d85	0	0	no-change
+server/plugins/contentSets.js	auto-merge	三方无冲突合并	d2ac8359aa05	d2ac8359aa05	0	0	no-change
+server/plugins/forgeImport.js	auto-merge	三方无冲突合并	ffb0dc924f8a	0df9d534f035	1	1	no-change
+server/plugins/install.js	auto-merge	三方无冲突合并	8fe808c64c2e	8fe808c64c2e	0	0	no-change
+server/plugins/officialUnitBuilder.js	auto-merge	三方无冲突合并	269ed159fefe	269ed159fefe	0	0	no-change
+server/plugins/pack.js	auto-merge	三方无冲突合并	095d61e33614	095d61e33614	0	0	no-change
+server/plugins/registry.js	auto-merge	三方无冲突合并	24722a0ebe57	24722a0ebe57	0	0	no-change
+server/plugins/roomSets.js	auto-merge	三方无冲突合并	b8e18c7ddf8d	b8e18c7ddf8d	0	0	no-change
+server/plugins/zip.js	auto-merge	三方无冲突合并	5a82439baeb3	5a82439baeb3	0	0	no-change
+server/sim/Battle.js	auto-merge	三方无冲突合并	a57ccf8694cc	a57ccf8694cc	0	0	no-change
+server/sim/ai.js	auto-merge	三方无冲突合并	66441f5570a2	ef443c11e04c	16	3	no-change
+server/sim/attack/health.js	auto-merge	三方无冲突合并	bf8303dbd84c	bf8303dbd84c	0	0	no-change
+server/sim/battle/blocking.js	upstream-added	待确认：路径已存在	ec4cd5fc94c4	44a574cd1547	14	2	adopted
+server/sim/battle/deploy.js	upstream-added	待确认：路径已存在	58c10efe132a	8f14961594f0	14	5	adopted
+server/sim/battle/economy.js	auto-merge	三方无冲突合并	e69514a80fdb	e69514a80fdb	0	0	no-change
+server/sim/battle/leaderHits.js	already-same	本地已有且内容一致，不改	d93ecbc05dba	d93ecbc05dba	0	0	no-change
+server/sim/battle/players.js	auto-merge	三方无冲突合并	a64a2e8cfe90	a64a2e8cfe90	0	0	no-change
+server/sim/battle/summons.js	text-conflict	冲突 1 处：采用上游 0.4.0 行为	03900e90d8a8	27ce4967108d	7	2	merged-upstream
+server/sim/battle/tiles.js	auto-merge	三方无冲突合并	527ad9d4bde9	d316ca4f2781	3	0	no-change
+server/sim/body.js	upstream-added	待确认：路径已存在	9ead5ce41064	b42624748597	3	3	adopted
+server/sim/content/bands/battle.js	auto-merge	三方无冲突合并	efb167295d6d	efb167295d6d	0	0	no-change
+server/sim/content/bands/commands.js	already-same	本地已有且内容一致，不改	2fa54bd4c509	2fa54bd4c509	0	0	no-change
+server/sim/content/bands/meta.js	auto-merge	三方无冲突合并	b7a28b55f163	b7a28b55f163	0	0	no-change
+server/sim/content/bonds/addon/battle.js	auto-merge	三方无冲突合并	2c6e2a09cc77	2c6e2a09cc77	0	0	no-change
+server/sim/content/bonds/addon/meta.js	auto-merge	三方无冲突合并	13d82552d7ab	13d82552d7ab	0	0	no-change
+server/sim/content/bonds/core.js	auto-merge	三方无冲突合并	698266bbaa45	698266bbaa45	0	0	no-change
+server/sim/content/bonds/lethania.js	upstream-added	新增（采用上游）		659a29328f0f	330	0	added
+server/sim/content/bonds/regulation.js	both-added	采用上游 0.4.0	2a1ef7dcd6aa	7d047f6559d0	17	10	upstream
+server/sim/content/bosses.js	auto-merge	三方无冲突合并	807259528141	f34ea29915e5	2	2	no-change
+server/sim/content/devices.js	text-conflict	冲突 4 处：采用上游 0.4.0 行为	4dc56bbb5e20	82d1af91ce02	15	7	merged-upstream
+server/sim/content/enemies.js	auto-merge	三方无冲突合并	419a5e65f3ad	419a5e65f3ad	0	0	no-change
+server/sim/content/enemies/element.js	auto-merge	三方无冲突合并	2222417f7679	2222417f7679	0	0	no-change
+server/sim/content/enemies/invisible.js	auto-merge	三方无冲突合并	981194e6497a	981194e6497a	0	0	no-change
+server/sim/content/enemies/leaders.js	auto-merge	三方无冲突合并	934824d83726	934824d83726	0	0	no-change
+server/sim/content/enemies/regulation.js	both-added	采用上游 0.4.0	80142dd7d15b	75e4e09cfb46	40	7	upstream
+server/sim/content/garrisons.js	auto-merge	三方无冲突合并	56c0fc4e7e72	56c0fc4e7e72	0	0	no-change
+server/sim/content/garrisons/battle.js	auto-merge	三方无冲突合并	58ffe58db2ad	58ffe58db2ad	0	0	no-change
+server/sim/content/garrisons/meta.js	text-conflict	冲突 1 处：采用上游 0.4.0 行为	a816d90fd33d	d499ea0a842f	25	32	merged-upstream
+server/sim/content/garrisons/regulation.js	already-same	本地已有且内容一致，不改	02d53373d12b	02d53373d12b	0	0	no-change
+server/sim/content/generic.js	auto-merge	三方无冲突合并	9429c0ea2f36	9429c0ea2f36	0	0	no-change
+server/sim/content/items/battle.js	auto-merge	三方无冲突合并	1d293a059346	1d293a059346	0	0	no-change
+server/sim/content/kits/README.md	auto-merge	三方无冲突合并	d63dfcb78c60	d63dfcb78c60	0	0	no-change
+server/sim/content/kits/index.js	auto-merge	三方无冲突合并	04c789bb235c	04c789bb235c	0	0	no-change
+server/sim/content/kits/ops/chess_char_1_08-texas.js	auto-merge	三方无冲突合并	bdda70c1fcc0	bdda70c1fcc0	0	0	no-change
+server/sim/content/kits/ops/chess_char_3_04-swire2.js	auto-merge	三方无冲突合并	61987fcd436c	3e001523d423	3	1	no-change
+server/sim/content/kits/ops/chess_char_3_18-vulpis.js	auto-merge	三方无冲突合并	6898cc402035	6898cc402035	0	0	no-change
+server/sim/content/kits/ops/chess_char_4_04-ines.js	auto-merge	三方无冲突合并	950b7d6f0b04	950b7d6f0b04	0	0	no-change
+server/sim/content/kits/ops/chess_char_4_19-flamtl.js	auto-merge	三方无冲突合并	fb837ef7ab1a	fb837ef7ab1a	0	0	no-change
+server/sim/content/kits/ops/chess_char_5_02-titi.js	auto-merge	三方无冲突合并	aa88ea2a60a9	aa88ea2a60a9	0	0	no-change
+server/sim/content/kits/ops/chess_char_5_05-ulpia.js	auto-merge	三方无冲突合并	4e52d1fd9890	4e52d1fd9890	0	0	no-change
+server/sim/content/kits/ops/chess_char_5_08-horn.js	auto-merge	三方无冲突合并	a874641c47fd	a874641c47fd	0	0	no-change
+server/sim/content/kits/ops/chess_char_5_14-svash2.js	auto-merge	三方无冲突合并	c81a4b24463d	c81a4b24463d	0	0	no-change
+server/sim/content/kits/ops/chess_char_6_11-mlyss.js	auto-merge	三方无冲突合并	db682ac061a2	db682ac061a2	0	0	no-change
+server/sim/content/kits/ops/chess_char_6_16-halo2.js	auto-merge	三方无冲突合并	4019862a5bab	4019862a5bab	0	0	no-change
+server/sim/content/kits/ops/op-cgbird.js	auto-merge	三方无冲突合并	4721353b2add	4721353b2add	0	0	no-change
+server/sim/content/kits/ops/op-clemnt.js	auto-merge	三方无冲突合并	2f715553b159	2f715553b159	0	0	no-change
+server/sim/content/kits/ops/op-dminon.js	already-same	本地已有且内容一致，不改	af950e16d2df	af950e16d2df	0	0	no-change
+server/sim/content/kits/ops/op-oxi.js	already-same	本地已有且内容一致，不改	7ffd7fa29fdf	7ffd7fa29fdf	0	0	no-change
+server/sim/content/kits/ops/op-saga.js	auto-merge	三方无冲突合并	6ce91d62505b	6ce91d62505b	0	0	no-change
+server/sim/content/kits/ops/op-siege.js	auto-merge	三方无冲突合并	47515b581c5b	47515b581c5b	0	0	no-change
+server/sim/content/kits/ops/op-tocka.js	already-same	本地已有且内容一致，不改	86cd8cb436bc	86cd8cb436bc	0	0	no-change
+server/sim/content/kits/ops/op-wang.js	auto-merge	三方无冲突合并	a72df3909df6	a72df3909df6	0	0	no-change
+server/sim/content/kits/ops/standin-acpion.js	auto-merge	三方无冲突合并	e90014e5ca59	e90014e5ca59	0	0	no-change
+server/sim/content/kits/ops/ver-acrbot.js	already-same	本地已有且内容一致，不改	e7606b88b475	e7606b88b475	0	0	no-change
+server/sim/content/kits/ops/ver-alga.js	already-same	本地已有且内容一致，不改	096f94bdf17a	096f94bdf17a	0	0	no-change
+server/sim/content/kits/ops/ver-amiya3.js	already-same	本地已有且内容一致，不改	a32f8cde1423	a32f8cde1423	0	0	no-change
+server/sim/content/kits/ops/ver-aosta.js	already-same	本地已有且内容一致，不改	19aac6f0de37	19aac6f0de37	0	0	no-change
+server/sim/content/kits/ops/ver-astesi.js	already-same	本地已有且内容一致，不改	35a95ee65480	35a95ee65480	0	0	no-change
+server/sim/content/kits/ops/ver-bison.js	already-same	本地已有且内容一致，不改	b5708996e15d	b5708996e15d	0	0	no-change
+server/sim/content/kits/ops/ver-blackd.js	auto-merge	三方无冲突合并	b9eb752f2e58	b9eb752f2e58	0	0	no-change
+server/sim/content/kits/ops/ver-bluep.js	already-same	本地已有且内容一致，不改	318481d0ee8b	318481d0ee8b	0	0	no-change
+server/sim/content/kits/ops/ver-brigid.js	already-same	本地已有且内容一致，不改	2b4c1f30c230	2b4c1f30c230	0	0	no-change
+server/sim/content/kits/ops/ver-buildr.js	already-same	本地已有且内容一致，不改	bf07ba5a5ae6	bf07ba5a5ae6	0	0	no-change
+server/sim/content/kits/ops/ver-cammou.js	already-same	本地已有且内容一致，不改	0766e39ff8f3	0766e39ff8f3	0	0	no-change
+server/sim/content/kits/ops/ver-chnut.js	already-same	本地已有且内容一致，不改	1969c4166cdf	1969c4166cdf	0	0	no-change
+server/sim/content/kits/ops/ver-christ.js	already-same	本地已有且内容一致，不改	a8134d536397	a8134d536397	0	0	no-change
+server/sim/content/kits/ops/ver-ctrail.js	already-same	本地已有且内容一致，不改	fd6ba577e183	fd6ba577e183	0	0	no-change
+server/sim/content/kits/ops/ver-diy.js	auto-merge	三方无冲突合并	217bddf6686c	217bddf6686c	0	0	no-change
+server/sim/content/kits/ops/ver-fang2.js	already-same	本地已有且内容一致，不改	52f12cb3ffbe	52f12cb3ffbe	0	0	no-change
+server/sim/content/kits/ops/ver-frncat.js	already-same	本地已有且内容一致，不改	94b8d0720220	94b8d0720220	0	0	no-change
+server/sim/content/kits/ops/ver-frostl.js	already-same	本地已有且内容一致，不改	7cc771edc70f	7cc771edc70f	0	0	no-change
+server/sim/content/kits/ops/ver-glassb.js	already-same	本地已有且内容一致，不改	358d5fa2261a	358d5fa2261a	0	0	no-change
+server/sim/content/kits/ops/ver-greyy2.js	already-same	本地已有且内容一致，不改	c71c6689cb93	c71c6689cb93	0	0	no-change
+server/sim/content/kits/ops/ver-hbound.js	already-same	本地已有且内容一致，不改	d40237965f2d	d40237965f2d	0	0	no-change
+server/sim/content/kits/ops/ver-highmo.js	already-same	本地已有且内容一致，不改	a80a3e13a402	a80a3e13a402	0	0	no-change
+server/sim/content/kits/ops/ver-jaksel.js	already-same	本地已有且内容一致，不改	2c4e26cc64d8	2c4e26cc64d8	0	0	no-change
+server/sim/content/kits/ops/ver-ju.js	already-same	本地已有且内容一致，不改	172258a19b18	172258a19b18	0	0	no-change
+server/sim/content/kits/ops/ver-kaitou.js	already-same	本地已有且内容一致，不改	953592504363	953592504363	0	0	no-change
+server/sim/content/kits/ops/ver-kichi.js	already-same	本地已有且内容一致，不改	0cf2bb3cf19f	0cf2bb3cf19f	0	0	no-change
+server/sim/content/kits/ops/ver-leto.js	already-same	本地已有且内容一致，不改	c8a398ed3581	c8a398ed3581	0	0	no-change
+server/sim/content/kits/ops/ver-liesel.js	already-same	本地已有且内容一致，不改	b08be50c91cc	b08be50c91cc	0	0	no-change
+server/sim/content/kits/ops/ver-meteo.js	already-same	本地已有且内容一致，不改	4ac632630a38	4ac632630a38	0	0	no-change
+server/sim/content/kits/ops/ver-mitm.js	already-same	本地已有且内容一致，不改	4a70aa0b5eea	4a70aa0b5eea	0	0	no-change
+server/sim/content/kits/ops/ver-nothin.js	already-same	本地已有且内容一致，不改	e595944d6998	e595944d6998	0	0	no-change
+server/sim/content/kits/ops/ver-pianst.js	already-same	本地已有且内容一致，不改	1f8d91c9aab1	1f8d91c9aab1	0	0	no-change
+server/sim/content/kits/ops/ver-quercu.js	already-same	本地已有且内容一致，不改	f282d449575c	f282d449575c	0	0	no-change
+server/sim/content/kits/ops/ver-robrta.js	already-same	本地已有且内容一致，不改	b335a8606558	b335a8606558	0	0	no-change
+server/sim/content/kits/ops/ver-sidero.js	already-same	本地已有且内容一致，不改	fcf0a52aff1c	fcf0a52aff1c	0	0	no-change
+server/sim/content/kits/ops/ver-swllow.js	already-same	本地已有且内容一致，不改	9751516ebf4b	9751516ebf4b	0	0	no-change
+server/sim/content/kits/ops/ver-taraxa.js	already-same	本地已有且内容一致，不改	3f40ef58bb48	3f40ef58bb48	0	0	no-change
+server/sim/content/kits/ops/ver-turdus.js	already-same	本地已有且内容一致，不改	8a1e0583669f	8a1e0583669f	0	0	no-change
+server/sim/content/kits/ops/ver-varkis.js	already-same	本地已有且内容一致，不改	793cee41403f	793cee41403f	0	0	no-change
+server/sim/content/kits/shared/lord.js	auto-merge	三方无冲突合并	eb69a8c468de	eb69a8c468de	0	0	no-change
+server/sim/content/kits/shared/tier1.js	auto-merge	三方无冲突合并	d7599ec7bbdd	d7599ec7bbdd	0	0	no-change
+server/sim/content/kits/shared/version.js	auto-merge	三方无冲突合并	0b45bd9b5c33	0b45bd9b5c33	0	0	no-change
+server/sim/content/regulation-bosses.js	both-added	采用上游 0.4.0	67c993dd4ccf	4eb5eb6648d0	7	6	upstream
+server/sim/content/support/index.js	auto-merge	三方无冲突合并	d36defa4b08b	d36defa4b08b	0	0	no-change
+server/sim/content/support/meta.js	auto-merge	三方无冲突合并	13c5ce754852	13c5ce754852	0	0	no-change
+server/sim/content/tokens.js	auto-merge	三方无冲突合并	f8960ac38c84	76c071c35b75	23	4	no-change
+server/sim/grid.js	text-conflict	冲突 2 处：采用上游 0.4.0 行为	3ed42054b5bd	b8baec1dc92d	3	3	merged-upstream
+server/sim/professions.js	auto-merge	三方无冲突合并	903a6dc4d836	903a6dc4d836	0	0	no-change
+server/sim/rehearsal.js	auto-merge	三方无冲突合并	b1398170ec52	b1398170ec52	0	0	no-change
+server/sim/skills.js	auto-merge	三方无冲突合并	211bb1ab4ec9	211bb1ab4ec9	0	0	no-change
+server/sim/snapshot.js	auto-merge	三方无冲突合并	20778a313bc1	69e26392ff3e	1	0	no-change
+server/sim/spec.js	auto-merge	三方无冲突合并	61878c00d6de	61878c00d6de	0	0	no-change
+server/sim/targeting.js	upstream-added	待确认：路径已存在	d82dc1e0fcab	15a05f74c184	19	1	adopted
+server/studio/candidate.js	auto-merge	三方无冲突合并	5b1ae4243360	5b1ae4243360	0	0	no-change
+server/studio/edit.js	auto-merge	三方无冲突合并	b5c911e58e66	b5c911e58e66	0	0	no-change
+server/studio/files.js	auto-merge	三方无冲突合并	9078de66c06e	9078de66c06e	0	0	no-change
+server/studio/gameplayCheck.js	auto-merge	三方无冲突合并	6f5f929b548c	6f5f929b548c	0	0	no-change
+server/studio/index.js	auto-merge	三方无冲突合并	53d873bdde8a	53d873bdde8a	0	0	no-change
+server/studio/templates/index.js	upstream-added	待确认：路径已存在	7460ce01387f	fc2d81afa699	1	1	adopted
+server/versions.js	auto-merge	三方无冲突合并	a941955f9481	a941955f9481	0	0	no-change
+shared/commandDisplay.js	upstream-added	新增（采用上游）		77e736012ab0	99	0	added
+shared/constants.js	auto-merge	三方无冲突合并	d68c2d19f421	fc120a705f05	1	1	no-change
+shared/diyBring.js	already-same	本地已有且内容一致，不改	b02961648b94	b02961648b94	0	0	no-change
+shared/garrisonUpgrades.js	upstream-added	新增（采用上游）		89575fee8ae3	18	0	added
+shared/itemRules.js	both-added	采用上游 0.4.0	65c010aec0d7	56b0c575504f	7	0	upstream
+shared/leaderOps.js	already-same	本地已有且内容一致，不改	e72bc9e446ee	e72bc9e446ee	0	0	no-change
+shared/plugins/catalog.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	b8d24011f020	dd7388c5bffb	4	3	merged-local
+shared/plugins/errors.js	auto-merge	三方无冲突合并	e53b08f8f413	5550a832cfd5	1	1	no-change
+shared/plugins/identity.js	auto-merge	三方无冲突合并	a66f68188c40	a66f68188c40	0	0	no-change
+shared/plugins/manifest.js	auto-merge	三方无冲突合并	cb2a808cc934	ebb7afc632d3	26	4	no-change
+shared/plugins/rules.js	upstream-added	待确认：路径已存在	273595f152c4	5d7a39d38724	1	1	adopted
+shared/plugins/surface.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	8dc1b2a59abb	8dc1b2a59abb	0	0	merged-local
+shared/plugins/ui.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	2342e7daec4b	2342e7daec4b	0	0	merged-local
+shared/plugins/visual.js	auto-merge	三方无冲突合并	14fd46a6262e	14fd46a6262e	0	0	no-change
+shared/protocol.js	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	135864eaafb4	135864eaafb4	0	0	merged-local
+shared/standIn.js	upstream-added	待确认：路径已存在	237b59e9bed8	c3f9500eb46d	1	1	adopted
+shared/uiTheme.js	both-added	采用上游 0.4.0	23856a9014a7	1224132aa02d	66	3	upstream
+shared/versions.js	auto-merge	三方无冲突合并	91292c714a6f	91292c714a6f	0	0	no-change
+test/ai-takeover-version.test.js	both-added	采用上游 0.4.0	308a56f3a2c2	159c6f0e28ba	1	2	upstream
+test/assets-season-music.test.js	already-same	本地已有且内容一致，不改	c0780e0bbb51	c0780e0bbb51	0	0	no-change
+test/assets.test.js	auto-merge	三方无冲突合并	ef4f88d0d749	ef4f88d0d749	0	0	no-change
+test/audio-pools-data.test.js	auto-merge	三方无冲突合并	02c59c308cba	02c59c308cba	0	0	no-change
+test/backups.test.js	auto-merge	三方无冲突合并	9998e6d0ae74	9998e6d0ae74	0	0	no-change
+test/bands/regulation-battle.test.js	already-same	本地已有且内容一致，不改	2a6fdec75f38	2a6fdec75f38	0	0	no-change
+test/bands/regulation-commands.test.js	both-added	采用上游 0.4.0	9c161dd43756	9b0a7bcbf455	136	1	upstream
+test/bands/regulation-data.test.js	already-same	本地已有且内容一致，不改	4eaac348e187	4eaac348e187	0	0	no-change
+test/bands/regulation-replay.test.js	already-same	本地已有且内容一致，不改	ff134aa1b64b	ff134aa1b64b	0	0	no-change
+test/bonds/regulation.test.js	both-added	采用上游 0.4.0	69c78d40b3cc	569fe8b2eaaf	671	30	upstream
+test/bot-strategy-startup.test.js	auto-merge	三方无冲突合并	9af86eb0a6ea	9af86eb0a6ea	0	0	no-change
+test/botbench-layers.test.js	already-same	本地已有且内容一致，不改	58f245f4abfe	58f245f4abfe	0	0	no-change
+test/build-data-refresh.test.js	auto-merge	三方无冲突合并	3cd2414cefec	3cd2414cefec	0	0	no-change
+test/client-static.test.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	bf8a2bb08087	bf8a2bb08087	0	0	merged-local
+test/content/bonds_core.test.js	auto-merge	三方无冲突合并	664adebbeff4	664adebbeff4	0	0	no-change
+test/content/egir-unite-carry.test.js	auto-merge	三方无冲突合并	6318ebcaabb8	6318ebcaabb8	0	0	no-change
+test/content/enemies_bosses.test.js	auto-merge	三方无冲突合并	23f323ce2618	23f323ce2618	0	0	no-change
+test/content/feedback3-egir-down.test.js	auto-merge	三方无冲突合并	43ec340db6ad	43ec340db6ad	0	0	no-change
+test/content/garrisons_meta.test.js	auto-merge	三方无冲突合并	ffee552c5daa	ffee552c5daa	0	0	no-change
+test/content/items.test.js	auto-merge	三方无冲突合并	d6e86517721f	d6e86517721f	0	0	no-change
+test/content/kits_alt_t5.test.js	auto-merge	三方无冲突合并	6c616cc52b9f	6c616cc52b9f	0	0	no-change
+test/content/kits_layout.test.js	auto-merge	三方无冲突合并	06c22978719d	06c22978719d	0	0	no-change
+test/content/kits_ver_m2.test.js	auto-merge	三方无冲突合并	5e831c45d1f4	5e831c45d1f4	0	0	no-change
+test/content/new-modules-2791.test.js	already-same	本地已有且内容一致，不改	1c6df5f0a0a6	1c6df5f0a0a6	0	0	no-change
+test/content/op_cgbird.test.js	auto-merge	三方无冲突合并	501328c21c5b	501328c21c5b	0	0	no-change
+test/content/op_clemnt.test.js	auto-merge	三方无冲突合并	739c2458123b	739c2458123b	0	0	no-change
+test/content/op_dminon.test.js	already-same	本地已有且内容一致，不改	ddfb573b1967	ddfb573b1967	0	0	no-change
+test/content/op_oxi.test.js	already-same	本地已有且内容一致，不改	8707705c71d6	8707705c71d6	0	0	no-change
+test/content/op_tocka.test.js	already-same	本地已有且内容一致，不改	17a9bb1f232a	17a9bb1f232a	0	0	no-change
+test/content/op_wang.test.js	auto-merge	三方无冲突合并	fb98ac81bd1e	fb98ac81bd1e	0	0	no-change
+test/content/r81-champagne-owner-exit.test.js	upstream-added	采用上游版本（本地未改动）		443bac97c14d	196	0	added
+test/data-versions.test.js	auto-merge	三方无冲突合并	4b347531a0cc	4b347531a0cc	0	0	no-change
+test/data.test.js	auto-merge	三方无冲突合并	0104734a2823	0104734a2823	0	0	no-change
+test/diy.test.js	auto-merge	三方无冲突合并	e811afb12e89	e811afb12e89	0	0	no-change
+test/docs-consistency.test.js	auto-merge	三方无冲突合并	ae31235877d9	ae31235877d9	0	0	no-change
+test/e2e/client.mjs	auto-merge	三方无冲突合并	458fb3e2b1af	458fb3e2b1af	0	0	no-change
+test/e2e/text-fit.mjs	auto-merge	三方无冲突合并	27041294ac62	27041294ac62	0	0	no-change
+test/enemy-skill-clips.test.js	auto-merge	三方无冲突合并	d6a4a64518c2	d6a4a64518c2	0	0	no-change
+test/feedback1d-models.test.js	auto-merge	三方无冲突合并	f551f324900f	f551f324900f	0	0	no-change
+test/feedback7-voices.test.js	auto-merge	三方无冲突合并	743ac247f7aa	743ac247f7aa	0	0	no-change
+test/fixtures/manual-player.mjs	already-same	本地已有且内容一致，不改	c045a9b637d6	c045a9b637d6	0	0	no-change
+test/fixtures/official-regulation-drafts.json	already-same	本地已有且内容一致，不改	fdb4690128aa	fdb4690128aa	0	0	no-change
+test/fixtures/slow-plan-agent.mjs	already-same	本地已有且内容一致，不改	4c82f1af36af	4c82f1af36af	0	0	no-change
+test/fixtures/versions-bb-audit-act3.json	already-same	本地已有且内容一致，不改	fadaac38054a	fadaac38054a	0	0	no-change
+test/fixtures/versions-default-guard.json	auto-merge	三方无冲突合并	a1ef0e4f5022	a1ef0e4f5022	0	0	no-change
+test/full-potential.test.js	auto-merge	三方无冲突合并	877b6e6a80ad	877b6e6a80ad	0	0	no-change
+test/garrisons/regulation.test.js	both-added	采用上游 0.4.0	9312bf5bdabd	38f8a6614b73	130	18	upstream
+test/golden/act1autochess-v1_1/bonds.json	auto-merge	三方无冲突合并	319d6bb20741	319d6bb20741	0	0	no-change
+test/golden/act1autochess-v1_1/diy.json	auto-merge	三方无冲突合并	5e49285818d1	5e49285818d1	0	0	no-change
+test/golden/act1autochess-v1_1/fields.json	auto-merge	三方无冲突合并	b97f7f7d3a1a	b97f7f7d3a1a	0	0	no-change
+test/golden/act1autochess-v1_1/matches.json	auto-merge	三方无冲突合并	c4c9fb98f873	c4c9fb98f873	0	0	no-change
+test/golden/act1autochess-v1_1/roster.json	auto-merge	三方无冲突合并	670f73b1ef88	aa64e816b383	8	8	merged
+test/golden/act1autochess-v1_1/standins.json	auto-merge	三方无冲突合并	4902c71d517f	4902c71d517f	0	0	no-change
+test/golden/act1autochess/bonds.json	auto-merge	三方无冲突合并	f54a6dd393d5	f54a6dd393d5	0	0	no-change
+test/golden/act1autochess/diy.json	auto-merge	三方无冲突合并	bee828b1bf15	bee828b1bf15	0	0	no-change
+test/golden/act1autochess/fields.json	auto-merge	三方无冲突合并	7950e398e4f2	7950e398e4f2	0	0	no-change
+test/golden/act1autochess/matches.json	auto-merge	三方无冲突合并	e2f763595198	e2f763595198	0	0	no-change
+test/golden/act1autochess/roster.json	auto-merge	三方无冲突合并	30d3423b26e0	2ae858e44b1b	8	8	merged
+test/golden/act1autochess/standins.json	auto-merge	三方无冲突合并	dd7441967b26	dd7441967b26	0	0	no-change
+test/golden/act2autochess-v2_1/bonds.json	auto-merge	三方无冲突合并	9e6129e44ded	9e6129e44ded	0	0	no-change
+test/golden/act2autochess-v2_1/diy.json	auto-merge	三方无冲突合并	5487e9a29e9d	5487e9a29e9d	0	0	no-change
+test/golden/act2autochess-v2_1/fields.json	auto-merge	三方无冲突合并	483a8dc79d3e	483a8dc79d3e	0	0	no-change
+test/golden/act2autochess-v2_1/matches.json	auto-merge	三方无冲突合并	100d133cb047	100d133cb047	0	0	no-change
+test/golden/act2autochess-v2_1/roster.json	auto-merge	三方无冲突合并	6b7095e9368a	6b7095e9368a	0	0	no-change
+test/golden/act3autochess-v3_1/bonds.json	both-added	采用上游 0.4.0	ec0e76a7a5fe	6cc630e8fe64	351	211	upstream
+test/golden/act3autochess-v3_1/diy.json	both-added	采用上游 0.4.0	980327638962	5970d8a440ea	183	182	upstream
+test/golden/act3autochess-v3_1/fields.json	both-added	采用上游 0.4.0	47649439da05	dfcb3386ad5a	439	428	upstream
+test/golden/act3autochess-v3_1/matches.json	both-added	采用上游 0.4.0	191588d555ff	82703c1b0e28	622	622	upstream
+test/golden/act3autochess-v3_1/roster.json	both-added	采用上游 0.4.0	b3098ecdf5cf	ec67f95f9e81	688	626	upstream
+test/golden/act3autochess-v3_1/standins.json	both-added	采用上游 0.4.0	346171ac347f	b19b9e6fa113	223	97	upstream
+test/golden/bonds.json	auto-merge	三方无冲突合并	ba2cd2138572	ba2cd2138572	0	0	no-change
+test/golden/diy.json	auto-merge	三方无冲突合并	8643586f778f	8643586f778f	0	0	no-change
+test/golden/fields.json	auto-merge	三方无冲突合并	87296487050e	87296487050e	0	0	no-change
+test/golden/matches.json	text-conflict	冲突 30 处：采用上游	237e2c07dff8	c2bbf1a4f3db	111	129	merged-upstream
+test/golden/roster.json	text-conflict	冲突 13 处：采用上游	27bc317d1783	9c67d338e238	70	84	merged-upstream
+test/golden/standins.json	auto-merge	三方无冲突合并	12316e280d9e	12316e280d9e	0	0	no-change
+test/helpers/battleHarness.js	auto-merge	三方无冲突合并	fd91904d3ec8	5d2ae54113f4	8	2	merged
+test/helpers/defaultGamedata.js	already-same	本地已有且内容一致，不改	df3b683da46a	df3b683da46a	0	0	no-change
+test/helpers/devourFeedVersion.mjs	already-same	本地已有且内容一致，不改	17f5bb684d09	17f5bb684d09	0	0	no-change
+test/helpers/devourTrench.mjs	already-same	本地已有且内容一致，不改	725820c11523	725820c11523	0	0	no-change
+test/helpers/packageServer.js	already-same	本地已有且内容一致，不改	6a192de6480f	6a192de6480f	0	0	no-change
+test/helpers/pictureSkins.js	auto-merge	三方无冲突合并	97a2016fd100	97a2016fd100	0	0	no-change
+test/helpers/releaseNotes.js	already-same	本地已有且内容一致，不改	ba480ce25f32	ba480ce25f32	0	0	no-change
+test/helpers/simHostFixture.js	auto-merge	三方无冲突合并	a52c4f2ce35e	a52c4f2ce35e	0	0	no-change
+test/helpers/wsClient.js	auto-merge	三方无冲突合并	27562790338a	27562790338a	0	0	no-change
+test/http-versions-config.test.js	auto-merge	三方无冲突合并	5d97ea68cd15	5d97ea68cd15	0	0	no-change
+test/i18n-data.test.js	auto-merge	三方无冲突合并	14323ee5c403	14323ee5c403	0	0	no-change
+test/i18n-packs.test.js	auto-merge	三方无冲突合并	47c07af66ab6	47c07af66ab6	0	0	no-change
+test/i18n-server.test.js	auto-merge	三方无冲突合并	1bb0e0e1e669	1bb0e0e1e669	0	0	no-change
+test/i18n.test.js	auto-merge	三方无冲突合并	c4a5d60045f7	c4a5d60045f7	0	0	no-change
+test/items/regulation.test.js	both-added	采用上游 0.4.0	70fa92be899d	efa746faf7ed	75	11	upstream
+test/kits/regulation-batch1.test.js	already-same	本地已有且内容一致，不改	d8d17558baee	d8d17558baee	0	0	no-change
+test/kits/regulation-batch2.test.js	already-same	本地已有且内容一致，不改	d90c0e5ea2fd	d90c0e5ea2fd	0	0	no-change
+test/kits/regulation-batch3.test.js	already-same	本地已有且内容一致，不改	76203202d0de	76203202d0de	0	0	no-change
+test/kits/regulation-batch4.test.js	already-same	本地已有且内容一致，不改	7366e911d104	7366e911d104	0	0	no-change
+test/lobby-card.test.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	0c144767fd87	0c144767fd87	0	0	merged-local
+test/lobby-loadout.test.js	auto-merge	三方无冲突合并	06bfc9b758e9	06bfc9b758e9	0	0	no-change
+test/lobby-ownership.test.js	auto-merge	三方无冲突合并	14d989e8eec5	14d989e8eec5	0	0	no-change
+test/lobby-skins.test.js	auto-merge	三方无冲突合并	932b70aa9806	932b70aa9806	0	0	no-change
+test/lobby-spectate-switch.test.js	already-same	本地已有且内容一致，不改	87c11e9e3e5f	87c11e9e3e5f	0	0	no-change
+test/lobby-versions.test.js	auto-merge	三方无冲突合并	6dd822733f29	6dd822733f29	0	0	no-change
+test/lobby.test.js	auto-merge	三方无冲突合并	9e102077fc04	9e102077fc04	0	0	no-change
+test/local-extract-fx.test.js	auto-merge	三方无冲突合并	1230af6135b6	1230af6135b6	0	0	no-change
+test/local-extract-python-ci.test.js	auto-merge	三方无冲突合并	4431a38cc51e	4431a38cc51e	0	0	no-change
+test/local-extract.test.js	auto-merge	三方无冲突合并	488ffeb20299	488ffeb20299	0	0	no-change
+test/local-extract/autochess-themes.test.js	already-same	本地已有且内容一致，不改	e0ae336ef482	e0ae336ef482	0	0	no-change
+test/local-token-models.test.js	auto-merge	三方无冲突合并	b58d5c6a74a6	b58d5c6a74a6	0	0	no-change
+test/match/abyss-advisor.test.js	auto-merge	三方无冲突合并	336fb60826be	336fb60826be	0	0	no-change
+test/match/advisor-economy.test.js	auto-merge	三方无冲突合并	a12b4f45f868	a12b4f45f868	0	0	no-change
+test/match/advisor-execution.test.js	auto-merge	三方无冲突合并	e228c0af64f9	e228c0af64f9	0	0	no-change
+test/match/advisor-input.test.js	auto-merge	三方无冲突合并	5ceb36db0af1	5ceb36db0af1	0	0	no-change
+test/match/ai-cycle.test.js	auto-merge	三方无冲突合并	5eb22bcaf7f2	5eb22bcaf7f2	0	0	no-change
+test/match/ai-playbook.test.js	auto-merge	三方无冲突合并	4f9ac8d1627d	4f9ac8d1627d	0	0	no-change
+test/match/avatar-badges.test.js	already-same	本地已有且内容一致，不改	9e63bfa89659	9e63bfa89659	0	0	no-change
+test/match/band-progress.test.js	already-same	本地已有且内容一致，不改	8d8295c52404	8d8295c52404	0	0	no-change
+test/match/band-strength.test.js	already-same	本地已有且内容一致，不改	1857e02b02d1	1857e02b02d1	0	0	no-change
+test/match/beacon-diy.test.js	already-same	本地已有且内容一致，不改	a7a41dcc4b40	a7a41dcc4b40	0	0	no-change
+test/match/bond-groups.test.js	both-added	采用上游 0.4.0	22fc69019262	b5a4a3299181	27	27	upstream
+test/match/bond-timers.test.js	auto-merge	三方无冲突合并	fc8bdf0ff43e	fc8bdf0ff43e	0	0	no-change
+test/match/bonds.test.js	auto-merge	三方无冲突合并	9702f26c29b3	f437006ec17a	25	0	merged
+test/match/bosshp.test.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	43d6673b06eb	43d6673b06eb	0	0	merged-local
+test/match/bot-prep-pipeline.test.js	auto-merge	三方无冲突合并	6e5c412a747d	6e5c412a747d	0	0	no-change
+test/match/bot-self-plan.test.js	already-same	本地已有且内容一致，不改	92d333949c3c	92d333949c3c	0	0	no-change
+test/match/bot-smarter.test.js	auto-merge	三方无冲突合并	68014e72c7bf	68014e72c7bf	0	0	no-change
+test/match/bot-strategy-seats.test.js	already-same	本地已有且内容一致，不改	7f6419d826eb	7f6419d826eb	0	0	no-change
+test/match/connection.test.js	auto-merge	三方无冲突合并	05c24af95cde	05c24af95cde	0	0	no-change
+test/match/coop-play.test.js	already-same	本地已有且内容一致，不改	e6ec843e630a	e6ec843e630a	0	0	no-change
+test/match/coop-team.test.js	already-same	本地已有且内容一致，不改	325856769d2a	325856769d2a	0	0	no-change
+test/match/devour-feed.test.js	already-same	本地已有且内容一致，不改	c96e3792e1e5	c96e3792e1e5	0	0	no-change
+test/match/devour-layout.test.js	already-same	本地已有且内容一致，不改	277e53da1bf3	277e53da1bf3	0	0	no-change
+test/match/diy-bring.test.js	already-same	本地已有且内容一致，不改	eaac4133ad89	eaac4133ad89	0	0	no-change
+test/match/ducklord-shared-draw.test.js	auto-merge	三方无冲突合并	d86373c01cc7	d86373c01cc7	0	0	no-change
+test/match/equip-hand.test.js	already-same	本地已有且内容一致，不改	899e9bc73ea5	899e9bc73ea5	0	0	no-change
+test/match/external-advisor.test.js	auto-merge	三方无冲突合并	fa2e981a603e	fa2e981a603e	0	0	no-change
+test/match/external-ai.test.js	auto-merge	三方无冲突合并	92f4298c20e3	92f4298c20e3	0	0	no-change
+test/match/external-anthropic.test.js	already-same	本地已有且内容一致，不改	9bc48a1c1abb	9bc48a1c1abb	0	0	no-change
+test/match/external-llm-continuity.test.js	auto-merge	三方无冲突合并	e6a1c8497bc6	e6a1c8497bc6	0	0	no-change
+test/match/external-llm.test.js	auto-merge	三方无冲突合并	867a45d847a5	867a45d847a5	0	0	no-change
+test/match/external-timing.test.js	already-same	本地已有且内容一致，不改	4206e64f697f	4206e64f697f	0	0	no-change
+test/match/external-transports.test.js	auto-merge	三方无冲突合并	f30a794cd0eb	f30a794cd0eb	0	0	no-change
+test/match/fa-body.test.js	already-same	本地已有且内容一致，不改	1adac8598d1c	1adac8598d1c	0	0	no-change
+test/match/fa-damage.test.js	already-same	本地已有且内容一致，不改	2ea856753067	2ea856753067	0	0	no-change
+test/match/fa-hold.test.js	already-same	本地已有且内容一致，不改	91dae27c1a73	91dae27c1a73	0	0	no-change
+test/match/fa-items.test.js	already-same	本地已有且内容一致，不改	247ee94b2cbd	247ee94b2cbd	0	0	no-change
+test/match/fa-leader-chain.test.js	already-same	本地已有且内容一致，不改	3ce94a332bec	3ce94a332bec	0	0	no-change
+test/match/fa-rehearsal.test.js	auto-merge	三方无冲突合并	31c5e976079b	31c5e976079b	0	0	no-change
+test/match/fa-strike.test.js	already-same	本地已有且内容一致，不改	8ac918e71943	8ac918e71943	0	0	no-change
+test/match/feedback1-gaps.test.js	auto-merge	三方无冲突合并	1cb38a6e60ad	6ee12b4daf56	2	2	merged
+test/match/feedback1-meta.test.js	auto-merge	三方无冲突合并	6793a5e2566f	6793a5e2566f	0	0	no-change
+test/match/feedback79.test.js	already-same	本地已有且内容一致，不改	918eac393389	918eac393389	0	0	no-change
+test/match/fuzz.test.js	auto-merge	三方无冲突合并	4f737c513059	4f737c513059	0	0	no-change
+test/match/garrison-upgrades.test.js	upstream-added	采用上游版本（本地未改动）		2a484a4d8a66	127	0	added
+test/match/harness.js	auto-merge	三方无冲突合并	896712751f8a	34985492d10c	1	1	merged
+test/match/ironhide-items.test.js	upstream-added	采用上游版本（本地未改动）		4e1fb4d03bc9	143	0	added
+test/match/item-fusion.test.js	upstream-added	采用上游版本（本地未改动）		dfb48d87afb1	258	0	added
+test/match/item-progress.test.js	already-same	本地已有且内容一致，不改	943a06aed2b6	943a06aed2b6	0	0	no-change
+test/match/jesica.test.js	already-same	本地已有且内容一致，不改	ba454c368e6a	ba454c368e6a	0	0	no-change
+test/match/leader-rank.test.js	already-same	本地已有且内容一致，不改	c4f4b145daba	c4f4b145daba	0	0	no-change
+test/match/llm-adapter-v2.test.js	already-same	本地已有且内容一致，不改	edf4108e82f2	edf4108e82f2	0	0	no-change
+test/match/manual-ai.test.js	already-same	本地已有且内容一致，不改	21dfb5f6ff07	21dfb5f6ff07	0	0	no-change
+test/match/manual-report.test.js	already-same	本地已有且内容一致，不改	c9345d9e8c5f	c9345d9e8c5f	0	0	no-change
+test/match/muelsyse.test.js	already-same	本地已有且内容一致，不改	49059bace05d	49059bace05d	0	0	no-change
+test/match/position-traits.test.js	already-same	本地已有且内容一致，不改	85e4ead779e7	85e4ead779e7	0	0	no-change
+test/match/pro-team.test.js	already-same	本地已有且内容一致，不改	242ee948e80c	242ee948e80c	0	0	no-change
+test/match/realtime.test.js	auto-merge	三方无冲突合并	f08ae4e70614	f08ae4e70614	0	0	no-change
+test/match/regulation-drafts.test.js	already-same	本地已有且内容一致，不改	030ee46dbc08	030ee46dbc08	0	0	no-change
+test/match/regulation-items.test.js	already-same	本地已有且内容一致，不改	d8d01b28db3b	d8d01b28db3b	0	0	no-change
+test/match/regulation-reward-pools.test.js	upstream-added	采用上游版本（本地未改动）		25ae8e8f48fb	94	0	added
+test/match/rehearsal-delegate.test.js	auto-merge	三方无冲突合并	207283d35a67	207283d35a67	0	0	no-change
+test/match/runner.test.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	40642eded509	40642eded509	0	0	merged-local
+test/match/shop-items.test.js	already-same	本地已有且内容一致，不改	d5294a19bb75	d5294a19bb75	0	0	no-change
+test/match/show-tags.test.js	both-added	采用上游 0.4.0	6c7364c71f93	ba0e96601931	7	7	upstream
+test/match/sim-host.test.js	auto-merge	三方无冲突合并	7216dc640d09	7216dc640d09	0	0	no-change
+test/match/simClient.js	auto-merge	三方无冲突合并	48b1294ec858	48b1294ec858	0	0	no-change
+test/p2p-client.test.js	already-same	本地已有且内容一致，不改	6ff3598938fb	6ff3598938fb	0	0	no-change
+test/p2p-server.test.js	already-same	本地已有且内容一致，不改	5200158f8759	5200158f8759	0	0	no-change
+test/p2p.browser.test.js	already-same	本地已有且内容一致，不改	37b7b3fa97d5	37b7b3fa97d5	0	0	no-change
+test/package-llm-gate.test.js	auto-merge	三方无冲突合并	80e56555ec0d	80e56555ec0d	0	0	no-change
+test/package-smoke.test.js	already-same	本地已有且内容一致，不改	baf0dbae8467	baf0dbae8467	0	0	no-change
+test/package.test.js	auto-merge	三方无冲突合并	096ecdbbcd36	096ecdbbcd36	0	0	no-change
+test/plugins/catalog.test.js	auto-merge	三方无冲突合并	3d63c42223f9	3d63c42223f9	0	0	no-change
+test/plugins/forgeImport.test.js	auto-merge	三方无冲突合并	1eee55749fce	1eee55749fce	0	0	no-change
+test/plugins/install.test.js	auto-merge	三方无冲突合并	e7f176a71e8e	e7f176a71e8e	0	0	no-change
+test/plugins/manifest.test.js	auto-merge	三方无冲突合并	265e7ae1f8c9	00ec2e4dab93	27	2	merged
+test/plugins/registry.test.js	auto-merge	三方无冲突合并	6b68bf201b00	6b68bf201b00	0	0	no-change
+test/plugins/schema.test.js	auto-merge	三方无冲突合并	7146cbe5459c	7146cbe5459c	0	0	no-change
+test/plugins/script-sandbox-integration.test.js	auto-merge	三方无冲突合并	95534114ce84	95534114ce84	0	0	no-change
+test/plugins/surface.stable.json	auto-merge	三方无冲突合并	763886205753	763886205753	0	0	no-change
+test/plugins/surface.test.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	158f1e8ffaba	158f1e8ffaba	0	0	merged-local
+test/plugins/ui.test.js	auto-merge	三方无冲突合并	b24eb82e752a	b24eb82e752a	0	0	no-change
+test/plugins/versions.test.js	already-same	本地已有且内容一致，不改	ed9135e28756	ed9135e28756	0	0	no-change
+test/plugins/visual.test.js	auto-merge	三方无冲突合并	3112b1e5036c	3112b1e5036c	0	0	no-change
+test/potential.test.js	auto-merge	三方无冲突合并	7291833d18f2	7291833d18f2	0	0	no-change
+test/render/board3d-extract.test.js	auto-merge	三方无冲突合并	941b13dec243	941b13dec243	0	0	no-change
+test/render/board3d-scene.test.js	auto-merge	三方无冲突合并	463d39adc527	463d39adc527	0	0	no-change
+test/render/board3d.test.js	auto-merge	三方无冲突合并	50f00bdcd190	50f00bdcd190	0	0	no-change
+test/render/cetsyr-background.test.js	already-same	本地已有且内容一致，不改	06704014608a	06704014608a	0	0	no-change
+test/render/resource-numbers.test.js	already-same	本地已有且内容一致，不改	61b49f9788fb	61b49f9788fb	0	0	no-change
+test/render/tiles.test.js	auto-merge	三方无冲突合并	0a54a1cb1e5f	a06f575751c5	18	0	merged
+test/render/unitview.test.js	upstream-added	采用上游版本（本地未改动）	db9f5e2e06da	343a4df558eb	80	0	adopted
+test/render/vfx-areas.test.js	auto-merge	三方无冲突合并	087b3f35ff40	087b3f35ff40	0	0	no-change
+test/render/vfx-procedural.test.js	auto-merge	三方无冲突合并	7538db5e2525	7538db5e2525	0	0	no-change
+test/render/vfx-skills.test.js	auto-merge	三方无冲突合并	6808d1c8fddd	6808d1c8fddd	0	0	no-change
+test/render/vfx-talents.test.js	auto-merge	三方无冲突合并	f8722a84eb31	f8722a84eb31	0	0	no-change
+test/render/windup-facing.test.js	already-same	本地已有且内容一致，不改	4a0c57fa0665	4a0c57fa0665	0	0	no-change
+test/setup-local-freshness.test.js	auto-merge	三方无冲突合并	f69eb70f9d57	f69eb70f9d57	0	0	no-change
+test/sim/boss-hit-areas.test.js	upstream-added	采用上游版本（本地未改动）		f9cd653e1c5c	106	0	added
+test/sim/cocoon-body.test.js	upstream-added	采用上游版本（本地未改动）		82d7c32ad898	90	0	added
+test/sim/cocoon-targeting.test.js	upstream-added	采用上游版本（本地未改动）		71ff08e2fdcf	103	0	added
+test/sim/feedback3-ulpia-move.test.js	auto-merge	三方无冲突合并	c65d3b25e885	c65d3b25e885	0	0	no-change
+test/sim/leader-hits.test.js	already-same	本地已有且内容一致，不改	316ad11314a7	316ad11314a7	0	0	no-change
+test/sim/perf.test.js	auto-merge	三方无冲突合并	1c201c8957fb	1c201c8957fb	0	0	no-change
+test/sim/playtest5_elements.test.js	auto-merge	三方无冲突合并	373cd51bbeac	373cd51bbeac	0	0	no-change
+test/sim/regulation-death-spawns.test.js	upstream-added	采用上游版本（本地未改动）		be9401d31df6	146	0	added
+test/sim/regulation-enemies.test.js	both-added	采用上游 0.4.0	ad1c0a02dab5	e44c0915080d	3	1	upstream
+test/sim/regulation-grass.test.js	upstream-added	采用上游版本（本地未改动）		3f01e27a884d	132	0	added
+test/sim/rehearsal.test.js	auto-merge	三方无冲突合并	526435dd212e	526435dd212e	0	0	no-change
+test/sim/resource-numbers.test.js	already-same	本地已有且内容一致，不改	dd2b11e26c8b	dd2b11e26c8b	0	0	no-change
+test/skins.test.js	auto-merge	三方无冲突合并	6ed6931f3ed9	7f9d2c7d1f8e	18	0	merged
+test/studio/catalog.test.js	auto-merge	三方无冲突合并	9f63c5ce9291	9f63c5ce9291	0	0	no-change
+test/studio/console.test.js	auto-merge	三方无冲突合并	08b60c233c33	08b60c233c33	0	0	no-change
+test/studio/presentationRework.test.js	auto-merge	三方无冲突合并	b0eaf874c660	b0eaf874c660	0	0	no-change
+test/studio/size-limits.test.js	already-same	本地已有且内容一致，不改	d50700795d7f	d50700795d7f	0	0	no-change
+test/ui-asset-refs.test.js	already-same	本地已有且内容一致，不改	a205d9963164	a205d9963164	0	0	no-change
+test/ui/ai-takeover.e2e.test.js	auto-merge	三方无冲突合并	9c8b21a22b43	9c8b21a22b43	0	0	no-change
+test/ui/alliance-scene.test.js	already-same	本地已有且内容一致，不改	2a88ea8a7d7d	2a88ea8a7d7d	0	0	no-change
+test/ui/asset-download.browser.test.js	local-deleted	恢复上游并按本地适配（待测试）		070d012e9962	164	0	restored-adapted
+test/ui/asset-download.test.js	local-deleted	恢复上游并按本地适配（待测试）		452685cb3059	326	0	restored-adapted
+test/ui/asset-import.browser.test.js	local-deleted	恢复上游并按本地适配（待测试）		ea5bb13d60a3	200	0	restored-adapted
+test/ui/asset-import.test.js	local-deleted	恢复上游并按本地适配（待测试）		553d79866405	859	0	restored-adapted
+test/ui/audio-pools.test.js	auto-merge	三方无冲突合并	fd9a0ae36e92	fd9a0ae36e92	0	0	no-change
+test/ui/audio.test.js	auto-merge	三方无冲突合并	52fb244c8696	8a874cfd5282	26	0	merged
+test/ui/avatar-badges.test.js	already-same	本地已有且内容一致，不改	d73d87b068cd	d73d87b068cd	0	0	no-change
+test/ui/band-command.test.js	already-same	本地已有且内容一致，不改	b6a3eac64169	b6a3eac64169	0	0	no-change
+test/ui/band-draft-skip.e2e.test.js	auto-merge	三方无冲突合并	307f76a6fcac	307f76a6fcac	0	0	no-change
+test/ui/bandDraft.test.js	auto-merge	三方无冲突合并	f60dee987057	f60dee987057	0	0	no-change
+test/ui/bond-audio.test.js	auto-merge	三方无冲突合并	378a063fd3c8	378a063fd3c8	0	0	no-change
+test/ui/bond-scroll.e2e.test.js	auto-merge	三方无冲突合并	e8d0a8dc04da	e8d0a8dc04da	0	0	no-change
+test/ui/boss-plates.e2e.test.js	auto-merge	三方无冲突合并	d1d580e1599c	d1d580e1599c	0	0	no-change
+test/ui/card-sync.test.js	auto-merge	三方无冲突合并	1e10c62d9698	1e10c62d9698	0	0	no-change
+test/ui/chiave-progress.e2e.test.js	already-same	本地已有且内容一致，不改	f793004b8ae0	f793004b8ae0	0	0	no-change
+test/ui/comboBox.test.js	already-same	本地已有且内容一致，不改	9aab52f354be	9aab52f354be	0	0	no-change
+test/ui/command-spectate.test.js	upstream-added	采用上游版本（本地未改动）		6b1c2dd184a6	97	0	added
+test/ui/community-controls.e2e.test.js	auto-merge	三方无冲突合并	db53f6587e99	db53f6587e99	0	0	no-change
+test/ui/community-layout.e2e.test.js	auto-merge	三方无冲突合并	773470e9bb70	773470e9bb70	0	0	no-change
+test/ui/deploy-middle.test.js	already-same	本地已有且内容一致，不改	7cae2ad6dd46	7cae2ad6dd46	0	0	no-change
+test/ui/deploy-replay.test.js	auto-merge	三方无冲突合并	f709beb3c298	f709beb3c298	0	0	no-change
+test/ui/devices.e2e.test.js	auto-merge	三方无冲突合并	ea2f14ed6825	ea2f14ed6825	0	0	no-change
+test/ui/diy-check.test.js	already-same	本地已有且内容一致，不改	7482676d5ed7	7482676d5ed7	0	0	no-change
+test/ui/diy.e2e.test.js	auto-merge	三方无冲突合并	117bfa5450f9	117bfa5450f9	0	0	no-change
+test/ui/draft-portrait.e2e.test.js	already-same	本地已有且内容一致，不改	3d649b0c770a	3d649b0c770a	0	0	no-change
+test/ui/emotes.e2e.test.js	auto-merge	三方无冲突合并	e8ac06c02c48	e8ac06c02c48	0	0	no-change
+test/ui/entry-film.test.js	both-added	采用上游 0.4.0	b629f047ce33	da9592d3c206	7	7	upstream
+test/ui/feedback1-gaps.test.js	auto-merge	三方无冲突合并	953f23cc8612	953f23cc8612	0	0	no-change
+test/ui/feedback1b-bonds.test.js	auto-merge	三方无冲突合并	29ab04cdcb52	29ab04cdcb52	0	0	no-change
+test/ui/feedback3-ready.test.js	auto-merge	三方无冲突合并	788780afa4a7	788780afa4a7	0	0	no-change
+test/ui/feedback6-diy-bond-members.test.js	auto-merge	三方无冲突合并	fcb54cbd80e0	fcb54cbd80e0	0	0	no-change
+test/ui/followup-023.e2e.test.js	auto-merge	三方无冲突合并	00208762f54e	00208762f54e	0	0	no-change
+test/ui/gameLogic.test.js	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	10618d2646d2	4be32f580ef7	21	3	merged-local
+test/ui/i18n.e2e.test.js	auto-merge	三方无冲突合并	c47729955f92	c47729955f92	0	0	no-change
+test/ui/inspect-range.test.js	upstream-added	采用上游版本（本地未改动）	77de0bc14a51	cba61bd93a6d	24	0	adopted
+test/ui/inspection-fit.e2e.test.js	already-same	本地已有且内容一致，不改	3b18035cbb60	3b18035cbb60	0	0	no-change
+test/ui/ironhide-items.test.js	upstream-added	采用上游版本（本地未改动）		428769158789	64	0	added
+test/ui/issue5-fold-camera.test.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	4ece3f66c57a	4ece3f66c57a	0	0	merged-local
+test/ui/issue602-deploy-fold.e2e.test.js	auto-merge	三方无冲突合并	22f1547cacf6	22f1547cacf6	0	0	no-change
+test/ui/issue602-deploy-fold.test.js	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	a21289a0353d	a21289a0353d	0	0	merged-local
+test/ui/item-progress.e2e.test.js	already-same	本地已有且内容一致，不改	0d17fdffb507	0d17fdffb507	0	0	no-change
+test/ui/leader-rank.test.js	already-same	本地已有且内容一致，不改	e0b2375fee61	e0b2375fee61	0	0	no-change
+test/ui/loadout-cards.e2e.test.js	auto-merge	三方无冲突合并	9449c8b6f15b	9449c8b6f15b	0	0	no-change
+test/ui/loadout-cards.test.js	auto-merge	三方无冲突合并	072e58587af7	072e58587af7	0	0	no-change
+test/ui/loadout-charid.test.js	auto-merge	三方无冲突合并	b03ce81e3d41	b03ce81e3d41	0	0	no-change
+test/ui/loadout-ops-export.e2e.test.js	auto-merge	三方无冲突合并	c66f183c7545	c66f183c7545	0	0	no-change
+test/ui/loadout-rows.test.js	auto-merge	三方无冲突合并	863369abea7e	863369abea7e	0	0	no-change
+test/ui/loadout.e2e.test.js	auto-merge	三方无冲突合并	75957d3d42eb	75957d3d42eb	0	0	no-change
+test/ui/lobby-hub.e2e.test.js	auto-merge	三方无冲突合并	e290457c0d2d	e290457c0d2d	0	0	no-change
+test/ui/lobby-media-delete.e2e.test.js	already-same	本地已有且内容一致，不改	6c9abff13b9d	6c9abff13b9d	0	0	no-change
+test/ui/localArt.test.js	auto-merge	三方无冲突合并	9f92c966d683	9f92c966d683	0	0	no-change
+test/ui/match-bond-info.e2e.test.js	both-added	采用上游 0.4.0	2fff19bf24a3	aaa5c9c24173	1	1	upstream
+test/ui/match-info.e2e.test.js	auto-merge	三方无冲突合并	716a2cc5ff4a	716a2cc5ff4a	0	0	no-change
+test/ui/match-info.test.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	676669137394	676669137394	0	0	merged-local
+test/ui/match-popups.e2e.test.js	upstream-added	采用上游版本（本地未改动）	3d1f413d1cfd	59afad694a59	3	2	adopted
+test/ui/modal.e2e.test.js	auto-merge	三方无冲突合并	2c3c2004f045	2c3c2004f045	0	0	no-change
+test/ui/morph-bonds.test.js	auto-merge	三方无冲突合并	85a9ca709efb	85a9ca709efb	0	0	no-change
+test/ui/official-themes.test.js	already-same	本地已有且内容一致，不改	cc6509e1fa0f	cc6509e1fa0f	0	0	no-change
+test/ui/operator-voice.test.js	auto-merge	三方无冲突合并	92abce88fc27	92abce88fc27	0	0	no-change
+test/ui/pen-hidden-hud.e2e.test.js	already-same	本地已有且内容一致，不改	a8346e720d50	a8346e720d50	0	0	no-change
+test/ui/picture-skins.test.js	auto-merge	三方无冲突合并	25326583e4bc	25326583e4bc	0	0	no-change
+test/ui/playtest2.test.js	auto-merge	三方无冲突合并	2374845db3f5	2374845db3f5	0	0	no-change
+test/ui/playtest3.test.js	auto-merge	三方无冲突合并	747f317b17f7	747f317b17f7	0	0	no-change
+test/ui/playtest4.test.js	auto-merge	三方无冲突合并	8fef31956f26	8fef31956f26	0	0	no-change
+test/ui/playtest5-ui.test.js	auto-merge	三方无冲突合并	68cdcbd22769	68cdcbd22769	0	0	no-change
+test/ui/plugin-version-room.e2e.test.js	upstream-added	采用上游版本（本地未改动）		a86626e76f49	59	0	added
+test/ui/prefab-hud.e2e.test.js	already-same	本地已有且内容一致，不改	d9b914e12e68	d9b914e12e68	0	0	no-change
+test/ui/prefab-hud.test.js	already-same	本地已有且内容一致，不改	0722f7f98736	0722f7f98736	0	0	no-change
+test/ui/prep-bench.test.js	auto-merge	三方无冲突合并	cf7fc11e948e	cf7fc11e948e	0	0	no-change
+test/ui/quit-failure.test.js	already-same	本地已有且内容一致，不改	c64d7090a610	c64d7090a610	0	0	no-change
+test/ui/real.e2e.test.js	auto-merge	三方无冲突合并	63b46390a8ad	63b46390a8ad	0	0	no-change
+test/ui/reg-hud.test.js	both-added	采用上游 0.4.0	a1973b93ce6d	69125496487b	409	2	upstream
+test/ui/regulation-briefing.test.js	already-same	本地已有且内容一致，不改	32bee02cfcde	32bee02cfcde	0	0	no-change
+test/ui/regulation-commands.e2e.test.js	already-same	本地已有且内容一致，不改	154ad42daa83	154ad42daa83	0	0	no-change
+test/ui/regulation-film.test.js	already-same	本地已有且内容一致，不改	d111bdf1ac13	d111bdf1ac13	0	0	no-change
+test/ui/release-notes.e2e.test.js	already-same	本地已有且内容一致，不改	6d32439909d0	6d32439909d0	0	0	no-change
+test/ui/release-notes.test.js	already-same	本地已有且内容一致，不改	1b6e76ae5bf6	1b6e76ae5bf6	0	0	no-change
+test/ui/resource-check.browser.test.js	already-same	本地已有且内容一致，不改	b648bc1208d6	b648bc1208d6	0	0	no-change
+test/ui/resource-check.test.js	already-same	本地已有且内容一致，不改	ca1e31416052	ca1e31416052	0	0	no-change
+test/ui/richText.test.js	auto-merge	三方无冲突合并	aa7a36a38624	89cda71eb995	42	0	merged
+test/ui/room-fit.e2e.test.js	auto-merge	三方无冲突合并	4ea04b342e91	4ea04b342e91	0	0	no-change
+test/ui/room-ready-audio.e2e.test.js	already-same	本地已有且内容一致，不改	440e11c65c3a	440e11c65c3a	0	0	no-change
+test/ui/room-ready-audio.test.js	already-same	本地已有且内容一致，不改	a4a702900cd9	a4a702900cd9	0	0	no-change
+test/ui/room-spectate-switch.e2e.test.js	already-same	本地已有且内容一致，不改	374334643352	374334643352	0	0	no-change
+test/ui/round78-ui.test.js	already-same	本地已有且内容一致，不改	bdee70224dff	bdee70224dff	0	0	no-change
+test/ui/screen-fit.e2e.test.js	auto-merge	三方无冲突合并	40605e0d1917	40605e0d1917	0	0	no-change
+test/ui/seat-art.test.js	auto-merge	三方无冲突合并	e4aae9723625	e4aae9723625	0	0	no-change
+test/ui/settings-entry.e2e.test.js	auto-merge	三方无冲突合并	385db59fb275	385db59fb275	0	0	no-change
+test/ui/settings-storage.e2e.test.js	auto-merge	三方无冲突合并	1ddf93e14209	1ddf93e14209	0	0	no-change
+test/ui/settle.test.js	auto-merge	三方无冲突合并	f88b23bd92b0	f88b23bd92b0	0	0	no-change
+test/ui/shop-slot-kind.test.js	upstream-added	采用上游版本（本地未改动）		cfaf68ab2671	44	0	added
+test/ui/show-tags.test.js	already-same	本地已有且内容一致，不改	cd1103e95a8f	cd1103e95a8f	0	0	no-change
+test/ui/spectate-effects.test.js	auto-merge	三方无冲突合并	29c1d2c401b4	29c1d2c401b4	0	0	no-change
+test/ui/stage-thumb.e2e.test.js	already-same	本地已有且内容一致，不改	609f040efff3	609f040efff3	0	0	no-change
+test/ui/stage-thumb.test.js	already-same	本地已有且内容一致，不改	9189d9e016db	9189d9e016db	0	0	no-change
+test/ui/stats.e2e.test.js	auto-merge	三方无冲突合并	4135ff42c26f	4135ff42c26f	0	0	no-change
+test/ui/strategy-progress.test.js	already-same	本地已有且内容一致，不改	cbbcd4893321	cbbcd4893321	0	0	no-change
+test/ui/sweep.e2e.test.js	auto-merge	三方无冲突合并	d998b887e7e8	d998b887e7e8	0	0	no-change
+test/ui/sweep.test.js	auto-merge	三方无冲突合并	6eb7acfb17bf	6eb7acfb17bf	0	0	no-change
+test/ui/teammate-band.test.js	auto-merge	三方无冲突合并	f7894ae47cea	f7894ae47cea	0	0	no-change
+test/ui/teammate-loadout.e2e.test.js	auto-merge	三方无冲突合并	004cbc8708cd	004cbc8708cd	0	0	no-change
+test/ui/text-scale.e2e.test.js	auto-merge	三方无冲突合并	c68bdda372ed	c68bdda372ed	0	0	no-change
+test/ui/text-scale.test.js	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	9a3e69e6c4a1	9a3e69e6c4a1	0	0	merged-local
+test/ui/theme-frames.test.js	both-added	采用上游 0.4.0	627f15b85e1b	5745d5e67249	36	1	upstream
+test/ui/theme-guide.test.js	upstream-added	采用上游版本（本地未改动）		8292cebaafb8	93	0	added
+test/ui/theme-notices.test.js	auto-merge	三方无冲突合并	0c5ebb7515a9	0c5ebb7515a9	0	0	no-change
+test/ui/theme-official-import.test.js	upstream-added	采用上游版本（本地未改动）		7d33f0286127	281	0	added
+test/ui/themes.e2e.test.js	already-same	本地已有且内容一致，不改	472d78d1261e	472d78d1261e	0	0	no-change
+test/ui/themes.test.js	both-added	采用上游 0.4.0	3d171674814e	efc7ae5f42f9	5	0	upstream
+test/ui/token-skin-gate.test.js	already-same	本地已有且内容一致，不改	56458013a069	56458013a069	0	0	no-change
+test/ui/turn-popup.e2e.test.js	upstream-added	采用上游版本（本地未改动）	8ecb5002c8ff	5acada767baf	265	223	adopted
+test/ui/turn-popup.test.js	upstream-added	采用上游版本（本地未改动）	b071e40b6314	216c502e827d	39	57	adopted
+test/ui/ui-leftovers-3533.test.js	auto-merge	三方无冲突合并	dfdf3f6b0018	dfdf3f6b0018	0	0	no-change
+test/ui/version-asset-models.e2e.test.js	auto-merge	三方无冲突合并	293865bc909d	293865bc909d	0	0	no-change
+test/ui/version-icon-cache.e2e.test.js	auto-merge	三方无冲突合并	fa2a7ee09e73	fa2a7ee09e73	0	0	no-change
+test/ui/version-icon-lookups.test.js	auto-merge	三方无冲突合并	abcb75ea0d8d	abcb75ea0d8d	0	0	no-change
+test/ui/version-vote.test.js	auto-merge	三方无冲突合并	4780ac6e020f	4780ac6e020f	0	0	no-change
+test/ui/versionPicker.test.js	already-same	本地已有且内容一致，不改	d6c840d39c9c	d6c840d39c9c	0	0	no-change
+test/ui/versions-fit.e2e.test.js	auto-merge	三方无冲突合并	ca3b2da20964	ca3b2da20964	0	0	no-change
+test/ui/versions.e2e.test.js	auto-merge	三方无冲突合并	8461ea63d3f2	8461ea63d3f2	0	0	no-change
+test/ui/versions.test.js	upstream-added	采用上游版本（本地未改动）	f061299415c8	cc8a3e8d1b40	31	0	adopted
+test/ui/voice-downloads.test.js	already-same	本地已有且内容一致，不改	51d591d50ffc	51d591d50ffc	0	0	no-change
+test/ui/wake-lock.e2e.test.js	auto-merge	三方无冲突合并	1c73bae05976	1c73bae05976	0	0	no-change
+test/ui/watch-bonds.test.js	auto-merge	三方无冲突合并	7d2f8d7adf71	7d2f8d7adf71	0	0	no-change
+test/update-package.test.js	auto-merge	三方无冲突合并	953546d3419b	953546d3419b	0	0	no-change
+test/version-assets.test.js	auto-merge	三方无冲突合并	b335d43cdf90	b335d43cdf90	0	0	no-change
+test/versions-bb-audit.test.js	auto-merge	三方无冲突合并	e4bb4ed4a085	e4bb4ed4a085	0	0	no-change
+test/versions-golden.test.js	auto-merge	三方无冲突合并	f482178163f3	f482178163f3	0	0	no-change
+test/versions-keying.test.js	auto-merge	三方无冲突合并	f952717ef2ad	f952717ef2ad	0	0	no-change
+test/versions-regulation.test.js	both-added	采用上游 0.4.0	b2e44e15238c	0a33777b29ab	11	0	upstream
+test/versions-service.test.js	auto-merge	三方无冲突合并	65556ab93d5f	65556ab93d5f	0	0	no-change
+tools/ai/layer-trace.mjs	already-same	本地已有且内容一致，不改	0363e67a55b2	0363e67a55b2	0	0	no-change
+tools/ai/llm-agent.mjs	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	5aea6b727326	5aea6b727326	0	0	merged-local
+tools/ai/llm-context.mjs	auto-merge	三方无冲突合并	5d9e41f01b02	5d9e41f01b02	0	0	no-change
+tools/ai/llm-knowledge.mjs	auto-merge	三方无冲突合并	727946caa2b7	727946caa2b7	0	0	no-change
+tools/ai/llm-plan.mjs	auto-merge	三方无冲突合并	cdebf61f99b4	cdebf61f99b4	0	0	no-change
+tools/ai/manual-act.mjs	already-same	本地已有且内容一致，不改	4f26924afd93	4f26924afd93	0	0	no-change
+tools/ai/manual-agent.mjs	already-same	本地已有且内容一致，不改	29fe83854f2a	29fe83854f2a	0	0	no-change
+tools/ai/manual-files.mjs	already-same	本地已有且内容一致，不改	43b94991d494	43b94991d494	0	0	no-change
+tools/ai/manual-match.mjs	already-same	本地已有且内容一致，不改	13e7e072332c	13e7e072332c	0	0	no-change
+tools/ai/manual-report.mjs	already-same	本地已有且内容一致，不改	bd79edaea84a	bd79edaea84a	0	0	no-change
+tools/ai/run-match.mjs	auto-merge	三方无冲突合并	98b67464c0dc	98b67464c0dc	0	0	no-change
+tools/assets/anim-roles.mjs	auto-merge	三方无冲突合并	d66242d76928	d66242d76928	0	0	no-change
+tools/assets/cache.mjs	auto-merge	三方无冲突合并	dada2e7e8fec	dada2e7e8fec	0	0	no-change
+tools/assets/coverage.mjs	auto-merge	三方无冲突合并	8826ef336ac5	8826ef336ac5	0	0	no-change
+tools/assets/local-enemy-spines.json	auto-merge	三方无冲突合并	b2f0d67e00d7	b2f0d67e00d7	0	0	no-change
+tools/assets/local-token-spines.json	auto-merge	三方无冲突合并	5e8cefb94a13	5e8cefb94a13	0	0	no-change
+tools/assets/plan.mjs	auto-merge	三方无冲突合并	98e853c7bc1c	9293636ab90e	3	1	merged
+tools/assets/spine.mjs	auto-merge	三方无冲突合并	6ca24a178a7b	6ca24a178a7b	0	0	no-change
+tools/assets/versions.mjs	auto-merge	三方无冲突合并	e2ecda0bdac4	e2ecda0bdac4	0	0	no-change
+tools/botbench.mjs	auto-merge	三方无冲突合并	21ac4535d8b8	21ac4535d8b8	0	0	no-change
+tools/build-data.mjs	text-conflict	冲突 5 处：保留本地功能，上游非冲突内容保留	bcc940003ada	f2aca7188071	55	0	merged-local
+tools/build-emotes.mjs	auto-merge	三方无冲突合并	2ec048c68185	2ec048c68185	0	0	no-change
+tools/build-i18n.mjs	auto-merge	三方无冲突合并	dd3ae589c7be	dd3ae589c7be	0	0	no-change
+tools/fetch-assets.mjs	auto-merge	三方无冲突合并	8bb86d12d4f0	8bb86d12d4f0	0	0	no-change
+tools/golden.mjs	auto-merge	三方无冲突合并	8d79995b92f1	8d79995b92f1	0	0	no-change
+tools/i18n.mjs	auto-merge	三方无冲突合并	b568bb2db39a	b568bb2db39a	0	0	no-change
+tools/local-extract/autochess_themes.py	both-added	采用上游 0.4.0	319af3d4a3e7	31ba665acb87	1	1	upstream
+tools/local-extract/bundles.py	already-same	本地已有且内容一致，不改	c75a248f03fc	c75a248f03fc	0	0	no-change
+tools/local-extract/enemy_hit_areas.py	upstream-added	采用上游版本（本地未改动）		a2b5abc0def9	121	0	added
+tools/local-extract/expected.mjs	auto-merge	三方无冲突合并	5b710ed078f7	5b710ed078f7	0	0	no-change
+tools/local-extract/extract.py	auto-merge	三方无冲突合并	6f1c85fc29e3	6f1c85fc29e3	0	0	no-change
+tools/local-extract/fx.py	auto-merge	三方无冲突合并	ee2d456b1e12	ff0119dd1baa	2	0	merged
+tools/local-extract/regulation_scenes.py	already-same	本地已有且内容一致，不改	949cb41fef7f	949cb41fef7f	0	0	no-change
+tools/local-extract/scenes.py	auto-merge	三方无冲突合并	af96ddfeb783	af96ddfeb783	0	0	no-change
+tools/local-extract/season_entry.py	already-same	本地已有且内容一致，不改	591d73958aef	591d73958aef	0	0	no-change
+tools/local-extract/ui_components.py	already-same	本地已有且内容一致，不改	a1eec2f71088	a1eec2f71088	0	0	no-change
+tools/local-extract/versions.py	auto-merge	三方无冲突合并	6bab7e7b6470	6bab7e7b6470	0	0	no-change
+tools/matchrun.mjs	auto-merge	三方无冲突合并	58185712b984	58185712b984	0	0	no-change
+tools/package-smoke.mjs	already-same	本地已有且内容一致，不改	375a94fa0fa9	375a94fa0fa9	0	0	no-change
+tools/package.mjs	text-conflict	冲突 11 处：保留本地功能，上游非冲突内容保留	5efcf03cc471	2778c5e66f29	97	7	merged-local
+tools/theme-template.mjs	already-same	本地已有且内容一致，不改	da96fcf3ffc9	da96fcf3ffc9	0	0	no-change
+tools/ui-asset-refs.mjs	already-same	本地已有且内容一致，不改	3db11327da90	3db11327da90	0	0	no-change
+tools/versions/act1autochess-v1_1.mjs	auto-merge	三方无冲突合并	edba38b7e77e	edba38b7e77e	0	0	no-change
+tools/versions/act1autochess.mjs	auto-merge	三方无冲突合并	8ba1a827704a	8ba1a827704a	0	0	no-change
+tools/versions/act2autochess.mjs	auto-merge	三方无冲突合并	86b927c5206f	86b927c5206f	0	0	no-change
+tools/versions/act3autochess-v3_1.mjs	both-added	采用上游 0.4.0	e189394069f5	dfc1bc3b30b9	16	0	upstream
+tools/versions/layouts.mjs	already-same	本地已有且内容一致，不改	402e254c5acd	402e254c5acd	0	0	no-change
+tools/versions/profiles.mjs	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	788cf6e15d16	788cf6e15d16	0	0	merged-local
+tools/versions/sources.mjs	already-same	本地已有且内容一致，不改	b59530760a37	b59530760a37	0	0	no-change
+tools/versions/tables/act3autochess-v3_1.mjs	already-same	本地已有且内容一致，不改	d4444599e889	d4444599e889	0	0	no-change
+tools/vfx-skill-coverage.mjs	auto-merge	三方无冲突合并	f9da91061ab7	f9da91061ab7	0	0	no-change

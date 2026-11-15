@@ -20,6 +20,7 @@
 // /media/ response is unusable (a 404, or a 200 that is not audio at all — some static hosts answer a missing
 // path with the SPA's index.html).
 import { MEDIA_PREFIX, AUDIO_EXTS } from '../../shared/media.js';
+import { splitHashedPath } from '../../shared/assetPaths.js';
 import { PLUGIN_AUDIO_EXTS } from '../../shared/plugins/manifest.js';
 
 const AUDIO_PATH = /^\/assets\/audio\/(.+)$/i;
@@ -53,7 +54,8 @@ export function mediaUrl(url, origin = globalThis.location?.origin) {
     if (!ext || /\.[A-Za-z0-9]+$/.test(stem) || stem.endsWith('/') || stem.split('/').some((x) => x === '.' || x === '..')) return url;
     return `${stem}${u.search}`;
   }
-  const m = AUDIO_PATH.exec(u.pathname);
+  const { hash, path: plain } = splitHashedPath(u.pathname);
+  const m = AUDIO_PATH.exec(plain);
   if (!m) return url;
   let rest = m[1];
   const ext = AUDIO_EXTS.find((e) => rest.toLowerCase().endsWith(e));
@@ -61,5 +63,5 @@ export function mediaUrl(url, origin = globalThis.location?.origin) {
   rest = rest.slice(0, -ext.length);
   const segments = rest.split('/');
   if (!rest || segments.some((s) => !s || s === '.' || s === '..' || s.startsWith('.'))) return url;
-  return `${MEDIA_PREFIX}${rest}${u.search}`;
+  return `${MEDIA_PREFIX}${hash ? `~${hash}/` : ''}${rest}${u.search}`;
 }

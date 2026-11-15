@@ -1,0 +1,903 @@
+path	upstream_status	type	category	action	conflicts	status
+.gitattributes	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+.github/workflows/local-extract-python.yml	both_text	text	auto-merge	三方无冲突合并	0	no-change
+.gitignore	both_text	text	auto-merge	三方无冲突合并	0	no-change
+CHANGELOG.md	both_text	text	text-conflict	冲突 1 处：采用上游	1	merged-upstream
+README.md	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/assets.json	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+data/backups.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/chess.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/i18n/en.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/i18n/ja.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/i18n/ko.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/i18n/zh-TW.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/items.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/tokens.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act1autochess-v1_1/backups.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act1autochess-v1_1/config.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act1autochess-v1_1/enemies.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act1autochess-v1_1/items.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act1autochess/backups.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act1autochess/config.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act1autochess/enemies.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act1autochess/items.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act2autochess-v2_1/backups.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act2autochess-v2_1/items.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+data/versions/act3autochess-v3_1/backups.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+data/versions/act3autochess-v3_1/bands.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+data/versions/act3autochess-v3_1/bonds.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+data/versions/act3autochess-v3_1/bosses.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+data/versions/act3autochess-v3_1/chess.json	local_A	text	both-added	采用上游 0.4.0		upstream
+data/versions/act3autochess-v3_1/choices.json	local_A	text	both-added	采用上游 0.4.0		upstream
+data/versions/act3autochess-v3_1/config.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+data/versions/act3autochess-v3_1/effects.json	local_A	text	both-added	采用上游 0.4.0		upstream
+data/versions/act3autochess-v3_1/enemies.json	local_A	text	both-added	采用上游 0.4.0		upstream
+data/versions/act3autochess-v3_1/factions.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+data/versions/act3autochess-v3_1/garrisons.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+data/versions/act3autochess-v3_1/items.json	local_A	text	both-added	采用上游 0.4.0		upstream
+data/versions/act3autochess-v3_1/stages.json	local_A	text	both-added	采用上游 0.4.0		upstream
+data/versions/act3autochess-v3_1/tokens.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+data/versions/act3autochess-v3_1/tuning.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+data/versions/act3autochess-v3_1/waves.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+docs/AI-STRATEGY.md	both_text	text	auto-merge	三方无冲突合并	0	no-change
+docs/ARCHITECTURE.md	both_text	text	auto-merge	三方无冲突合并	0	no-change
+docs/ASSETS.md	both_text	text	text-conflict	文档冲突 1 处采用上游；非冲突本地内容保留	1	merged-doc-upstream
+docs/BALANCE.md	both_text	text	auto-merge	三方无冲突合并	0	no-change
+docs/BOT_STRATEGIES.md	both_text	text	auto-merge	三方无冲突合并	0	no-change
+docs/CI.md	both_text	text	auto-merge	三方无冲突合并	0	no-change
+docs/DATA.md	both_text	text	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	2	merged-doc-upstream
+docs/DEPLOY.md	both_text	text	text-conflict	文档冲突 1 处采用上游；非冲突本地内容保留	1	merged-doc-upstream
+docs/DESIGN.md	both_text	text	text-conflict	文档冲突 4 处采用上游；非冲突本地内容保留	4	merged-doc-upstream
+docs/EXTERNAL_AI.md	both_text	text	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	2	merged-doc-upstream
+docs/EXTERNAL_AI_ZH.md	both_text	text	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	2	merged-doc-upstream
+docs/I18N.md	both_text	text	auto-merge	三方无冲突合并	0	no-change
+docs/META.md	both_text	text	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	2	merged-doc-upstream
+docs/PLAYING.md	both_text	text	text-conflict	文档冲突 1 处采用上游；非冲突本地内容保留	1	merged-doc-upstream
+docs/PLUGIN-API.md	both_text	text	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	2	merged-doc-upstream
+docs/PLUGIN-GUIDE.md	both_text	text	text-conflict	文档冲突 1 处采用上游；非冲突本地内容保留	1	merged-doc-upstream
+docs/PLUGINS.md	both_text	text	text-conflict	文档冲突 2 处采用上游；非冲突本地内容保留	2	merged-doc-upstream
+docs/SIM.md	both_text	text	text-conflict	文档冲突 3 处采用上游；非冲突本地内容保留	3	merged-doc-upstream
+docs/SKINS.md	both_text	text	auto-merge	三方无冲突合并	0	no-change
+docs/THEME-GUIDE.md	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/THEMES.md	local_A	text	both-added	采用上游 0.4.0		upstream
+docs/design/client.md	both_text	text	text-conflict	文档冲突 5 处采用上游；非冲突本地内容保留	5	merged-doc-upstream
+docs/design/engine.md	both_text	text	auto-merge	三方无冲突合并	0	merged
+docs/design/match.md	both_text	text	text-conflict	文档冲突 3 处采用上游；非冲突本地内容保留	3	merged-doc-upstream
+docs/design/network.md	both_text	text	text-conflict	文档冲突 3 处采用上游；非冲突本地内容保留	3	merged-doc-upstream
+docs/design/overview.md	both_text	text	text-conflict	文档冲突 1 处采用上游；非冲突本地内容保留	1	merged-doc-upstream
+docs/design/vfx-format.md	both_text	text	text-conflict	文档冲突 3 处采用上游；非冲突本地内容保留	3	merged-doc-upstream
+docs/examples/offers-demo/plugin.json	upstream_only	text	upstream-added	采用上游版本（本地未改动）		adopted
+docs/examples/ui-theme-demo/banners/coop.webp	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/banners/result.png	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/character/neon.atlas	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/character/neon.json	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/character/neon.png	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/theme.json	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/thumb.png	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/ui/band.png	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/ui/countdown.png	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/ui/frame.png	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/ui/ready.png	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme-demo/ui/shop.png	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/examples/ui-theme/theme.json	local_A	text	both-added	采用上游 0.4.0		upstream
+docs/history/0.3.3.md	both_text	text	auto-merge	三方无冲突合并	0	no-change
+docs/history/0.4.0.md	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/img/theme-guide/covenant-slots.jpg	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/img/theme-guide/regulation-slots.jpg	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/img/theme-guide/settings.jpg	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/img/theme-guide/unite.jpg	upstream_only	binary	upstream-added	采用上游版本（本地未改动）		added
+docs/plugin-catalog.example.json	upstream_only	text	upstream-added	采用上游版本（本地未改动）		adopted
+docs/research/boss-hit-areas-20261112.json	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/research/boss-hit-areas-20261112.md	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/research/cocoon-client-fields-20261112.json	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/research/cocoon-client-fields-20261112.md	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/research/regulation-core-ban-video-20261114.json	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/research/regulation-core-ban-video-20261114.md	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/research/regulation-map09-20261112.json	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/research/sarkaz-death-spawns-20261113.json	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/research/sarkaz-death-spawns-20261113.md	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+docs/research/versions/blackboard-review.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+package-lock.json	both_text	text	auto-merge	三方无冲突合并	0	merged
+package.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+plugins/README.md	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+plugins/_template/content/plugin.json	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+plugins/_template/cosmetic/plugin.json	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+plugins/_template/script/plugin.json	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+plugins/_template/ui/plugin.json	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+public/css/components.css	both_text	text	text-conflict	冲突 3 处：保留本地功能，上游非冲突内容保留	3	merged-local
+public/css/devices.css	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/css/screens/briefing.css	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/css/screens/diy-check.css	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/css/screens/draft.css	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/css/screens/game-panels.css	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/css/screens/game-reghud.css	local_A	text	both-added	采用上游 0.4.0		upstream
+public/css/screens/game-shop.css	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/css/screens/game.css	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/css/screens/loadout.css	both_text	text	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	2	merged-local
+public/css/screens/lobby.css	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/css/screens/room.css	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/css/screens/sweep.css	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/css/screens/title.css	both_text	text	text-conflict	冲突 4 处：保留本地功能，上游非冲突内容保留	4	merged-local
+public/css/ui-theme.css	local_A	text	both-added	采用上游 0.4.0		upstream
+public/dev/game-mock.html	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/dev/game-mock.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/dev/prefab-lab.html	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/dev/prefab-lab.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/dev/render-demo.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/i18n/en.json	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/i18n/ja.json	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/i18n/ko.json	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/i18n/zh-TW.json	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/index.html	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/assetCache.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/assetDownload.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/assetPack.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/assets.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/audio.js	both_text	text	text-conflict	冲突 4 处：保留本地功能，上游非冲突内容保留	4	merged-local
+public/js/battle/observe.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/battle/runner.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/battle/simHost.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/battle/simWorkerRuntime.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/content.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/data.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/itemProgress.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/main.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/net.js	both_text	text	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	2	merged-local
+public/js/p2p.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/render/app.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/app/info.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/app/windup.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/board3d/layout.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+public/js/render/board3d/load.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/board3d/materials.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/board3d/scene.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/render/drag.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/fx/fonts.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/fx/kinds.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/fx/numbers.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/fx/simfx.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/fx/system.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/fx/zones.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/interp.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/projection.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/resourceNumbers.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/render/style.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/textures.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+public/js/render/tiles.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/units.js	both_text	text	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	2	merged-local
+public/js/render/vfx/effect.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/vfx/skillfx.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/vfx/skills.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/vfx/system.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/vfx/talentfx.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/vfx/talents.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/render/vfx/wiring.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/resourceCheck.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/screens/bandDraft.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/screens/briefing.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/screens/cultivation.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/screens/diy.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/screens/diyCheck.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/screens/game.js	both_text	text	text-conflict	冲突 7 处：以本地实现为主，补回上游 0.4.0 的 turnCue 声明/状态块，修复未定义变量导致的页面启动失败	7	merged-manual
+public/js/screens/game/range.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+public/js/screens/loadout.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/screens/lobby.js	both_text	text	text-conflict	冲突 8 处：保留本地功能，上游非冲突内容保留	8	merged-local
+public/js/screens/room.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/screens/settle.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/screens/stats.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/screens/sweep.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/screens/title.js	both_text	text	text-conflict	冲突 3 处：保留本地功能，上游非冲突内容保留	3	merged-local
+public/js/themeSpine.js	upstream_only	text	upstream-added	新增（采用上游）		added
+public/js/ui/allianceScene.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/assetDownload.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/assetImport.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/assetUrls.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/avatarBadges.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/bandCommand.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/bondEffect.js	upstream_only	text	upstream-added	新增（采用上游）		added
+public/js/ui/bondStrip.js	both_text	text	text-conflict	冲突 3 处：保留本地功能，上游非冲突内容保留	3	merged-local
+public/js/ui/bossPlates.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/choiceOverlay.js	both_text	text	text-conflict	冲突 4 处：保留本地功能，上游非冲突内容保留	4	merged-local
+public/js/ui/comboBox.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/components.js	both_text	text	text-conflict	冲突 4 处：保留本地功能，上游非冲突内容保留	4	merged-local
+public/js/ui/detailPanel.js	both_text	text	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	2	merged-local
+public/js/ui/effectsList.js	both_text	text	text-conflict	冲突 3 处：保留本地功能，上游非冲突内容保留	3	merged-local
+public/js/ui/enemyDrawer.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/entryFilm.js	local_A	text	both-added	采用上游 0.4.0		upstream
+public/js/ui/equipReplace.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/facing.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/facingWheel.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/ui/fallbackField.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/fieldHost.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/gameActions.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/ui/gameComponents.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/gameLogic.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/ui/gameLogic/bonds.js	both_text	text	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	2	merged-local
+public/js/ui/gameLogic/camera.js	both_text	text	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	2	merged-local
+public/js/ui/gameLogic/diy.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+public/js/ui/gameLogic/panel.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/gameLogic/phases.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/gameLogic/placement.js	both_text	text	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	2	merged-local
+public/js/ui/gameLogic/settings.js	both_text	text	text-conflict	冲突 6 处：保留本地功能，上游非冲突内容保留	6	merged-local
+public/js/ui/gameLogic/shop.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/gameLogic/terrain.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+public/js/ui/hud.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/ui/lang.js	both_text	text	text-conflict	冲突 3 处：保留本地功能，上游非冲突内容保留	3	merged-local
+public/js/ui/leaderRank.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/loadoutSync.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/lobbyMedia.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/matchChrome.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/matchEnemies.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/matchInfo.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/ui/matchPopups.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/operatorVoice.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/pluginPanel.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/pluginSettings.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/prefab/anim.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/prefab/banners.js	local_A	text	both-added	采用上游 0.4.0		upstream
+public/js/ui/prefab/color.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/prefab/hud.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/prefab/layout.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/prefab/player.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/prefab/stage.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/prefab/view.js	local_A	text	both-added	采用上游 0.4.0		upstream
+public/js/ui/protocolBoot.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/rangeStyle.js	upstream_only	text	upstream-added	新增（采用上游）		added
+public/js/ui/regHud.js	local_A	text	both-added	采用上游 0.4.0		upstream
+public/js/ui/regulationBackdrop.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/regulationBriefing.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/regulationFilm.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/releaseNotes.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/releaseNotesModel.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/resourceCheck.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/resourceManager.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/richText.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/screenFit.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/seatArt.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/ui/settings.js	both_text	text	text-conflict	冲突 6 处：保留本地功能，上游非冲突内容保留	6	merged-local
+public/js/ui/settingsStore.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+public/js/ui/shopBar.js	both_text	text	text-conflict	冲突 18 处：采用上游 0.4.0 商店卡面实现（本地旧版被上游覆盖）	18	merged-upstream
+public/js/ui/showTags.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/skins.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/stagePreview.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/stageThumb.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/strategyProgress.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/teamPanel.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/themeCharacter.js	local_A	text	both-added	采用上游 0.4.0		upstream
+public/js/ui/themeSettings.js	local_A	text	both-added	采用上游 0.4.0		upstream
+public/js/ui/toasts.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/turnPopup.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+public/js/ui/underframe.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/versionPicker.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/ui/voiceLibrary.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/js/ui/watchBonds.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/uiTheme.js	local_A	text	both-added	采用上游 0.4.0		upstream
+public/js/versions.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/js/voiceDownloads.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+public/studio/js/info.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+public/sw.js	local_D	text	local-deleted	恢复上游 0.4.0		restored-upstream
+schemas/catalog.schema.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+schemas/overlay.schema.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+schemas/plugin.schema.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/ai/community-candidates.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/ai/cycle-candidates.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/ai/knowledge.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/ai/playbook.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/ai/strategy-community.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/ai/strategy.js	both_text	text	text-conflict	冲突 1 处：采用上游 0.4.0 行为	1	merged-upstream
+server/ai/transport.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/aiTakeover.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/http/config.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/http/static.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+server/index.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/lobby.js	both_text	text	text-conflict	冲突 10 处：保留本地功能，上游非冲突内容保留	10	merged-manual
+server/match/Match.js	both_text	text	text-conflict	冲突 2 处：采用上游 0.4.0 行为	2	merged-upstream
+server/match/PlayerState.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/aiDigest.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/aiEconomy.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/aiPlan.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/audit.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/bandCommandEffects.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/match/bandCommands.js	local_A	text	both-added	采用上游 0.4.0		upstream
+server/match/bandProgress.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/match/bondsMeta.js	both_text	text	text-conflict	冲突 1 处：采用上游 0.4.0 行为	1	merged-upstream
+server/match/bot.js	both_text	text	text-conflict	冲突 6 处：采用上游 0.4.0 行为	6	merged-upstream
+server/match/botBondGroups.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/match/botPrep.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/botStrategies.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/builtinMeta.js	both_text	text	text-conflict	冲突 1 处：采用上游 0.4.0 行为	1	merged-upstream
+server/match/effectsMeta.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/externalAI.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/externalConfig.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/fields.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/finalAssault.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/gamedata.js	both_text	text	text-conflict	冲突 2 处：采用上游 0.4.0 行为	2	merged-upstream
+server/match/host/entry.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/host/ipc.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/host/proxy.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/invariants.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/itemProgress.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/match/leaderRank.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/match/llmGate.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/bossRounds.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/combat.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/infra.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+server/match/match/intents.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/offers.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/phases.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/platform.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/prep.js	both_text	text	text-conflict	冲突 2 处：采用上游 0.4.0 行为	2	merged-upstream
+server/match/match/reports.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/settle.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/setupVote.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/spDraft.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/testCommands.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/match/views.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/player/acquire.js	both_text	text	text-conflict	冲突 2 处：采用上游 0.4.0 行为	2	merged-upstream
+server/match/player/basics.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/player/commands.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/match/player/diy.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/player/economy.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/player/items.js	both_text	text	text-conflict	冲突 1 处：保留本地融合方法 _tryFuse/_fuseOnce；上游只删方法保留调用会导致运行时报错	1	merged-local
+server/match/player/pieces.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/player/placement.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/player/prep.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/player/round.js	both_text	text	text-conflict	冲突 1 处：采用上游 0.4.0 行为	1	merged-upstream
+server/match/player/views.js	both_text	text	text-conflict	冲突 2 处：采用上游 0.4.0 行为	2	merged-upstream
+server/match/pool.js	both_text	text	text-conflict	冲突 1 处：采用上游 0.4.0 行为	1	merged-upstream
+server/match/showTags.js	local_A	text	both-added	采用上游 0.4.0		upstream
+server/match/testReplay.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/testTrace.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/unite.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/match/waves.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/net.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/peerRelay.js	local_A	text	both-added	采用上游 0.4.0		upstream
+server/plugins/contentSet.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/plugins/contentSets.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/plugins/forgeImport.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/plugins/install.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/plugins/officialUnitBuilder.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/plugins/pack.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/plugins/registry.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/plugins/roomSets.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/plugins/zip.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/Battle.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/ai.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/attack/health.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/battle/blocking.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+server/sim/battle/deploy.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+server/sim/battle/economy.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/battle/leaderHits.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/battle/players.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/battle/summons.js	both_text	text	text-conflict	冲突 1 处：采用上游 0.4.0 行为	1	merged-upstream
+server/sim/battle/tiles.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/body.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+server/sim/content/bands/battle.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/bands/commands.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/bands/meta.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/bonds/addon/battle.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/bonds/addon/meta.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/bonds/core.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/bonds/lethania.js	upstream_only	text	upstream-added	新增（采用上游）		added
+server/sim/content/bonds/regulation.js	local_A	text	both-added	采用上游 0.4.0		upstream
+server/sim/content/bosses.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/devices.js	both_text	text	text-conflict	冲突 4 处：采用上游 0.4.0 行为	4	merged-upstream
+server/sim/content/enemies.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/enemies/element.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/enemies/invisible.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/enemies/leaders.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/enemies/regulation.js	local_A	text	both-added	采用上游 0.4.0		upstream
+server/sim/content/garrisons.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/garrisons/battle.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/garrisons/meta.js	both_text	text	text-conflict	冲突 1 处：采用上游 0.4.0 行为	1	merged-upstream
+server/sim/content/garrisons/regulation.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/generic.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/items/battle.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/README.md	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/index.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_1_08-texas.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_3_04-swire2.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_3_18-vulpis.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_4_04-ines.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_4_19-flamtl.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_5_02-titi.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_5_05-ulpia.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_5_08-horn.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_5_14-svash2.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_6_11-mlyss.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/chess_char_6_16-halo2.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/op-cgbird.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/op-clemnt.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/op-dminon.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/op-oxi.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/op-saga.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/op-siege.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/op-tocka.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/op-wang.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/standin-acpion.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/ver-acrbot.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-alga.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-amiya3.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-aosta.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-astesi.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-bison.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-blackd.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/ver-bluep.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-brigid.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-buildr.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-cammou.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-chnut.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-christ.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-ctrail.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-diy.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/ops/ver-fang2.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-frncat.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-frostl.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-glassb.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-greyy2.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-hbound.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-highmo.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-jaksel.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-ju.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-kaitou.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-kichi.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-leto.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-liesel.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-meteo.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-mitm.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-nothin.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-pianst.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-quercu.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-robrta.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-sidero.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-swllow.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-taraxa.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-turdus.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/ops/ver-varkis.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+server/sim/content/kits/shared/lord.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/shared/tier1.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/kits/shared/version.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/regulation-bosses.js	local_A	text	both-added	采用上游 0.4.0		upstream
+server/sim/content/support/index.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/support/meta.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/content/tokens.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/grid.js	both_text	text	text-conflict	冲突 2 处：采用上游 0.4.0 行为	2	merged-upstream
+server/sim/professions.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/rehearsal.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/skills.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/snapshot.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/spec.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/sim/targeting.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+server/studio/candidate.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/studio/edit.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/studio/files.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/studio/gameplayCheck.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/studio/index.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+server/studio/templates/index.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+server/versions.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+shared/commandDisplay.js	upstream_only	text	upstream-added	新增（采用上游）		added
+shared/constants.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+shared/diyBring.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+shared/garrisonUpgrades.js	upstream_only	text	upstream-added	新增（采用上游）		added
+shared/itemRules.js	local_A	text	both-added	采用上游 0.4.0		upstream
+shared/leaderOps.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+shared/plugins/catalog.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+shared/plugins/errors.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+shared/plugins/identity.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+shared/plugins/manifest.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+shared/plugins/rules.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+shared/plugins/surface.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+shared/plugins/ui.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+shared/plugins/visual.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+shared/protocol.js	both_text	text	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	2	merged-local
+shared/standIn.js	upstream_only	text	upstream-added	待确认：路径已存在		adopted
+shared/uiTheme.js	local_A	text	both-added	采用上游 0.4.0		upstream
+shared/versions.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ai-takeover-version.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/assets-season-music.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/assets.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/audio-pools-data.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/backups.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/bands/regulation-battle.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/bands/regulation-commands.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/bands/regulation-data.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/bands/regulation-replay.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/bonds/regulation.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/bot-strategy-startup.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/botbench-layers.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/build-data-refresh.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/client-static.test.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+test/content/bonds_core.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/egir-unite-carry.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/enemies_bosses.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/feedback3-egir-down.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/garrisons_meta.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/items.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/kits_alt_t5.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/kits_layout.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/kits_ver_m2.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/new-modules-2791.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/content/op_cgbird.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/op_clemnt.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/op_dminon.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/content/op_oxi.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/content/op_tocka.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/content/op_wang.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/content/r81-champagne-owner-exit.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/data-versions.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/data.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/diy.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/docs-consistency.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/e2e/client.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/e2e/text-fit.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/enemy-skill-clips.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/feedback1d-models.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/feedback7-voices.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/fixtures/manual-player.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/fixtures/official-regulation-drafts.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/fixtures/slow-plan-agent.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/fixtures/versions-bb-audit-act3.json	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/fixtures/versions-default-guard.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/full-potential.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/garrisons/regulation.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/golden/act1autochess-v1_1/bonds.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act1autochess-v1_1/diy.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act1autochess-v1_1/fields.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act1autochess-v1_1/matches.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act1autochess-v1_1/roster.json	both_text	text	auto-merge	test/golden：按用户确认采用上游 0.4.0 golden 基线	0	upstream
+test/golden/act1autochess-v1_1/standins.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act1autochess/bonds.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act1autochess/diy.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act1autochess/fields.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act1autochess/matches.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act1autochess/roster.json	both_text	text	auto-merge	test/golden：按用户确认采用上游 0.4.0 golden 基线	0	upstream
+test/golden/act1autochess/standins.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act2autochess-v2_1/bonds.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act2autochess-v2_1/diy.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act2autochess-v2_1/fields.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act2autochess-v2_1/matches.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act2autochess-v2_1/roster.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/act3autochess-v3_1/bonds.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
+test/golden/act3autochess-v3_1/diy.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
+test/golden/act3autochess-v3_1/fields.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
+test/golden/act3autochess-v3_1/matches.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
+test/golden/act3autochess-v3_1/roster.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
+test/golden/act3autochess-v3_1/standins.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
+test/golden/bonds.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/diy.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/fields.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/golden/matches.json	both_text	text	text-conflict	test/golden：按用户确认采用上游 0.4.0 golden 基线	30	upstream
+test/golden/roster.json	both_text	text	text-conflict	test/golden：按用户确认采用上游 0.4.0 golden 基线	13	upstream
+test/golden/standins.json	both_text	text	auto-merge	test/golden：按用户确认采用上游 0.4.0 golden 基线	0	upstream
+test/helpers/battleHarness.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+test/helpers/defaultGamedata.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/helpers/devourFeedVersion.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/helpers/devourTrench.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/helpers/packageServer.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/helpers/pictureSkins.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/helpers/releaseNotes.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/helpers/simHostFixture.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/helpers/wsClient.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/http-versions-config.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/i18n-data.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/i18n-packs.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/i18n-server.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/i18n.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/items/regulation.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/kits/regulation-batch1.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/kits/regulation-batch2.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/kits/regulation-batch3.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/kits/regulation-batch4.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/lobby-card.test.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+test/lobby-loadout.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/lobby-ownership.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/lobby-skins.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/lobby-spectate-switch.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/lobby-versions.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/lobby.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/local-extract-fx.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/local-extract-python-ci.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/local-extract.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/local-extract/autochess-themes.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/local-token-models.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/abyss-advisor.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/advisor-economy.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/advisor-execution.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/advisor-input.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/ai-cycle.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/ai-playbook.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/avatar-badges.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/band-progress.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/band-strength.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/beacon-diy.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/bond-groups.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/match/bond-timers.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/bonds.test.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+test/match/bosshp.test.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+test/match/bot-prep-pipeline.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/bot-self-plan.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/bot-smarter.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/bot-strategy-seats.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/connection.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/coop-play.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/coop-team.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/devour-feed.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/devour-layout.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/diy-bring.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/ducklord-shared-draw.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/equip-hand.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/external-advisor.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/external-ai.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/external-anthropic.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/external-llm-continuity.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/external-llm.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/external-timing.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/external-transports.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/fa-body.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/fa-damage.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/fa-hold.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/fa-items.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/fa-leader-chain.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/fa-rehearsal.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/fa-strike.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/feedback1-gaps.test.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+test/match/feedback1-meta.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/feedback79.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/fuzz.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/garrison-upgrades.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/match/harness.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+test/match/ironhide-items.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/match/item-fusion.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/match/item-progress.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/jesica.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/leader-rank.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/llm-adapter-v2.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/manual-ai.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/manual-report.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/muelsyse.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/position-traits.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/pro-team.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/realtime.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/regulation-drafts.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/regulation-items.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/regulation-reward-pools.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/match/rehearsal-delegate.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/runner.test.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+test/match/shop-items.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/match/show-tags.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/match/sim-host.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/match/simClient.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/p2p-client.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/p2p-server.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/p2p.browser.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/package-llm-gate.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/package-smoke.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/package.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/plugins/catalog.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/plugins/forgeImport.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/plugins/install.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/plugins/manifest.test.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+test/plugins/registry.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/plugins/schema.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/plugins/script-sandbox-integration.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/plugins/surface.stable.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/plugins/surface.test.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+test/plugins/ui.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/plugins/versions.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/plugins/visual.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/potential.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/render/board3d-extract.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/render/board3d-scene.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/render/board3d.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/render/cetsyr-background.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/render/resource-numbers.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/render/tiles.test.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+test/render/unitview.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		adopted
+test/render/vfx-areas.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/render/vfx-procedural.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/render/vfx-skills.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/render/vfx-talents.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/render/windup-facing.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/setup-local-freshness.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/sim/boss-hit-areas.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/sim/cocoon-body.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/sim/cocoon-targeting.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/sim/feedback3-ulpia-move.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/sim/leader-hits.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/sim/perf.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/sim/playtest5_elements.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/sim/regulation-death-spawns.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/sim/regulation-enemies.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/sim/regulation-grass.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/sim/rehearsal.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/sim/resource-numbers.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/skins.test.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+test/studio/catalog.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/studio/console.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/studio/presentationRework.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/studio/size-limits.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui-asset-refs.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/ai-takeover.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/alliance-scene.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/asset-download.browser.test.js	local_D	text	local-deleted	恢复上游并按本地适配（待测试）		restored-adapted
+test/ui/asset-download.test.js	local_D	text	local-deleted	恢复上游并按本地适配（待测试）		restored-adapted
+test/ui/asset-import.browser.test.js	local_D	text	local-deleted	恢复上游并按本地适配（待测试）		restored-adapted
+test/ui/asset-import.test.js	local_D	text	local-deleted	恢复上游并按本地适配（待测试）		restored-adapted
+test/ui/audio-pools.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/audio.test.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+test/ui/avatar-badges.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/band-command.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/band-draft-skip.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/bandDraft.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/bond-audio.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/bond-scroll.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/boss-plates.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/card-sync.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/chiave-progress.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/comboBox.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/command-spectate.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/ui/community-controls.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/community-layout.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/deploy-middle.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/deploy-replay.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/devices.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/diy-check.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/diy.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/draft-portrait.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/emotes.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/entry-film.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/ui/feedback1-gaps.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/feedback1b-bonds.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/feedback3-ready.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/feedback6-diy-bond-members.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/followup-023.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/gameLogic.test.js	both_text	text	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	2	merged-local
+test/ui/i18n.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/inspect-range.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		adopted
+test/ui/inspection-fit.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/ironhide-items.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/ui/issue5-fold-camera.test.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+test/ui/issue602-deploy-fold.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/issue602-deploy-fold.test.js	both_text	text	text-conflict	冲突 2 处：保留本地功能，上游非冲突内容保留	2	merged-local
+test/ui/item-progress.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/leader-rank.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/loadout-cards.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/loadout-cards.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/loadout-charid.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/loadout-ops-export.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/loadout-rows.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/loadout.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/lobby-hub.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/lobby-media-delete.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/localArt.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/match-bond-info.e2e.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/ui/match-info.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/match-info.test.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+test/ui/match-popups.e2e.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		adopted
+test/ui/modal.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/morph-bonds.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/official-themes.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/operator-voice.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/pen-hidden-hud.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/picture-skins.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/playtest2.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/playtest3.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/playtest4.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/playtest5-ui.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/plugin-version-room.e2e.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/ui/prefab-hud.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/prefab-hud.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/prep-bench.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/quit-failure.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/real.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/reg-hud.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/ui/regulation-briefing.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/regulation-commands.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/regulation-film.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/release-notes.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/release-notes.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/resource-check.browser.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/resource-check.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/richText.test.js	both_text	text	auto-merge	三方无冲突合并	0	merged
+test/ui/room-fit.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/room-ready-audio.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/room-ready-audio.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/room-spectate-switch.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/round78-ui.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/screen-fit.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/seat-art.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/settings-entry.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/settings-storage.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/settle.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/shop-slot-kind.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/ui/show-tags.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/spectate-effects.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/stage-thumb.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/stage-thumb.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/stats.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/strategy-progress.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/sweep.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/sweep.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/teammate-band.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/teammate-loadout.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/text-scale.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/text-scale.test.js	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+test/ui/theme-frames.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/ui/theme-guide.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/ui/theme-notices.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/theme-official-import.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+test/ui/themes.e2e.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/themes.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/ui/token-skin-gate.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/turn-popup.e2e.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		adopted
+test/ui/turn-popup.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		adopted
+test/ui/ui-leftovers-3533.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/version-asset-models.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/version-icon-cache.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/version-icon-lookups.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/version-vote.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/versionPicker.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/versions-fit.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/versions.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/versions.test.js	upstream_only	text	upstream-added	采用上游版本（本地未改动）		adopted
+test/ui/voice-downloads.test.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
+test/ui/wake-lock.e2e.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/ui/watch-bonds.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/update-package.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/version-assets.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/versions-bb-audit.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/versions-golden.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/versions-keying.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+test/versions-regulation.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
+test/versions-service.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/ai/layer-trace.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/ai/llm-agent.mjs	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+tools/ai/llm-context.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/ai/llm-knowledge.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/ai/llm-plan.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/ai/manual-act.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/ai/manual-agent.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/ai/manual-files.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/ai/manual-match.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/ai/manual-report.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/ai/run-match.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/assets/anim-roles.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/assets/cache.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/assets/coverage.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/assets/local-enemy-spines.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/assets/local-token-spines.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/assets/plan.mjs	both_text	text	auto-merge	三方无冲突合并	0	merged
+tools/assets/spine.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/assets/versions.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/botbench.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/build-data.mjs	both_text	text	text-conflict	冲突 5 处：保留本地功能，上游非冲突内容保留	5	merged-local
+tools/build-emotes.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/build-i18n.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/fetch-assets.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/golden.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/i18n.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/local-extract/autochess_themes.py	local_A	text	both-added	采用上游 0.4.0		upstream
+tools/local-extract/bundles.py	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/local-extract/enemy_hit_areas.py	upstream_only	text	upstream-added	采用上游版本（本地未改动）		added
+tools/local-extract/expected.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/local-extract/extract.py	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/local-extract/fx.py	both_text	text	auto-merge	三方无冲突合并	0	merged
+tools/local-extract/regulation_scenes.py	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/local-extract/scenes.py	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/local-extract/season_entry.py	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/local-extract/ui_components.py	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/local-extract/versions.py	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/matchrun.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/package-smoke.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/package.mjs	both_text	text	text-conflict	冲突 11 处：保留本地功能，上游非冲突内容保留	11	merged-local
+tools/theme-template.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/ui-asset-refs.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/versions/act1autochess-v1_1.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/versions/act1autochess.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/versions/act2autochess.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change
+tools/versions/act3autochess-v3_1.mjs	local_A	text	both-added	采用上游 0.4.0		upstream
+tools/versions/layouts.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/versions/profiles.mjs	both_text	text	text-conflict	冲突 1 处：保留本地功能，上游非冲突内容保留	1	merged-local
+tools/versions/sources.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/versions/tables/act3autochess-v3_1.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
+tools/vfx-skill-coverage.mjs	both_text	text	auto-merge	三方无冲突合并	0	no-change

@@ -2171,12 +2171,6 @@ export class Lobby {
   /** Does a room of this version and mode keep its own mode id (规程's solo ladder; versions.laddered)? */
   laddered(v, mode) { return v !== DEFAULT_VERSION && !!this.versions?.laddered?.(v, /** @type {'solo' | 'coop'} */ (mode)); }
 
-  /** 规程 ladder 的 modeId（上游 lobby.js ladderMode）：asked 优先，其次按难度取同档，最后取列表首个。 */
-  ladderMode(v, mode, difficulty, asked) {
-    const list = this.versionModes(v, mode);
-    return list.find((m) => m.id === asked)?.id ?? list.find((m) => m.difficulty === difficulty)?.id ?? list[0]?.id ?? null;
-  }
-
   /**
    * A laddered room's official mode: `asked` when the version offers it, else the first mode of `difficulty` (sortId
    * order: 标准 → 规程等级1, 险境 → 规程等级5 …), else the first mode.

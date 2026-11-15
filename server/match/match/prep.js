@@ -34,10 +34,11 @@ export class MatchPrep {
     for (const ps of alive) {
       ps.ready = false;
       beginCommandPrep(ps);
-      // Items gained as the previous prep ended waited unmerged (acquireItem deferMerge). Merge them now, before
-      // this prep's onPrepStart grants and before the player acts — not in endPrep, which runs in the same prep
-      // that granted them and would take an equipped copy off for the fight about to start.
-      ps.checkItemMerges();
+      // Items gained as the previous prep ended waited unmerged (acquireItem deferMerge), including a fusion
+      // component. Merge them now, before this prep's onPrepStart grants and before the player acts — not in
+      // endPrep, which runs in the same prep that granted them and would take an equipped copy off for the fight
+      // about to start. releaseDeferred is this call only: a scroll's equipDirect must still see the mark.
+      ps.checkItemMerges({ releaseDeferred: true });
       ps.recompute();
       this.dispatch(ps, 'onPrepStart', { round: this.round });
       ps.recompute();
@@ -170,16 +171,10 @@ export class MatchPrep {
       });
     };
     this.later(this.scaled(DELAYS.BOT_ACTION + i * DELAYS.BOT_STAGGER), () => {
-      const start = () => {
-        if (!valid()) return;
-        // 上游：外部（LLM）bot 通过 complete 回应；其余立即 begin
-        if (this.botFor(ps).decide?.(this, ps, { kind: 'prep', valid, complete: () => ps.ready,
-          fallback: () => this.later(0, begin) })) return;
-        begin();
-      };
-      // 本分支：bot 首段跑在 WORK 计时器上（docs/BACKEND_PERFORMANCE.md）
-      if (this.sched.setWork) this.laterWork(start);
-      else start();
+      if (!valid()) return;
+      if (this.botFor(ps).decide?.(this, ps, { kind: 'prep', valid, complete: () => ps.ready,
+        fallback: () => this.later(0, begin) })) return;
+      begin();
     });
   }
 

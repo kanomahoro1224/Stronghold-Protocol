@@ -2936,6 +2936,17 @@ export function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0, polic
       if (ps.shop.slots.some(s => s && !s.sold && s.kind === 'chess'
         && planBuyTarget(m, ps, s.id) && ps.priceOf(s) > ps.funds)) { maybeFreeze(m, ps); return; }
       if (!tryDo(() => ps.refresh())) return;
+      continue;
+    }
+    // §37.69: the 杰西卡 seat's extra refreshes before the level-up; a missing member it could not buy is not refreshed
+    // away (maybeFreeze keeps it for the next round)
+    if (fillOnly && !customPolicy && pagerRefresh(m, ps)) continue;
+    if (!customPolicy && pagerShowsMissing(m, ps)) return;
+    if (canRefresh) {
+      // Manual g.refresh cancels freezing and replaces its cards. §37.71: save an unaffordable explicit plan target first.
+      if (ps.shop.slots.some(s => s && !s.sold && s.kind === 'chess'
+        && planBuyTarget(m, ps, s.id) && ps.priceOf(s) > ps.funds)) { maybeFreeze(m, ps); return; }
+      if (!tryDo(() => ps.refresh())) return;
       refreshes++;
       continue;
     }
@@ -4087,12 +4098,12 @@ function* placeTokensSteps(m, ps) {
   }
 }
 
-/** Free equip slots under the room's morph policy. Official numbers stay items.length versus equipPerChess. */
+/** Free equip slots under the room's morph policy and the carrier's official per-form capacity. */
 function slotFree(m, ps, p, incoming = null) {
   const gd = ps?.gd || m.gd;
   const policy = morphSlotPolicy(ruleOption(m?.rules, 'morphPairing'), (it) => !!gd.item(it?.id)?.canGiveBond);
   const items = p?.items || [];
-  return policy.accepts(items, incoming) && (!policy.occupies(incoming) || policy.slotsUsed(items) < policy.slotCap(gd.equipPerChess));
+  return policy.accepts(items, incoming) && (!policy.occupies(incoming) || policy.slotsUsed(items) < policy.slotCap(gd.equipSlots(p?.id)));
 }
 
 /** What an item does: the key of its first buff (data/items.json `buffs`, e.g. use_equip_reward_char_chess). */
@@ -4127,7 +4138,7 @@ const isMutationCell = (gd, itemId) => itemEffect(gd.item(itemId)) === 'char_che
  * strongest normal deployed operator) while a deployed normal operator of tier ≥ ELITE_ITEM_TIER can wear it before the
  * Final Assault prep, and 拟态物质 (4 funds, the third copy of a held pair) while a normal pair of tier ≥ ELITE_ITEM_TIER
  * still has copies in the pool. The community's 「拟态物质在差一只合成时买」 (handoff/round55 community research 装6).
- * Paired 终极 results in docs/history/0.3.4.md §37.41.
+ * Paired 终极 results in docs/history/0.4.0.md §37.41.
  */
 const WANTED_ITEM = 40;
 const ELITE_ITEM_TIER = 4;
@@ -4219,7 +4230,7 @@ function lendItem(m, ps, id, ctx) {
  * §37.42 [ASSUMED] (the maintainer, 2026-10-29: 「缪尔赛思除了炎盟约我基本都是到手就卖不留着，这样能提高再次拿到的概率」): a
  * normal chess whose gain brings a 变形同构体 (缪尔赛思, garrison SERVER_GAIN_EQUIP) is sold as soon as it arrives — the
  * 变形同构体 stays, the copy goes back to the pool — unless the focus's top tier exceeds the deploy cap (炎: 调和 and her
- * conversion make 9, §37.41). An advisor's protected piece stays. Paired 终极 results in docs/history/0.3.4.md §37.42.
+ * conversion make 9, §37.41). An advisor's protected piece stays. Paired 终极 results in docs/history/0.4.0.md §37.42.
  */
 function bringsMorph(m, ps, id) {
   const gd = ps?.gd || m.gd;
@@ -4762,7 +4773,7 @@ function faKeeps(m, ps, p) {
  * funds refresh the shop for damage items (faItemMods), each bought when its faItemTarget gains and equipped at once;
  * the ones held already go first. Once per prep. A strategy that keeps its leftover funds (坎诺特) keeps its interest
  * capital (fundsReserve), and a full hand neither buys nor refreshes. (A won Final Assault may open the 隐秘核心 with that
- * bench gone; its lineup seldom takes one.) Paired 终极 results in docs/history/0.3.4.md §37.67.
+ * bench gone; its lineup seldom takes one.) Paired 终极 results in docs/history/0.4.0.md §37.67.
  */
 function faItemHunt(m, ps) {
   if (ps._botFaHunt === m.round) return;

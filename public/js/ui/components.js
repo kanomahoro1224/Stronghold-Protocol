@@ -207,7 +207,7 @@ export function tierChipUrl(t) {
  * Golden = elite (精锐) variant (gold glow).
  * @param {{ tier: number, golden?: boolean, size?: 'sm'|'md'|'lg', class?: string }} props
  */
-export function TierChip({ tier, golden = false, size = 'md', class: cls }) {
+export function TierChip({ tier, golden = false, size = 'md', class: cls, overlay = null, style = null }) {
   const n = Math.max(1, Math.min(6, Number(tier) | 0 || 1));
   const src = tierChipUrl(n);
   const picture = useAssetImage(src);

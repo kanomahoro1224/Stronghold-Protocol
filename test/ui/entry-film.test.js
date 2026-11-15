@@ -1,7 +1,7 @@
 // test/ui/entry-film.test.js — the entry film (ui/entryFilm.js) never sits over a room or a match, and leaves the
 // player's own lobby music alone. playEntryFilm runs for real on a small stand-in DOM (the overlay is a <dialog>, the
-// skip label a plain element; the scene itself is a stand-in, its pictures are ui/allianceScene.js's own,
-// unit-tested in test/ui/alliance-scene.test.js): a session restored into a room while the opening loads takes the
+// card and the skip label plain elements; the scene itself is a stand-in, its pictures are ui/allianceScene.js's own,
+// unit-tested in test/ui/alliance-scene.test.js): a session restored into a room while the 点击进入 card waits takes the
 // overlay down and a later tap plays nothing; one restored into a match while the film runs takes it down at once, stops
 // the entry cue and hands the music back to the screen. holdBgm: with audio.lobbyTrack set nothing fades and playBgm
 // is left alone; without it the screen's music is held and released from its top; a lobbyTrack that arrives during
@@ -125,14 +125,14 @@ beforeEach(() => {
   Object.assign(audio, { ctx: null, lobbyTrack: null, lastBgmKey: 'lobby', volumes: { ...(audio.volumes || {}), muted: false } });
 });
 
-test('a session restored into a room while the opening loads takes the overlay down; a later tap plays nothing', async () => {
+test('a session restored into a room while the 点击进入 card waits takes the overlay down; a later tap plays nothing', async () => {
   const keysBefore = keyListeners();
   const spy = sceneSpy();
   await playEntryFilm({ mount: spy.mount });
   const el = overlay();
-  assert.ok(el && el.open, 'the cover is up on the title screen');
-  // 2026-11-15（维护者）：黑底「点击进入」卡片已删除，开场不再等一次点击
-  assert.equal(el.querySelector('.spa-entry__gate'), null, 'no 点击进入 card: the film starts on its own');
+  assert.ok(el && el.open, 'the card is up on the title screen');
+  assert.ok(el.querySelector('.spa-entry__gate'), 'with the 点击进入 card (sound is still locked)');
+  assert.equal(keyListeners(), keysBefore + 1, 'the card listens for a key');
 
   enterRoom();
   assert.equal(selectRoute(store.get()), 'room');
@@ -140,7 +140,7 @@ test('a session restored into a room while the opening loads takes the overlay d
   assert.equal(el.open, false);
   assert.equal(keyListeners(), keysBefore, 'and nothing listens for keys any more');
 
-  // the tap (or key) meant for the overlay now reaches nothing: no film over the room
+  // the tap (or key) meant for the card now reaches nothing: no film over the room
   el.dispatch('pointerdown');
   pressKey();
   await sleep(800);

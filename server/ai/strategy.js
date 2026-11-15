@@ -143,10 +143,9 @@ export function enemyProfile(playbook, digest) {
 const DRAFT_CAP = 8, PREP_CAP = 4;
 export function strategyCandidates(playbook, digest, previousPlan = null) {
   if (!playbook) return { candidates: [], reason: 'No versioned playbook in this knowledge pack.' };
-  // 本分支：模式 inactive 名单只缩干员池，不再禁止盟约激活（AGENTS.md 2026-10-06 本分支规则调整）
-  // 上游 round 65（2026-11-04）：被判 ban 的盟约在场上仍有效，只有其单一盟约的干员离开池子
+  // a drawn ban stays in play (round 65, maintainer 2026-11-04): only its single-bond members left the pool
   const drawn = new Set(digest.availability?.drawnBonds || []);
-  const disabled = new Set((digest.availability?.disabledBonds || []).filter(id => !drawn.has(id)));
+  const disabled = new Set([...playbook.inactiveBonds, ...(digest.availability?.disabledBonds || []).filter(id => !drawn.has(id))]);
   const banned = new Set([...(digest.availability?.bannedChess || []), ...(digest.availability?.diyBanned || [])]);
   const operators = playbook.operators.filter(c => !banned.has(c.id));
   const byId = new Map(operators.map(c => [c.id, c]));
