@@ -76,6 +76,8 @@ const ENDS_BATTLE = (f) => f.t === 'b.end' || f.t === 'm.result' || (f.t === 'm.
 /** 本地战斗 sim 是否还没结束（回放按真实战斗动画等待，不抢跑结算）。 */
 function battleStillRunning() {
   try {
+    const st0 = battleRunner?.state?.();
+    if (st0?.loading) return true; // b.start 的 sim 还在加载/准备
     const entries = battleRunner?._entries;
     if (entries && entries.size) {
       for (const e of entries.values()) if (e && e.battle && !e.done) return true;
@@ -84,6 +86,25 @@ function battleStillRunning() {
     const st = battleRunner?.state?.();
     return !!st && st.done === false;
   } catch { return false; }
+}
+
+/** 跳转后战斗 sim 是否已快进到目标时刻（entries 还没建出来 = 继续等）。 */
+function catchUpDone(s) {
+  const entries = battleRunner?._entries;
+  if (!entries) return true;
+  for (const t of s.catchTargets.values()) {
+    let seen = false;
+    for (const e of entries.values()) {
+      if (!e || e.battleId !== t.battleId) continue;
+      seen = true;
+      if (e.done) continue;
+      const ticks = e.battle?.tickCount || 0;
+      const expected = t.elapsed * 30; // runner: t0 = clock - elapsed/speed*1000 ⇒ 目标 tick = elapsed / (1/30)
+      if (ticks + 1 < expected) return false;
+    }
+    if (!seen) return false; // 还在 pending / 下载内容
+  }
+  return true;
 }
 
 /** 回合标记：优先用录制时记下的 marks；老文档从 wire 的 m.public 回合变化推导。 */
@@ -152,7 +173,7 @@ function Bar({ s }) {
       <div class="dr-head" style=${`left:${pct}%`}></div>
     </div>
     <div class="dr-row">
-      <span class="dr-time">${fmt(s.cursor)} / ${fmt(total)}</span>
+      <span class="dr-time">${s.catchingUp ? t('战斗快进中…') : `${fmt(s.cursor)} / ${fmt(total)}`}</span>
       <button type="button" class="dr-btn" onClick=${() => s.seek(s.cursor - 15000)}>-15s</button>
       <button type="button" class="dr-btn" title=${t('播放/暂停')} onClick=${() => s.toggle()}>${s.playing ? '❚❚' : '▶'}</button>
       <button type="button" class="dr-btn" onClick=${() => s.seek(s.cursor + 15000)}>+15s</button>
@@ -168,6 +189,7 @@ function Bar({ s }) {
 
 /** Dispatch one recorded frame through the client bus (main.js / game.js / battle runner all listen there). */
 function dispatch(frame) {
+  if (session?.paused) return; // 暂停期间任何已排队帧都不再派发
   try { net._emit(frame.t, frame.m); } catch (e) { console.warn('[demo] frame failed', frame.t, e); }
 }
 
@@ -222,10 +244,21 @@ function runTo(s, target) {
 function tick() {
   if (!session || !session.playing) return;
   const s = session;
+  if (s.catchingUp) {
+    // 跳转后先让战斗 sim 真正算到目标时刻，再继续放帧；否则进度条会跑到结算，战斗还在后面追
+    if (!catchUpDone(s) && Date.now() - (s.catchSince || 0) < 20_000) {
+      syncReplayClock(s);
+      s.timer = setTimeout(tick, 40);
+      return;
+    }
+    s.catchingUp = false;
+    s.base = Date.now() - s.cursor / s.speed;
+    s.onTick?.();
+  }
   if (s.waiting) {
     // 等战斗结束期间冻结进度与时钟，结束后把等待时长从 base 里补掉
     if (battleStillRunning() && Date.now() - (s.waitAt || 0) < 20_000) {
-      syncReplayClock(s, true);
+      syncReplayClock(s);
       s.timer = setTimeout(tick, 40);
       return;
     }
@@ -246,8 +279,10 @@ function holdClock(s) {
 
 function pause(s) {
   if (!s.playing) return;
+  s.paused = true;
   s.playing = false;
   clearTimeout(s.timer);
+  s.timer = 0;
   // 真暂停：冻结战斗 sim 时钟与回放时钟（右上角倒计时停在同一秒）
   battleRunner?.setPaused?.(true);
   syncReplayClock(s, true);
@@ -257,6 +292,7 @@ function pause(s) {
 
 function play(s) {
   if (s.playing) return;
+  s.paused = false;
   clearInterval(s.clockTimer);
   if (s.idx >= (s.doc.wire || []).length) { seek(s, 0); return; }
   battleRunner?.setPaused?.(false);
@@ -276,6 +312,9 @@ function play(s) {
  */
 function seek(s, ms) {
   clearInterval(s.clockTimer);
+  s.paused = false;
+  s.waiting = false;
+  s.endGraceAt = 0;
   const target = Math.max(0, Math.min(s.duration, ms));
   s.playing = false;
   clearTimeout(s.timer);
@@ -296,10 +335,15 @@ function seek(s, ms) {
     else if (f.t === 'b.end' && f.m?.fieldId) active.delete(f.m.fieldId);
     if (f.t !== 'b.start' && f.t !== 'b.snap' && f.t !== 'b.ev' && f.t !== 'b.end' && f.t !== 'b.pool') dispatch(f);
   }
+  const catchTargets = new Map();
   for (const f of active.values()) {
     const elapsed = (Number(f.m.elapsed) || 0) + (target - (f.at || 0)) / 1000;
     dispatch({ t: 'b.start', m: { ...f.m, elapsed: Math.max(0, elapsed), replaySeek: true } });
+    if (f.m.battleId) catchTargets.set(f.m.battleId, { battleId: f.m.battleId, elapsed: Math.max(0, elapsed) });
   }
+  s.catchTargets = catchTargets;
+  s.catchingUp = catchTargets.size > 0;
+  s.catchSince = Date.now();
   s.active = active;
   s.idx = idx;
   s.cursor = target;
@@ -346,7 +390,7 @@ export function startDemoReplay(doc) {
   const s = {
     doc, idx: 0, cursor: 0, duration, playing: true, speed: 1,
     base: Date.now(), timer: 0, clockTimer: 0, prev, onTick: null, active: new Map(), lastSync: 0,
-    marks: marksOf(doc).filter((m) => m.at <= duration), battleMarks: battleMarksOf(doc, duration), drag: false, waiting: false, waitAt: 0, endGraceAt: 0,
+    marks: marksOf(doc).filter((m) => m.at <= duration), battleMarks: battleMarksOf(doc, duration), drag: false, paused: false, waiting: false, waitAt: 0, endGraceAt: 0, catchingUp: false, catchTargets: new Map(), catchSince: 0,
   };
   session = s;
 
