@@ -47,6 +47,7 @@ const HANDOFF_MS = 15_000;
 
 /** @type {DemoDoc | null} */
 let active = null;
+let _localPoll = 0; // 本地权威战斗的后台采集定时器（页面启动时装一次，active 为空时跳过）
 let started = false;
 let lastFlushAt = 0;
 /** When the last settlement was saved: the frames of a result replay belong to it, not to a new match. */
@@ -117,11 +118,13 @@ function recordAction(t, fields) {
 function pushWire(t, msg, local = false) {
   if (replaying() || !active || active.closed) return;
   if (active.wire.length >= MAX_WIRE) return;
-  let size;
-  try { size = JSON.stringify(msg).length; } catch { return; }
+  let size, body;
+  try { body = JSON.stringify(msg); size = body.length; } catch { return; }
   if (active.wireBytes + size > MAX_WIRE_BYTES) return;
   active.wireBytes += size;
-  active.wire.push({ at: Date.now() - active.startedAt, t, m: msg, ...(local ? { local: true } : {}) });
+  // local frames come from live battle objects that keep changing: store an immutable copy, or a later flush
+  // would save the final positions into every earlier snapshot
+  active.wire.push({ at: Date.now() - active.startedAt, t, m: local ? JSON.parse(body) : msg, ...(local ? { local: true } : {}) });
 }
 
 /**
@@ -262,23 +265,52 @@ export function startDemoRecorder() {
   //    录下这些帧后，回放可以纯按帧还原位置，不用重跑模拟（用户 2026-11-15 对 seek/暂停的反馈）。
   import('./battle/runner.js').then(({ battleRunner }) => {
     if (!battleRunner) return;
-    const lastSnap = new Map(); // fieldId → 上次录制时刻（按场地各自 10Hz，互不影响）
-    // 只录「本地权威模拟」的帧；观战队友的显示副本服务器本来就推 b.snap，不能再录一遍
+    const known = new Map(); // battleId → (unitId → 模型签名)：后台新单位补一条 spawn 元数据
+    const fieldSeen = new Set(); // battleId → 已录过 m.field
     const ownSim = (msg) => {
       const st = battleRunner.state();
       return !!st && st.fieldId === msg?.fieldId && st.authoritative === true;
     };
-    // 自己的战场 meta 也由 runner 本地发布（服务器不推 m.field 给本地模拟的本人）；缺了它回放只有棋盘、没有单位
-    battleRunner.on('field', (msg) => { if (ownSim(msg)) pushWire('m.field', msg, true); });
-    battleRunner.on('snap', (msg) => {
-      if (!ownSim(msg)) return;
-      const now = Date.now();
-      const fid = msg?.fieldId || '';
-      if (now - (lastSnap.get(fid) || 0) < 100) return; // 本地 60fps → 录 10Hz，够插值且体积可控
-      lastSnap.set(fid, now);
-      pushWire('b.snap', msg, true);
-    });
+    // 当前战场的即时事件（攻击、死亡动画等）；位置/血量由下面的 10Hz 采集统一负责
     battleRunner.on('ev', (msg) => { if (ownSim(msg)) pushWire('b.ev', msg, true); });
+
+    // 关键：不能只录 battleRunner 正在显示的 cur。玩家「前往查看」队友时，自己的战斗仍在后台跑，
+    // 原来那段时间没有任何 b.snap / 新单位 spawn，回放就会少干员或把模型当未知单位。
+    const poll = () => {
+      if (!active || active.closed) return;
+      const entries = battleRunner?._entries;
+      if (!entries) return;
+      for (const e of entries.values()) {
+        if (!e || !e.authoritative || !e.battle || !e.fieldId) continue;
+        try {
+          const snap = e.battle.snapshot() || {};
+          const { t: gt, ...rest } = snap;
+          pushWire('b.snap', { ...rest, t: 'b.snap', fieldId: e.fieldId, gt: Number.isFinite(gt) ? gt : 0 }, true);
+          if (!fieldSeen.has(e.battleId)) {
+            fieldSeen.add(e.battleId);
+            const meta = e.battle.fieldMeta() || {};
+            pushWire('m.field', {
+              t: 'm.field', ...meta, fieldId: e.fieldId, kind: e.kind, rect: meta.rect ?? e.spec?.rect,
+              stageId: meta.stageId ?? e.spec?.stageId, live: !e.done, battleId: e.battleId,
+              players: (e.members || []).slice(), local: true, speed: e.speed,
+            }, true);
+          }
+          const meta = e.battle.fieldMeta() || {};
+          let seen = known.get(e.battleId);
+          if (!seen) { seen = new Map(); known.set(e.battleId, seen); }
+          for (const u of meta.units || []) {
+            if (!u || u.id == null) continue;
+            const sig = `${u.kind || ''}|${u.defId || ''}|${u.spine || ''}|${u.form || ''}`;
+            if (seen.get(u.id) === sig) continue;
+            seen.set(u.id, sig);
+            // 新单位（或换形态）在回放里必须有一条 spawn，否则 render/interp 只会建一个未知占位
+            pushWire('b.ev', { t: 'b.ev', fieldId: e.fieldId, gt: Number.isFinite(gt) ? gt : 0, ev: [['spawn', u]] }, true);
+          }
+        } catch { /* 一场战斗的数据有问题不影响其他 */ }
+      }
+    };
+    poll();
+    _localPoll = setInterval(poll, 100);
   }).catch(() => {});
 }
 
