@@ -33,8 +33,8 @@ const MAX_FRAMES = 400;
 const EVENT_BYTES_CAP = 2 * 1024 * 1024;
 // 可视化回放：录下服务器推给这个玩家的整条消息流（m.* / b.*），回放时原样喂回客户端，
 // 由现有 Game 画面自行渲染——不做服务端重跑，也不做客户端重模拟。
-const MAX_WIRE = 20_000;
-const MAX_WIRE_BYTES = 4 * 1024 * 1024;
+const MAX_WIRE = 40_000;
+const MAX_WIRE_BYTES = 8 * 1024 * 1024;
 const WIRE_TYPES = new Set(['m.public', 'm.private', 'm.field', 'm.result', 'm.ticker', 'b.start', 'b.snap', 'b.ev', 'b.end', 'b.pool']);
 /** A hidden tab / a reconnect flushes at most this often (each flush rewrites the whole document). */
 const FLUSH_GAP_MS = 8_000;
@@ -114,14 +114,14 @@ function recordAction(t, fields) {
 }
 
 /** One S2C frame of the replay stream (kept verbatim: b.start specs and m.* are what the UI renders). */
-function pushWire(t, msg) {
+function pushWire(t, msg, local = false) {
   if (replaying() || !active || active.closed) return;
   if (active.wire.length >= MAX_WIRE) return;
   let size;
   try { size = JSON.stringify(msg).length; } catch { return; }
   if (active.wireBytes + size > MAX_WIRE_BYTES) return;
   active.wireBytes += size;
-  active.wire.push({ at: Date.now() - active.startedAt, t, m: msg });
+  active.wire.push({ at: Date.now() - active.startedAt, t, m: msg, ...(local ? { local: true } : {}) });
 }
 
 /**
@@ -257,6 +257,27 @@ export function startDemoRecorder() {
       if (globalThis.document.visibilityState === 'hidden') flushDemo('hidden');
     });
   }
+
+  // 7) 本地战斗 runner 真正喂给渲染器的帧（自己的战斗服务器不推 b.snap，只有 b.start）。
+  //    录下这些帧后，回放可以纯按帧还原位置，不用重跑模拟（用户 2026-11-15 对 seek/暂停的反馈）。
+  import('./battle/runner.js').then(({ battleRunner }) => {
+    if (!battleRunner) return;
+    const lastSnap = new Map(); // fieldId → 上次录制时刻（按场地各自 10Hz，互不影响）
+    // 只录「本地权威模拟」的帧；观战队友的显示副本服务器本来就推 b.snap，不能再录一遍
+    const ownSim = (msg) => {
+      const st = battleRunner.state();
+      return !!st && st.fieldId === msg?.fieldId && st.authoritative === true;
+    };
+    battleRunner.on('snap', (msg) => {
+      if (!ownSim(msg)) return;
+      const now = Date.now();
+      const fid = msg?.fieldId || '';
+      if (now - (lastSnap.get(fid) || 0) < 100) return; // 本地 60fps → 录 10Hz，够插值且体积可控
+      lastSnap.set(fid, now);
+      pushWire('b.snap', msg, true);
+    });
+    battleRunner.on('ev', (msg) => { if (ownSim(msg)) pushWire('b.ev', msg, true); });
+  }).catch(() => {});
 }
 
 function isSpectator() {

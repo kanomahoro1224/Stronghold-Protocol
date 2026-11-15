@@ -14,7 +14,7 @@ import { useEffect, useState } from '../vendor/hooks.module.js';
 import { render } from '../vendor/preact.module.js';
 import { net } from './net.js';
 import { store, emptyMatch, selectRoute } from './store.js';
-import { battleRunner } from './battle/runner.js';
+import { battleRunner, keepsState } from './battle/runner.js';
 import { t } from '../shared/i18n.js';
 import { PHASE } from '../../shared/constants.js';
 
@@ -204,7 +204,8 @@ function runTo(s, target) {
   const wire = s.doc.wire || [];
   while (s.idx < wire.length && (wire[s.idx].at || 0) <= target) {
     const f = wire[s.idx];
-    if (ENDS_BATTLE(f)) {
+    if (s.snapshotMode && f.t === 'b.start') { s.idx++; continue; } // 新 Demo 直接放录下的战斗帧，不重跑模拟
+    if (!s.snapshotMode && ENDS_BATTLE(f)) {
       const now = Date.now();
       // 本地战斗没打完 → 等；刚打完也留 300ms 给死亡动画，避免「怪还在」就弹完美作战
       if (battleStillRunning()) {
@@ -326,6 +327,8 @@ function seek(s, ms) {
   const wire = s.doc.wire || [];
   /** @type {Map<string, any>} fieldId → 该战斗最近一次 b.start 帧（b.end 前的） */
   const active = new Map();
+  const latestSnap = new Map(); // 快照模式 seek：只补目标时刻最近一张，不重放整段动画
+  const stateEvents = []; // 只补 spawn/deploy/die/status 等状态事件（与 runner 的 catch-up 同一规则）
   s.active = active;
   let idx = 0;
   for (; idx < wire.length; idx++) {
@@ -333,10 +336,19 @@ function seek(s, ms) {
     if ((f.at || 0) > target) break;
     if (f.t === 'b.start' && f.m?.fieldId) active.set(f.m.fieldId, f);
     else if (f.t === 'b.end' && f.m?.fieldId) active.delete(f.m.fieldId);
-    if (f.t !== 'b.start' && f.t !== 'b.snap' && f.t !== 'b.ev' && f.t !== 'b.end' && f.t !== 'b.pool') dispatch(f);
+    if (s.snapshotMode) {
+      if (f.t === 'b.snap') latestSnap.set(f.m?.fieldId || '', f);
+      else if (f.t === 'b.ev') {
+        const ev = (f.m?.ev || []).filter(keepsState);
+        if (ev.length) stateEvents.push({ t: 'b.ev', m: { ...f.m, ev } });
+      } else if (f.t === 'b.start') { /* 快照模式不重跑模拟 */ }
+      else dispatch(f);
+    } else if (f.t !== 'b.start' && f.t !== 'b.snap' && f.t !== 'b.ev' && f.t !== 'b.end' && f.t !== 'b.pool') dispatch(f);
   }
+  for (const f of stateEvents) dispatch(f);
+  for (const f of latestSnap.values()) dispatch(f);
   const catchTargets = new Map();
-  for (const f of active.values()) {
+  for (const f of s.snapshotMode ? [] : active.values()) {
     const elapsed = (Number(f.m.elapsed) || 0) + (target - (f.at || 0)) / 1000;
     dispatch({ t: 'b.start', m: { ...f.m, elapsed: Math.max(0, elapsed), replaySeek: true } });
     if (f.m.battleId) catchTargets.set(f.m.battleId, { battleId: f.m.battleId, elapsed: Math.max(0, elapsed) });
@@ -388,7 +400,7 @@ export function startDemoReplay(doc) {
   const endAt = Number.isFinite(Number(doc.endedAt)) ? Number(doc.endedAt) - Number(doc.startedAt) : 0;
   const duration = Math.max(last, endAt, (doc.snapshots || []).reduce((m, f) => Math.max(m, f.at || 0), 0));
   const s = {
-    doc, idx: 0, cursor: 0, duration, playing: true, speed: 1,
+    doc, snapshotMode: (doc.wire || []).some((f) => f.local), idx: 0, cursor: 0, duration, playing: true, speed: 1,
     base: Date.now(), timer: 0, clockTimer: 0, prev, onTick: null, active: new Map(), lastSync: 0,
     marks: marksOf(doc).filter((m) => m.at <= duration), battleMarks: battleMarksOf(doc, duration), drag: false, paused: false, waiting: false, waitAt: 0, endGraceAt: 0, catchingUp: false, catchTargets: new Map(), catchSince: 0,
   };
