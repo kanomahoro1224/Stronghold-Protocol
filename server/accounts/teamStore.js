@@ -4,9 +4,10 @@
 // and four accounts link to it (team_demo_links), so storage is not 4×. Storage only; merge math is in teamDemos.js.
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { accountOfPlayer } from './store.js';
-import { mergeTeamDemos, filterTeamDemoForViewer, MAX_TEAM_PART_GZIP, MAX_TEAM_PART_JSON } from './teamDemos.js';
+import { mergeTeamDemos, filterTeamDemoForViewer, downsampleTeamDemo, MAX_TEAM_PART_GZIP, MAX_TEAM_PART_JSON, MAX_TEAM_CANONICAL_BYTES } from './teamDemos.js';
 
 const PART_RETENTION_MS = 24 * 60 * 60 * 1000;
+const PART_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Thrown for client-facing part errors (the API maps code → HTTP 400/413). */
 const fail = (code) => Object.assign(new Error(code), { code });
@@ -59,8 +60,17 @@ export async function getTeamDemoStatus(db, matchId) {
   const participants = participantsOf(parts);
   const uploaded = [...new Set(parts.map((p) => p.playerId))];
   const missing = participants.filter((id) => !uploaded.includes(id));
-  const row = await db.query(`SELECT partial, available_fields, bytes FROM team_demos WHERE match_id = $1`, [String(matchId)]);
-  const merged = row.rows[0] || null;
+  let row = await db.query(`SELECT partial, available_fields, bytes FROM team_demos WHERE match_id = $1`, [String(matchId)]);
+  let merged = row.rows[0] || null;
+  // 五人到齐才自动合并；缺人超过 5 分钟时，下一次状态查询用已上传的 parts 生成 partial（不阻塞上传）
+  if (missing.length && !merged && parts.length) {
+    const oldest = await db.query(`SELECT MIN(uploaded_at) AS oldest FROM team_demo_parts WHERE match_id = $1`, [String(matchId)]);
+    const since = oldest.rows[0]?.oldest ? Date.parse(oldest.rows[0].oldest) : NaN;
+    if (Number.isFinite(since) && Date.now() - since >= PART_TIMEOUT_MS) {
+      const m = await mergeTeamDemo(db, matchId, { force: true });
+      if (m.ok) merged = { partial: m.partial, available_fields: m.availableFields, bytes: 0 };
+    }
+  }
   return {
     ok: true,
     matchId, participants, uploaded, missing,
@@ -82,9 +92,17 @@ export async function mergeTeamDemo(db, matchId, { force = false } = {}) {
   if (!parts.length) return { ok: false, code: 'NO_PARTS' };
   const missing = participants.filter((id) => !parts.some((p) => p.playerId === id));
   if (missing.length && !force) return { ok: false, code: 'WAITING', waitingFor: missing };
-  const doc = mergeTeamDemos(parts, { matchId, participants });
+  let doc = mergeTeamDemos(parts, { matchId, participants });
+  let gz = gzipSync(Buffer.from(JSON.stringify(doc)));
+  // 超 8 MB：先丢攻击动画，再对快照降频 2× / 5× / 20×；状态事件始终保留
+  for (const snapStep of [2, 5, 20]) {
+    if (gz.length <= MAX_TEAM_CANONICAL_BYTES) break;
+    doc = downsampleTeamDemo(doc, { snapStep });
+    gz = gzipSync(Buffer.from(JSON.stringify(doc)));
+  }
+  if (gz.length > MAX_TEAM_CANONICAL_BYTES) { doc.partial = true; doc.sizeCapped = true; }
   const json = JSON.stringify(doc);
-  const gz = gzipSync(Buffer.from(json));
+  gz = gzipSync(Buffer.from(json)); // doc.partial / sizeCapped may have changed after the loop
   const res = await db.query(
     `INSERT INTO team_demos (match_id, canonical, bytes, partial, available_fields)
      VALUES ($1, $2, $3, $4, $5::jsonb)

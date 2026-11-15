@@ -548,7 +548,7 @@ if (type === 'g.watch') {
 
 ### 尚未完成 / 待确认
 
-- 真实 PostgreSQL 集成测试（上传 → 四人到齐 → canonical → 四账号下载）尚未在本机跑；纯合并器和回放转换已有单测。
-- 缺人超时自动 `partial`、8 MB 体积降采样、上传失败重试队列尚未实现（当前缺人时 status 报告 waitingFor，不自动生成 partial）。
-- 4 人真实 Chromium e2e、非参与者 403 验证尚未跑。
+- 真实 PostgreSQL 集成测试已跑通（`test/accounts-team-db.test.js`，5/5）：part gzip 入库、四人 link、按账号过滤 private、缺人超时 partial、冒领 playerId 拒绝。
+- 缺人超时自动 `partial`、8 MB 体积降采样、上传失败本机重试队列已实现。
+- 4 人真实 Chromium e2e 尚未跑。
 - §16 的决策目前按文档默认执行：merged 替换个人云版、非参与者不可见、`player_links` 鉴权、canonical 存 PostgreSQL、目标 8 MB、缺人等待 5 分钟；如用户选择不同，再调整。

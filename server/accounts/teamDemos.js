@@ -12,6 +12,7 @@
 export const TEAM_DOC_VERSION = 2;
 export const MAX_TEAM_PART_GZIP = 12 * 1024 * 1024;
 export const MAX_TEAM_PART_JSON = 24 * 1024 * 1024;
+export const MAX_TEAM_CANONICAL_BYTES = 8 * 1024 * 1024;
 
 const WIRE_PUBLIC = new Set(['m.public', 'm.result', 'm.ticker']);
 const FIELD_TYPES = new Set(['m.field', 'b.start', 'b.snap', 'b.ev', 'b.end']);
@@ -215,6 +216,32 @@ export function mergeTeamDemos(parts, opts = {}) {
     availableFields,
     clockQuality: lowClock ? 'low' : 'high',
   };
+}
+
+const STATE_EV = new Set(['spawn', 'die', 'deploy', 'status', 'skill', 'leak']);
+
+/**
+ * Size control from docs/TEAM_DEMO_MERGE.md §8 Step 6: state events are never dropped; attack animations go first, then
+ * snapshots are thinned 2× / 5× / 20×. This is a canonical-only transform; the recorder's local document is untouched.
+ */
+export function downsampleTeamDemo(doc, { snapStep = 2 } = {}) {
+  const fields = {};
+  for (const [fieldId, f] of Object.entries(doc.fields || {})) {
+    const frames = [];
+    let snapIndex = 0;
+    const snaps = (f.frames || []).filter((x) => x.t === 'b.snap');
+    for (const x of (f.frames || [])) {
+      if (x.t === 'b.ev') {
+        const ev = (x.m?.ev || []).filter((e) => Array.isArray(e) && (STATE_EV.has(e[0]) || String(e[0]).startsWith('fx:')));
+        if (ev.length) frames.push({ ...x, m: { ...x.m, ev } });
+      } else if (x.t === 'b.snap') {
+        const i = snapIndex++;
+        if (i === 0 || i === snaps.length - 1 || i % Math.max(1, snapStep) === 0) frames.push(x);
+      } else frames.push(x);
+    }
+    fields[fieldId] = { ...f, frames };
+  }
+  return { ...doc, fields };
 }
 
 /** The subset one viewer may receive: all public/fields, only their own m.private. */

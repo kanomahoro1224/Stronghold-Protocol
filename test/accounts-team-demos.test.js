@@ -1,7 +1,7 @@
 // Pure team-demo merge: public timeline de-dup / server clock anchoring / field ownership / private isolation.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { alignPart, mergeTeamDemos, filterTeamDemoForViewer } from '../server/accounts/teamDemos.js';
+import { alignPart, mergeTeamDemos, filterTeamDemoForViewer, downsampleTeamDemo } from '../server/accounts/teamDemos.js';
 
 const frame = (at, t, m = {}) => ({ at, t, m });
 const part = (playerId, wire, over = {}) => ({
@@ -63,4 +63,18 @@ test('mergeTeamDemos: a missing participant makes partial and a field without ow
   assert.equal(doc.fields['n:p_b'].owner, null);
   assert.equal(doc.fields['n:p_b'].degraded, true);
   assert.equal(doc.partial, true);
+});
+
+
+test('downsampleTeamDemo: state events survive; attack animations and extra snapshots are dropped', () => {
+  const frames = [];
+  for (let i = 0; i < 10; i++) frames.push({ at: i * 100, t: 'b.snap', m: { fieldId: 'n:p_a', tick: i } });
+  frames.push({ at: 50, t: 'b.ev', m: { fieldId: 'n:p_a', ev: [['spawn', { id: 'u1' }], ['hit', { id: 'u1' }]] } });
+  frames.push({ at: 60, t: 'b.ev', m: { fieldId: 'n:p_a', ev: [['hit', { id: 'u1' }]] } });
+  const doc = { kind: 'team', fields: { 'n:p_a': { owner: 'p_a', frames } }, public: [], privates: {} };
+  const out = downsampleTeamDemo(doc, { snapStep: 2 });
+  const kept = out.fields['n:p_a'].frames;
+  assert.equal(kept.filter((f) => f.t === 'b.snap').length, 6, 'first, last and every 2nd snapshot');
+  assert.equal(kept.filter((f) => f.t === 'b.ev').length, 1, 'only the state event remains');
+  assert.deepEqual(kept.find((f) => f.t === 'b.ev').m.ev[0][0], 'spawn');
 });

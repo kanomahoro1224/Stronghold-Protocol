@@ -271,6 +271,9 @@ export function startDemoRecorder() {
     });
   }
 
+  // 8) 上次失败 / 页面提前关闭留下的团队 part：本机文档还在时补传（未登录会静默失败，下次再试）。
+  import('./ui/cloud.js').then((m) => m.flushTeamUploads?.()).catch(() => {});
+
   // 7) 本地战斗 runner 真正喂给渲染器的帧（自己的战斗服务器不推 b.snap，只有 b.start）。
   //    录下这些帧后，回放可以纯按帧还原位置，不用重跑模拟（用户 2026-11-15 对 seek/暂停的反馈）。
   import('./battle/runner.js').then(({ battleRunner }) => {
