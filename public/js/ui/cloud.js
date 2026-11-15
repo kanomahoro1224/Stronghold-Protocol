@@ -110,6 +110,8 @@ async function uploadTeamPart(doc) {
 
 /** Retry team parts left on this device by an earlier failed upload (called at recorder boot / after login). */
 export async function flushTeamUploads() {
+  const cfg = await cloudConfig().catch(() => null);
+  if (!cfg?.accounts) return; // no database: keep the queue on this device, do not probe a 405/503 endpoint
   const q = loadPref(TEAM_UPLOAD_QUEUE, []);
   if (!Array.isArray(q) || !q.length) return;
   const left = [];
@@ -125,6 +127,8 @@ export async function flushTeamUploads() {
 /** 上传一局本机 Demo 到账号（云端只保留最新 10 局；本机不受限）。未登录返回 401，调用方静默忽略。 */
 export async function uploadDemo(doc) {
   if (!doc) return { ok: false, error: 'NO_DOC' };
+  const cfg = await cloudConfig().catch(() => null);
+  if (!cfg?.accounts) return { ok: false, error: 'NO_ACCOUNTS' }; // local-only server: no cloud upload, no retry queue
   // 四人局：上传自己的一份 part，服务端按 matchId 归组并只合并 JSON；单人局继续走旧接口
   if (doc.isTeam && doc.matchId && doc.playerId) {
     const r = await uploadTeamPart(doc).catch(() => ({ ok: false }));

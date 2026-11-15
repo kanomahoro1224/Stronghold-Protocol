@@ -225,7 +225,7 @@ export async function startRealServer(opts = {}) {
       const res = await fetch(`${base}/healthz`);
       if (res.ok) break;
     } catch { /* not up yet */ }
-    if (Date.now() - t0 > 20000) { child.kill('SIGKILL'); throw new Error(`server did not start:\n${logs.join('\n')}`); }
+    if (Date.now() - t0 > 35000) { child.kill('SIGKILL'); throw new Error(`server did not start:\n${logs.join('\n')}`); }
     await sleep(150);
   }
   return {

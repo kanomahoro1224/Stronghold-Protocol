@@ -550,5 +550,7 @@ if (type === 'g.watch') {
 
 - 真实 PostgreSQL 集成测试已跑通（`test/accounts-team-db.test.js`，5/5）：part gzip 入库、四人 link、按账号过滤 private、缺人超时 partial、冒领 playerId 拒绝。
 - 缺人超时自动 `partial`、8 MB 体积降采样、上传失败本机重试队列已实现。
-- 4 人真实 Chromium e2e 尚未跑。
+- 4 人真实 Chromium 对局已跑通（`test/e2e/team-demo-4p.e2e.mjs`）：四个浏览器建房、四人开局、快速回合 1 结束；四份本机 part 的 `matchId` 一致，纯合并器从真实 `wire` 生成 4 个 field / 4 份 private。
+- 合并回放浏览器验收已跑通（`test/e2e/team-demo.e2e.mjs`）：`.dr-bar` 正常渲染、`g.watch` 切到队友 field、暂停时钟冻结、暂停中拖动时间轴到回合中间不回到 0:00，且保持当前 field。
+- 云端上传在无数据库服务器会因 `/api/config.accounts=false` 直接跳过并保留本机记录，不会产生 405；有 `SP_DATABASE_URL` 时仍走 part 上传。
 - §16 的决策目前按文档默认执行：merged 替换个人云版、非参与者不可见、`player_links` 鉴权、canonical 存 PostgreSQL、目标 8 MB、缺人等待 5 分钟；如用户选择不同，再调整。
