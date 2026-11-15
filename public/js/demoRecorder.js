@@ -74,7 +74,7 @@ function begin(frame) {
     rounds: 0,
     settled: false,
     mode: frame.modeId ?? null, difficulty: frame.difficulty ?? null,
-    players: frame.players || [], events: [], snapshots: [], wire: [], wireBytes: 0, bytes: 0, closed: false,
+    players: frame.players || [], events: [], snapshots: [], marks: [], wire: [], wireBytes: 0, bytes: 0, closed: false,
     owner: { playerId: store.get().me?.playerId || null, name: store.get().me?.name || null },
   };
   active.players = (frame.players || []).map((p) => ({ playerId: p.playerId, seat: p.seat, name: p.name, isBot: !!p.isBot }));
@@ -84,6 +84,13 @@ function begin(frame) {
 function pushFrame(msg) {
   if (!active || active.closed) return;
   const snap = slimFrame(msg);
+  // 回合边界（用户 2026-11-15：进度条上用一个白点表示一回合的开始 / 结束）
+  if (Number.isInteger(snap.round) && snap.round !== active.lastRound) {
+    active.lastRound = snap.round;
+    if (!active.marks.some((m) => m.round === snap.round)) {
+      active.marks.push({ at: snap.at, round: snap.round, phase: snap.phase });
+    }
+  }
   active.snapshots.push(snap);
   if (active.snapshots.length > MAX_FRAMES) active.snapshots.splice(0, active.snapshots.length - MAX_FRAMES);
   if (!active.mode && snap.modeId) active.mode = snap.modeId;
@@ -124,7 +131,7 @@ export function keepsDemo(doc) {
 
 /** The snapshot written to IndexedDB (a copy: recording goes on for a flush). */
 const copyOf = (doc, end) => ({
-  ...doc, snapshots: doc.snapshots.slice(), events: doc.events.slice(), wire: doc.wire.slice(),
+  ...doc, snapshots: doc.snapshots.slice(), events: doc.events.slice(), marks: doc.marks.slice(), wire: doc.wire.slice(),
   endedAt: Date.now(), end: doc.end || end,
 });
 
