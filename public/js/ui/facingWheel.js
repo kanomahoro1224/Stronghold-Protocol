@@ -28,6 +28,7 @@ import { LocalSprite } from './gameComponents.js';
 import { DIRS, DIR_LABEL, DEAD_ZONE_TILES, dirFromDelta, dirFromKey, rangeTiles, normDir, boardDir, viewMirrored } from './facing.js';
 import { facingSwallows, facingEnter } from './gameLogic.js';
 import { settingsStore, shortcutsStore } from './settings.js';
+import { rangeStyle } from './rangeStyle.js';
 import { t } from '../../../shared/i18n.js';
 
 const cx = (...p) => p.flat().filter(Boolean).join(' ');

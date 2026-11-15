@@ -5,9 +5,7 @@
 // Run: SP_E2E=1 CHROME_PATH=/usr/local/bin/chromium node --test test/e2e/team-demo-4p.e2e.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import { Client, ROOT, sleep, hasChrome, startRealServer, problemsOf } from './client.mjs';
+import { Client, sleep, hasChrome, startRealServer, problemsOf } from './client.mjs';
 import { mergeTeamDemos } from '../../server/accounts/teamDemos.js';
 
 const ENABLED = (process.env.SP_E2E === '1' || !process.env.NODE_TEST_CONTEXT) && hasChrome();
@@ -41,7 +39,6 @@ test('four browser clients finish one team match and each records the same match
 
     // Four humans draft in turn. Skip while the button is enabled; the last one still to pick chooses a free band.
     const deadline = Date.now() + 4 * 60 * 1000;
-    let lastDraft = '';
     while (Date.now() < deadline) {
       let anyDraft = false;
       for (const c of clients) {
@@ -51,7 +48,7 @@ test('four browser clients finish one team match and each records the same match
         if (s.draft?.turn !== s.me) continue;
         await sleep(350); // let the turn's UI render after the previous player's pick
         const canSkip = await c.page.evaluate(() => [...document.querySelectorAll('.dturn .draft-skip')].some((b) => b.textContent.includes('跳过') && !b.disabled));
-        if (canSkip) { await c.click('.dturn .draft-skip', '跳过'); lastDraft = 'skip'; continue; }
+        if (canSkip) { await c.click('.dturn .draft-skip', '跳过'); continue; }
         const band = await c.page.evaluate(() => {
           const el = [...document.querySelectorAll('.dband:not(.is-taken)')].find((x) => x.querySelector('.dband__name')?.textContent.trim() !== '老鲤');
           el?.scrollIntoView({ block: 'nearest' });
@@ -62,7 +59,6 @@ test('four browser clients finish one team match and each records the same match
         await c.click('.dband:not(.is-taken)', band);
         await sleep(150);
         await c.click('.draft-detail__btns .btn--primary', '确认选择');
-        lastDraft = band;
       }
       if (!anyDraft) break;
       await sleep(200);

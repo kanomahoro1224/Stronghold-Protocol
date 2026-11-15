@@ -5,9 +5,7 @@
 // Run: SP_E2E=1 CHROME_PATH=/usr/local/bin/chromium node --test test/e2e/team-demo.e2e.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import { Client, ROOT, sleep, hasChrome, startRealServer, problemsOf } from './client.mjs';
+import { Client, sleep, hasChrome, startRealServer, problemsOf } from './client.mjs';
 
 const ENABLED = (process.env.SP_E2E === '1' || !process.env.NODE_TEST_CONTEXT) && hasChrome();
 

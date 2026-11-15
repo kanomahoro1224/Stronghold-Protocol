@@ -56,7 +56,7 @@ export const SMOKE_PATHS = ['/healthz', '/', '/vendor/pixi.min.js'];
  * test/ for a test file too: the helpers, the child-process entries and the Forge fixtures — untrusted bait that writes
  * files when it runs. test/ci.test.js checks this list against the tree.
  */
-export const TEST_FILES = ['test/**/*.test.js', 'test/e2e/coop.e2e.mjs', 'plugins/_template/**/*.test.js'];
+export const TEST_FILES = ['test/**/*.test.js', 'test/e2e/coop.e2e.mjs', 'test/e2e/team-demo.e2e.mjs', 'test/e2e/team-demo-4p.e2e.mjs', 'plugins/_template/**/*.test.js'];
 
 /** Runner setup / install steps, and the full Golden check run separately (scoped to its job and command). */
 export const SKIPPED_CI_STEPS = [

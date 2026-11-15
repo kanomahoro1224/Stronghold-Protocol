@@ -1,4 +1,5 @@
-// server/accounts/db.js — PostgreSQL for the account service (accounts, e-mail codes, sessions, cloud saves, match records, demos).
+// server/accounts/db.js — PostgreSQL for the account service
+// i18n-ignore-file: SQL schema comments are not UI text (accounts, e-mail codes, sessions, cloud saves, match records, demos).
 //
 // The server runs without a database: `createDb` returns null when no connection string is configured, and every
 // caller treats null as "accounts are off" (the REST layer answers 503 with a clear message). docs/ACCOUNTS.md.

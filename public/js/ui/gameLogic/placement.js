@@ -10,7 +10,7 @@ import { boardTileOf, fieldTile } from './camera.js';
 import { deployedRecord, fieldsStandIn, standInOf } from './standIn.js';
 import { t } from '../../../../shared/i18n.js';
 import { morphSlotPolicy } from '../../../../shared/plugins/rules.js';
-import { chessIsDiy, itemForbidsDiy } from '../../../../shared/itemRules.js';
+import { chessIsDiy, equipmentCapacity, itemForbidsDiy } from '../../../../shared/itemRules.js';
 
 
 // ---- placement (canPlace mirror) ------------------------------------------------------------------------
