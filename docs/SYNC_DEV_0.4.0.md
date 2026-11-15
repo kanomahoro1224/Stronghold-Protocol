@@ -16,13 +16,13 @@
 |---|---:|---|
 | `added` | 50 | 上游新增文件，按上游内容加入 |
 | `adopted` | 27 | 上游新增但本地同名缺失，采用上游 |
-| `upstream` | 47 | 双方同名新增且内容不同，按用户确认采用上游 0.4.0 |
-| `merged` | 16 | 无冲突三方合并 |
-| `merged-local` | 63 | 文本冲突，保留本地功能并叠加上游非冲突内容 |
-| `merged-upstream` | 20 | 文本冲突，采用上游行为（主要为服务端战斗/规则/机器人文件） |
+| `upstream` | 70 | 双方同名新增或 golden 基线，按用户确认采用上游 0.4.0 |
+| `merged` | 14 | 无冲突三方合并 |
+| `merged-local` | 64 | 文本冲突，保留本地功能并叠加上游非冲突内容 |
+| `merged-upstream` | 17 | 文本冲突，采用上游行为（主要为服务端战斗/规则/机器人文件） |
 | `merged-manual` | 2 | 逐块人工合并（`public/js/screens/game.js`、`server/lobby.js`） |
 | `merged-doc-upstream` | 17 | 文档冲突，采用上游版本 |
-| `no-change` | 655 | 本地已与上游一致，或按规则明确不改 |
+| `no-change` | 636 | 本地已与上游一致，或按规则明确不改 |
 | `restored-adapted` | 4 | 恢复上游测试后按本地行为适配 |
 | `restored-upstream` | 1 | `public/sw.js` 按用户要求恢复上游 |
 
@@ -45,6 +45,7 @@
 - `server/match/player/round.js`：清除手工合并残留的重复 `SWITCH_EFFECTS` / `regulationBench` 与孤立 `return bench`。
 - `public/js/ui/bondStrip.js`：采用上游 `bondEffectRecord` 映射，修复零层盟约弹窗显示错误。
 - `public/js/media.js`：恢复上游哈希素材路径的 `/media/~hash/...` 别名支持，使恢复后的素材导入测试通过。
+- `public/js/ui/effectsList.js`：补齐上游新增的 `commandDisplayText` / `bondEffectRecord` / `formatBondEffect` 导入，并按上游只在当前指挥行挂载指挥控件，修复界面 `commandDisplayText is not defined`。
 - `docs/history/0.3.4.md`：上游已把开发期章节正式改名为 `docs/history/0.4.0.md`；删除旧本地文件，避免设计文档中 `§37` 重复。
 
 ## 有意保留的本地差异
@@ -61,9 +62,11 @@
 - `test/content/feedback1d-solvent.test.js`：15/15
 - `test/docs-consistency.test.js` + `test/ui/asset-import.test.js` + 上述两项：92/92
 - `test/ui/demo-recorder.test.js` / `test/ui/deploy-replay.test.js` / `test/bands/regulation-replay.test.js`：19/19
-- 完整 `npm test`：见最终运行结果
+- 完整 `npm test`：3243 pass / 3 fail；剩余失败均为 golden 基线差异，根因是本地额外盟约（`arcaneShip` / `soloShip`）与本地 RNG 扩展，需要用户决定是否严格对齐上游或按本地基线更新。
+- 界面 `commandDisplayText is not defined`：修复后 `test/ui/command-spectate.test.js` 与 `test/ui/spectate-effects.test.js` 共 7/7 通过。
 
 ## 状态
 
-- 尚未提交、尚未推送。
+- 已提交 `b7a5cdec` 并推送；界面修复另提交 `0dbccf2a` 并推送。
+- `test/golden` 上游基线已包含在 `b7a5cdec`；3 项差异仍在等待用户决定处理方式，不属于未提交文件。
 - `config/announcements.json` 保持受保护内容不变（sha256 前缀 `eb9a1dfd382a1c96f05e`）。

@@ -540,35 +540,35 @@ test/fixtures/versions-bb-audit-act3.json	local_A	text	already-same	本地已有
 test/fixtures/versions-default-guard.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
 test/full-potential.test.js	both_text	text	auto-merge	三方无冲突合并	0	no-change
 test/garrisons/regulation.test.js	local_A	text	both-added	采用上游 0.4.0		upstream
-test/golden/act1autochess-v1_1/bonds.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act1autochess-v1_1/diy.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act1autochess-v1_1/fields.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act1autochess-v1_1/matches.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act1autochess-v1_1/roster.json	both_text	text	auto-merge	test/golden：按用户确认采用上游 0.4.0 golden 基线	0	upstream
-test/golden/act1autochess-v1_1/standins.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act1autochess/bonds.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act1autochess/diy.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act1autochess/fields.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act1autochess/matches.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act1autochess/roster.json	both_text	text	auto-merge	test/golden：按用户确认采用上游 0.4.0 golden 基线	0	upstream
-test/golden/act1autochess/standins.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act2autochess-v2_1/bonds.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act2autochess-v2_1/diy.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act2autochess-v2_1/fields.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act2autochess-v2_1/matches.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act2autochess-v2_1/roster.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/act3autochess-v3_1/bonds.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
-test/golden/act3autochess-v3_1/diy.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
-test/golden/act3autochess-v3_1/fields.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
-test/golden/act3autochess-v3_1/matches.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
-test/golden/act3autochess-v3_1/roster.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
-test/golden/act3autochess-v3_1/standins.json	local_A	text	both-added	test/golden：按用户确认采用上游 0.4.0 golden 基线		upstream
-test/golden/bonds.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/diy.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/fields.json	both_text	text	auto-merge	三方无冲突合并	0	no-change
-test/golden/matches.json	both_text	text	text-conflict	test/golden：按用户确认采用上游 0.4.0 golden 基线	30	upstream
-test/golden/roster.json	both_text	text	text-conflict	test/golden：按用户确认采用上游 0.4.0 golden 基线	13	upstream
-test/golden/standins.json	both_text	text	auto-merge	test/golden：按用户确认采用上游 0.4.0 golden 基线	0	upstream
+test/golden/act1autochess-v1_1/bonds.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess-v1_1/diy.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess-v1_1/fields.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess-v1_1/matches.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess-v1_1/roster.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess-v1_1/standins.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess/bonds.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess/diy.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess/fields.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess/matches.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess/roster.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act1autochess/standins.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act2autochess-v2_1/bonds.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act2autochess-v2_1/diy.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act2autochess-v2_1/fields.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act2autochess-v2_1/matches.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act2autochess-v2_1/roster.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/act3autochess-v3_1/bonds.json	local_A	text	both-added	golden 基线采用上游 0.4.0		upstream
+test/golden/act3autochess-v3_1/diy.json	local_A	text	both-added	golden 基线采用上游 0.4.0		upstream
+test/golden/act3autochess-v3_1/fields.json	local_A	text	both-added	golden 基线采用上游 0.4.0		upstream
+test/golden/act3autochess-v3_1/matches.json	local_A	text	both-added	golden 基线采用上游 0.4.0		upstream
+test/golden/act3autochess-v3_1/roster.json	local_A	text	both-added	golden 基线采用上游 0.4.0		upstream
+test/golden/act3autochess-v3_1/standins.json	local_A	text	both-added	golden 基线采用上游 0.4.0		upstream
+test/golden/bonds.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/diy.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/fields.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
+test/golden/matches.json	both_text	text	text-conflict	golden 基线采用上游 0.4.0	30	upstream
+test/golden/roster.json	both_text	text	text-conflict	golden 基线采用上游 0.4.0	13	upstream
+test/golden/standins.json	both_text	text	auto-merge	golden 基线采用上游 0.4.0	0	upstream
 test/helpers/battleHarness.js	both_text	text	auto-merge	三方无冲突合并	0	merged
 test/helpers/defaultGamedata.js	local_A	text	already-same	本地已有且内容一致，不改		no-change
 test/helpers/devourFeedVersion.mjs	local_A	text	already-same	本地已有且内容一致，不改		no-change
