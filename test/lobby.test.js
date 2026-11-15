@@ -2131,13 +2131,13 @@ describe('limit overrides', () => {
   });
 
   test('parseBotRehearsal: 0..8, anything unusable keeps the engine default', () => {
-    assert.equal(parseBotRehearsal(undefined), 3);
-    assert.equal(parseBotRehearsal(''), 3);
+    assert.equal(parseBotRehearsal(undefined), 6);
+    assert.equal(parseBotRehearsal(''), 6);
     assert.equal(parseBotRehearsal('0'), 0);
     assert.equal(parseBotRehearsal(' 2 '), 2);
     assert.equal(parseBotRehearsal('99'), 8, 'clamped to the engine maximum');
-    assert.equal(parseBotRehearsal('-1'), 3);
-    assert.equal(parseBotRehearsal('many'), 3);
+    assert.equal(parseBotRehearsal('-1'), 6);
+    assert.equal(parseBotRehearsal('many'), 6);
     assert.equal(parseBotRehearsal('lots', 5), 5);
     assert.equal(parseCombat('SERVER'), 'server');
     assert.equal(parseCombat('off'), 'client');

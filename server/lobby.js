@@ -1282,7 +1282,7 @@ export class Lobby {
         consoleEnabled: false, aiPicksLast: !!checkpoint.aiPicksLast, seed: Number(checkpoint.seed) >>> 0, matchNo: room ? Math.max(1, room.matchCount) : 1,
         data: this.safeData(), workerPool: this.workerPoolFor(room?.code || roomCode), log: this.log, now: this.now,
         send: (playerId, msg, encoded) => (ctx.live ? this.queueMatchSend(ctx, playerId, msg, encoded) : false),
-        broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.demoRecorder?.frame(ctx.match, msg); if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
         onEnd: (summary) => this.onQueuedMatchEnd(ctx, summary),
       });
       ctx.match = match;
@@ -1335,7 +1335,7 @@ export class Lobby {
       }, {
         created: (match) => this.attachQueuedWorker(ctx, room, match),
         send: (playerId, msg, encoded) => { if (ctx.live) return this.queueMatchSend(ctx, playerId, msg, encoded); return false; },
-        broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.demoRecorder?.frame(ctx.match, msg); if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
         end: (summary) => this.onQueuedMatchEnd(ctx, summary),
       }, checkpoint, departedPlayerIds);
       if (ctx.disposed || room?.disposed || (room && room.matchCtx !== ctx)) {
@@ -2863,7 +2863,7 @@ export class Lobby {
           room.matchKey = key;
         },
         send: (playerId, msg, encoded) => { if (ctx.live) return this.matchSend(room, ctx, playerId, msg, encoded); return false; },
-        broadcast: (msg, encoded) => { if (ctx.live) this.matchBroadcast(room, ctx, msg, encoded); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.demoRecorder?.frame(ctx.match, msg); if (ctx.live) this.matchBroadcast(room, ctx, msg, encoded); },
         end: (summary) => this.onMatchEnd(room, ctx, summary),
       }, checkpoint, departedPlayerIds);
       if (ctx.disposed || room.disposed || room.matchCtx !== ctx) {
@@ -2958,7 +2958,7 @@ export class Lobby {
         // one: null keeps every rehearsal on this thread, exactly as before (Match.simPool / MatchRehearsal.poolRehearsal)
         ...(!modded && !versioned && this.simPool ? { simPool: this.simPool } : {}),
         send: (playerId, msg, encoded) => (ctx.live ? this.matchSend(room, ctx, playerId, msg, encoded) : false),
-        broadcast: (msg, encoded) => { if (ctx.live) this.matchBroadcast(room, ctx, msg, encoded); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.demoRecorder?.frame(ctx.match, msg); if (ctx.live) this.matchBroadcast(room, ctx, msg, encoded); },
         onEnd: (summary) => this.onMatchEnd(room, ctx, summary),
       };
       // a room with gameplay plugins plays in its content set's match host, a room of another official version in that
@@ -3075,7 +3075,7 @@ export class Lobby {
           if (room) room.matchKey = this.registry.byId(room.hostId)?.limitKey || null;
         },
         send: (playerId, msg, encoded) => { if (ctx.live) return this.queueMatchSend(ctx, playerId, msg, encoded); return false; },
-        broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.demoRecorder?.frame(ctx.match, msg); if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
         end: (summary) => this.onQueuedMatchEnd(ctx, summary),
       });
       if (ctx.disposed || ctx.ended || room?.disposed || (room && room.matchCtx !== ctx)
@@ -3135,7 +3135,7 @@ export class Lobby {
         matchNo: room ? room.matchCount + 1 : 1,
         data: this.safeData(), workerPool: this.workerPoolFor(matchCode), log: this.log, now: this.now,
         send: (playerId, msg, encoded) => (ctx.live ? this.queueMatchSend(ctx, playerId, msg, encoded) : false),
-        broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
+        broadcast: (msg, encoded) => { if (ctx.live) this.demoRecorder?.frame(ctx.match, msg); if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
         onEnd: (summary) => this.onQueuedMatchEnd(ctx, summary),
       });
       ctx.match = match;
@@ -3200,6 +3200,10 @@ export class Lobby {
 
   onQueuedMatchEnd(ctx, summary) {
     if (!ctx || ctx.ended || !ctx.live) return;
+    this.demoRecorder?.finish({
+      match: ctx.match, matchKey: ctx.match?.demoKey, summary,
+      resultByPlayer: ctx.results ? Object.fromEntries([...ctx.results].map(([id, r]) => [id, r])) : {},
+    });
     const room = ctx.room;
     for (const p of ctx.members) if (!p.isBot) {
       const session = this.registry.byId(p.playerId);
@@ -3227,6 +3231,10 @@ export class Lobby {
 
   /** onEnd callback: return the room to LOBBY and dispose the match on the next macrotask. */
   onMatchEnd(room, ctx, summary) {
+    this.demoRecorder?.finish({
+      match: ctx.match, matchKey: ctx.match?.demoKey, summary,
+      resultByPlayer: ctx.results ? Object.fromEntries([...ctx.results].map(([id, r]) => [id, r])) : {},
+    });
     if (ctx.ended || !ctx.live || room.matchCtx !== ctx || room.disposed) return;
     ctx.ended = true;
     room.lastSummary = summary ?? null;
@@ -3453,6 +3461,7 @@ export class Lobby {
     let res;
     try {
       // 本分支：独立队列局没有 room（或房间已随最后一名成员离开而释放），match 来自 active?.match || room?.match
+      this.demoRecorder?.record(match, session.playerId, msg);
       res = match.handle(session.playerId, msg);
       afterReconcile(this, room, reconcileAiTakeover(this, room));
     } catch (e) {

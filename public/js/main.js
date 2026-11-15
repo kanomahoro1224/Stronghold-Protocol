@@ -79,6 +79,7 @@ import { recordError, installTrafficMeter } from './diag.js';
 import { appendChat, validChatText } from '../../shared/chat.js';
 import { installContent, installContentSet } from './content.js';
 import { startAccounts } from './ui/accounts.js';
+import { startDemoRecorder } from './demoRecorder.js';
 import { cosmetics } from './cosmetics.js';
 import { sanitizeVersions, roomVersion, isDefaultVersion, matchFrameVersion, musicSeason, seasonOf, startupVersion, REGULATION_SEASON } from './versions.js';
 
@@ -504,6 +505,7 @@ async function boot() {
   // a WebRTC DataChannel — the server only relays the signaling, so an avatar costs it nothing. Always on: there is no
   // setting for it (ui/settings.js), and a room that cannot connect keeps showing the namecard operator.
   startAccounts();
+  startDemoRecorder(); // 本地 Demo：记录自己的操作 + 棋盘帧，存 IndexedDB（不上服务器）
   // A bot prep's layout rehearsal the server offers this host's browser (DESIGN §14, SP_BOT_REHEARSAL=host on the
   // server): a same-origin module Worker simulates the candidates off the main thread and answers with its pick; a
   // browser that cannot run one answers `error` and the server rehearses itself. Nothing happens while the server

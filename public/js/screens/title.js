@@ -28,7 +28,7 @@ import { ResumeMatchButton } from '../ui/resumeMatch.js';
 import { ResourceManagerButton } from '../ui/resourceManager.js';
 import { SettingsModal } from '../ui/settings.js';
 import { ResourceLauncher } from '../ui/resourcePanel.js';
-import { GIcon } from '../ui/gameComponents.js';
+import { GIcon, Img } from '../ui/gameComponents.js';
 import { installedCount } from '../content.js';
 import { NoticesButton } from '../ui/notices.js';
 import { sanitizeName, isValidName } from '../ui/playerName.js';
@@ -44,10 +44,11 @@ import { html, Button, Icon, MicroLabel, TextField, PingPill, Modal } from '../u
 import { AnnouncementButton } from '../ui/announcement.js';
 import { GuideButton } from '../ui/guide.js';
 import { openStats } from './stats.js';
+import { openCloudAccount, accountsAvailable } from '../ui/cloud.js';
 import { toast } from '../ui/toasts.js';
 import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual } from '../store.js';
-import { data, useData } from '../data.js';
+import { data, useData, localAsset } from '../data.js';
 import { FullscreenButton, PwaInstallButton, detectFeatures } from '../ui/device.js';
 import { updateSettings, useSettings } from '../ui/settings.js';
 import { LangToggle, useLang } from '../ui/lang.js';
@@ -215,6 +216,9 @@ export function TitleScreen() {
   // 需要时把开关改回 true 即可恢复（`official-damage-numbers.test.js` 仍校验弹窗内的链接与免责声明）。
   const SHOW_ABOUT = false;
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 云端账号入口只在这台服务器开了账号服务时出现（GET /api/config accounts:true）
+  const [accountOn, setAccountOn] = useState(false);
+  useEffect(() => { accountsAvailable().then(setAccountOn, () => setAccountOn(false)); }, []);
   // the list of the server's plugins once loaded (ui/pluginPanel.js — a component in state: set through an updater)
   const [Installed, setInstalled] = useState(null);
   const openPlugins = () => {
@@ -327,6 +331,8 @@ export function TitleScreen() {
           <span role=${serverFull ? 'alert' : undefined}>${serverFull ? t('当前服务器容量已满') : STATUS_TEXT[conn.status] ? t(STATUS_TEXT[conn.status]) : conn.status}</span>
           ${conn.status === 'online' ? html`<${PingPill} ms=${conn.ping} />` : null}
           <${GuideButton} class="title-guide" label=${t('玩法说明')} />
+          ${accountOn ? html`<button type="button" class="title-settings fsbtn tapx" aria-label=${t('云端账号')} title=${t('云端账号')}
+            onClick=${() => openCloudAccount()}><${GIcon} name="user" /></button>` : null}
           <button type="button" class="title-settings fsbtn tapx" aria-label=${t('设置')} title=${t('设置')}
             onClick=${() => setSettingsOpen(true)}><${GIcon} name="gear" /></button>
           <${FullscreenButton} class="title-fs" />

@@ -75,6 +75,7 @@ import { createStudio } from './studio/index.js';
 import { MIME, COMPRESSIBLE, acceptsGzip, pickEncoding, parseRange } from './http/files.js';
 import { BUILD_INPUTS, computeBuildTag, buildTag, resetBuildTag } from './http/buildTag.js';
 import { createRequestHandler } from './http/routes.js';
+import { createAccounts } from './accounts/index.js';
 import { createTrafficCounter } from './http/traffic.js';
 import { answerClientError } from './http/common.js';
 import { createEventLoopMonitor } from './health/eventLoop.js';
@@ -230,6 +231,11 @@ export async function startServer(opts = {}) {
     : opts.matchWorkerPool || null;
   const { registry, lobby, network } = createSessionStack({ ...opts, nameModeration },
     { data, log, workerPool, matchWorkerPool, content, plugins: roomSets, hosts, versions, versionHosts, simPool });
+  // Account / cloud-save / demo service (server/accounts/*): opt-in through SP_DATABASE_URL; a server without a
+  // database boots exactly as before, with the account UI hidden (GET /api/config → accounts:false).
+  const accounts = opts.accounts === false ? null
+    : (opts.accounts || await createAccounts({ registry, log, env: process.env }));
+  if (accounts?.recorder) lobby.demoRecorder = accounts.recorder;
   // Resume the last state before listening: every reconnecting client is recognized by its token right away.
   const persister = store ? new Persister({ store, registry, lobby, log, now: opts.now, saveMs }) : null;
   if (store && opts.resume !== false) {
@@ -265,7 +271,9 @@ export async function startServer(opts = {}) {
   const servePublicApi = createPublicApi({ lobby, announcements, trustProxy: network.opts.trustProxy, sendJson, sendError });
 
   const serveNameReview = createNameModerationRoute({ moderation: nameModeration, trustProxy: network.opts.trustProxy });
-  const serveApi = async (req, res, pathname) => await serveNameReview(req, res, pathname) || await servePublicApi(req, res, pathname);
+  const serveApi = async (req, res, pathname) =>
+    (accounts?.api ? await accounts.api(req, res, pathname) : false)
+    || await serveNameReview(req, res, pathname) || await servePublicApi(req, res, pathname);
 
   // Main-thread event-loop delay sampling (server/health/eventLoop.js): opt-in with SP_LOOP_SAMPLE=1, no worker pool involved, and a
   // LOCAL log line per window (`[loop] p50=… p95=… p99=… max=… cpu=… mem=… rooms=… humans=… phase=…`) — deliberately not
@@ -410,6 +418,7 @@ export async function startServer(opts = {}) {
       });
       try { wss.close(); } catch { /* ignore */ }
       try { await store?.close(); } catch { /* ignore */ }
+      try { await accounts?.close(); } catch (e) { log.error('[shutdown] accounts', e); }
     })();
     return closing;
   }

@@ -146,6 +146,7 @@ function AccountPanel({ onStats, onClose }) {
         <${Button} size="sm" variant="secondary" icon="edit" loading=${busy} onClick=${pick}>${t('更换头像')}<//>
         ${me.avatar ? html`<${Button} size="sm" variant="ghost" onClick=${clear}>${t('移除头像')}<//>` : null}
         ${onStats ? html`<${Button} size="sm" variant="primary" icon="chart" onClick=${() => { onClose(); onStats(); }}>${t('统计数据')}<//>` : null}
+        <${Button} size="sm" variant="secondary" icon="user" onClick=${() => { onClose(); import('./cloud.js').then((m) => m.openCloudAccount()); }}>${t('云端账号')}<//>
       </div>
     </div>
   <//>`;
