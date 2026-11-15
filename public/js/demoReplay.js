@@ -113,11 +113,28 @@ function dispatch(frame) {
   try { net._emit(frame.t, frame.m); } catch (e) { console.warn('[demo] frame failed', frame.t, e); }
 }
 
+/** 战斗时钟对齐：speed ≠ 1 时，回放游标比战斗 sim 快，定期把在进行的战斗按游标时间重新快进。 */
+function resyncBattles(s) {
+  if (!s.active?.size || s.speed === 1) return;
+  for (const f of s.active.values()) {
+    const elapsed = (f.m?.elapsed || 0) + (s.cursor - (f.at || 0)) / 1000;
+    dispatch({ t: 'b.start', m: { ...f.m, elapsed: Math.max(0, elapsed), replaySeek: true } });
+  }
+}
+
+/** 记录一条已派发的战斗开始/结束帧（用于倍速对齐与跳转）。 */
+function noteBattle(s, frame) {
+  if (frame.t === 'b.start' && frame.m?.fieldId) s.active.set(frame.m.fieldId, frame);
+  else if (frame.t === 'b.end' && frame.m?.fieldId) s.active.delete(frame.m.fieldId);
+}
+
 /** Advance to `target` ms, dispatching every frame in order. */
 function runTo(s, target) {
   const wire = s.doc.wire || [];
   while (s.idx < wire.length && (wire[s.idx].at || 0) <= target) {
-    dispatch(wire[s.idx]);
+    const f = wire[s.idx];
+    dispatch(f);
+    noteBattle(s, f);
     s.idx++;
   }
   s.cursor = Math.min(target, s.duration);
@@ -134,6 +151,8 @@ function tick() {
   const s = session;
   const el = (Date.now() - s.base) * s.speed;
   runTo(s, Math.min(s.duration, el));
+  const now = Date.now();
+  if (now - (s.lastSync || 0) > 500) { s.lastSync = now; resyncBattles(s); }
   if (s.playing) s.timer = setTimeout(tick, 40);
 }
 
@@ -152,13 +171,39 @@ function play(s) {
   s.onTick?.();
 }
 
+/**
+ * 跳到 `ms`：不从战斗第 0 秒重放。
+ *   1) 只重发非战斗帧（m.public / m.private / m.field / m.result / m.ticker）到目标时刻，重建棋盘；
+ *   2) 对目标时刻仍在进行的战斗，重发一条 b.start，并把 `elapsed` 加上「战斗开始 → 目标时刻」的秒数，
+ *      让战斗 runner 从该时刻快进（runner 的 existing.elapsed / t0 会按新值对齐）；
+ *   3) 游标从目标时刻之后继续播放。
+ * 这样拖到某一回合中间，单位位置、战斗进度与进度条一致，而不是每次从头打。
+ */
 function seek(s, ms) {
-  // 从头把帧快进到目标位置；回放只是重发已录帧，不重新模拟
-  s.idx = 0;
+  const target = Math.max(0, Math.min(s.duration, ms));
   s.playing = false;
   clearTimeout(s.timer);
   store.set({ match: emptyMatch() });
-  runTo(s, Math.max(0, Math.min(s.duration, ms)));
+  const wire = s.doc.wire || [];
+  /** @type {Map<string, any>} fieldId → 该战斗最近一次 b.start 帧（b.end 前的） */
+  const active = new Map();
+  s.active = active;
+  let idx = 0;
+  for (; idx < wire.length; idx++) {
+    const f = wire[idx];
+    if ((f.at || 0) > target) break;
+    if (f.t === 'b.start' && f.m?.fieldId) active.set(f.m.fieldId, f);
+    else if (f.t === 'b.end' && f.m?.fieldId) active.delete(f.m.fieldId);
+    if (f.t !== 'b.start' && f.t !== 'b.snap' && f.t !== 'b.ev' && f.t !== 'b.end' && f.t !== 'b.pool') dispatch(f);
+  }
+  for (const f of active.values()) {
+    const elapsed = (Number(f.m.elapsed) || 0) + (target - (f.at || 0)) / 1000;
+    dispatch({ t: 'b.start', m: { ...f.m, elapsed: Math.max(0, elapsed), replaySeek: true } });
+  }
+  s.active = active;
+  s.idx = idx;
+  s.cursor = target;
+  s.onTick?.();
   s.base = Date.now() - s.cursor / s.speed;
   if (s.cursor < s.duration) play(s);
 }
@@ -193,7 +238,7 @@ export function startDemoReplay(doc) {
   const last = (doc.wire || []).reduce((max, f) => Math.max(max, f.at || 0), 0);
   const s = {
     doc, idx: 0, cursor: 0, duration: last, playing: true, speed: 1,
-    base: Date.now(), timer: 0, prev, onTick: null,
+    base: Date.now(), timer: 0, prev, onTick: null, active: new Map(), lastSync: 0,
     marks: marksOf(doc).filter((m) => m.at <= last),
   };
   session = s;
