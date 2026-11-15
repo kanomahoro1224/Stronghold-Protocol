@@ -1599,7 +1599,11 @@ export async function createFieldView(host, options = {}) {
     info.sourceSkin = u.sourceSkin === undefined ? info.skin : u.sourceSkin;
     const skin = shownSkin(info);
     const prev = infos.get(info.id);
-    if (prev && prev.skin !== skin) dropView(info.id);
+    // Unit ids restart every battle round (and a watched field can reuse them): the same id may now be another
+    // operator, so compare the model identity too. Skin alone is null for both, which used to leave the previous
+    // round's view (often an enemy) standing while the detail card already read the new operator.
+    const identity = (x) => `${x.defId || ''}|${x.spine || ''}|${x.kind || ''}|${x.side || ''}`;
+    if (prev && (prev.skin !== skin || identity(prev) !== identity(info))) dropView(info.id);
     info.skin = skin;
     infos.set(info.id, info);
     return info;
