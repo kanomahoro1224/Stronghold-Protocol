@@ -73,7 +73,8 @@
 - `test/docs-consistency.test.js` + `test/ui/asset-import.test.js` + 上述两项：92/92
 - `test/ui/demo-recorder.test.js` / `test/ui/deploy-replay.test.js` / `test/bands/regulation-replay.test.js`：19/19
 - `test/golden.test.js`：9/9 通过；严格对齐上游服务端行为后重新生成 `test/golden/matches.json`。
-- `test/match/*.test.js`：严格对齐后复跑结果见最终提交说明。
+- `test/match/*.test.js`：严格对齐后全量复跑 383 项通过；唯一失败是本地 `bot-smarter` 旧断言（要求模式禁用不影响队友阵营偏好），改用上游测试后该文件 15/15 通过。
+- `test/client-static.test.js`：809/809 通过。
 - 界面 `commandDisplayText is not defined`：修复后 `test/ui/command-spectate.test.js` 与 `test/ui/spectate-effects.test.js` 共 7/7 通过。
 
 ## 状态
