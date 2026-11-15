@@ -14,6 +14,7 @@ import { useEffect, useState } from '../vendor/hooks.module.js';
 import { render } from '../vendor/preact.module.js';
 import { net } from './net.js';
 import { store, emptyMatch } from './store.js';
+import { battleRunner } from './battle/runner.js';
 import { t } from '../shared/i18n.js';
 
 let session = null;
@@ -54,6 +55,14 @@ const fmt = (ms) => {
 };
 
 const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+
+/** HUD 的回合倒计时读 serverNow()：把全局时钟偏移调到「录制开始 + 回放游标」，右上角时间才会随回放流动。 */
+function syncReplayClock(s) {
+  const startedAt = Number(s.doc.startedAt);
+  if (!Number.isFinite(startedAt)) return;
+  const off = startedAt + s.cursor - Date.now();
+  if (Math.abs((store.get().clock?.offset || 0) - off) > 50) store.patch('clock', { offset: off, synced: true });
+}
 const speedLabel = (v) => (v === 0.25 ? '¼×' : v === 0.5 ? '½×' : `${v}×`);
 
 /** 回合标记：优先用录制时记下的 marks；老文档从 wire 的 m.public 回合变化推导。 */
@@ -113,15 +122,6 @@ function dispatch(frame) {
   try { net._emit(frame.t, frame.m); } catch (e) { console.warn('[demo] frame failed', frame.t, e); }
 }
 
-/** 战斗时钟对齐：speed ≠ 1 时，回放游标比战斗 sim 快，定期把在进行的战斗按游标时间重新快进。 */
-function resyncBattles(s) {
-  if (!s.active?.size || s.speed === 1) return;
-  for (const f of s.active.values()) {
-    const elapsed = (f.m?.elapsed || 0) + (s.cursor - (f.at || 0)) / 1000;
-    dispatch({ t: 'b.start', m: { ...f.m, elapsed: Math.max(0, elapsed), replaySeek: true } });
-  }
-}
-
 /** 记录一条已派发的战斗开始/结束帧（用于倍速对齐与跳转）。 */
 function noteBattle(s, frame) {
   if (frame.t === 'b.start' && frame.m?.fieldId) s.active.set(frame.m.fieldId, frame);
@@ -151,8 +151,7 @@ function tick() {
   const s = session;
   const el = (Date.now() - s.base) * s.speed;
   runTo(s, Math.min(s.duration, el));
-  const now = Date.now();
-  if (now - (s.lastSync || 0) > 500) { s.lastSync = now; resyncBattles(s); }
+  syncReplayClock(s);
   if (s.playing) s.timer = setTimeout(tick, 40);
 }
 
@@ -160,11 +159,15 @@ function pause(s) {
   if (!s.playing) return;
   s.playing = false;
   clearTimeout(s.timer);
+  // 真暂停：冻结战斗 sim 时钟与回放时钟（右上角倒计时停在同一秒）
+  battleRunner?.setPaused?.(true);
+  syncReplayClock(s);
   s.onTick?.();
 }
 
 function play(s) {
   if (s.playing || s.idx >= (s.doc.wire || []).length) return;
+  battleRunner?.setPaused?.(false);
   s.playing = true;
   s.base = Date.now() - s.cursor / s.speed;
   tick();
@@ -203,6 +206,7 @@ function seek(s, ms) {
   s.active = active;
   s.idx = idx;
   s.cursor = target;
+  syncReplayClock(s);
   s.onTick?.();
   s.base = Date.now() - s.cursor / s.speed;
   if (s.cursor < s.duration) play(s);
@@ -257,6 +261,7 @@ export function startDemoReplay(doc) {
     seek(s, next ? next.at : s.duration);
   };
 
+  syncReplayClock(s);
   render(html`<${Bar} s=${s} />`, uiHost);
   tick();
   return true;
@@ -271,5 +276,6 @@ export function stopDemoReplay() {
   try { render(null, uiHost); } catch { /* host gone */ }
   try { uiHost?.remove(); } catch { /* ignore */ }
   uiHost = null;
+  try { battleRunner?.setPaused?.(false); } catch { /* ignore */ }
   try { store.set(s.prev); } catch { /* the app is gone */ }
 }
