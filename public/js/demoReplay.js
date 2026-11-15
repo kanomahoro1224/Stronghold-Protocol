@@ -33,6 +33,7 @@ function ensureStyle() {
   repeating-linear-gradient(90deg,rgba(255,255,255,.22) 0 1px,transparent 1px 2.06%);border-radius:.02rem}
 .dr-fill{position:absolute;left:0;top:.03rem;bottom:.02rem;background:rgba(120,220,255,.28);pointer-events:none}
 .dr-mark{position:absolute;top:0;bottom:0;width:.07rem;margin-left:-.035rem;background:#fff;border-radius:.05rem;pointer-events:auto}
+.dr-mark--battle{top:.035rem;bottom:.025rem;width:2px;margin-left:-1px;border-radius:1px;background:rgba(255,255,255,.92)}
 .dr-head{position:absolute;top:-.02rem;bottom:-.02rem;width:2px;margin-left:-1px;background:#7fe0ff;pointer-events:none}
 .dr-row{display:flex;align-items:center;gap:.12rem;flex-wrap:wrap}
 .dr-time{font-variant-numeric:tabular-nums;opacity:.92;font-size:.18rem;min-width:1.1rem}
@@ -69,6 +70,22 @@ function syncReplayClock(s, force = false) {
 const speedLabel = (v) => (v === 0.25 ? '¼×' : v === 0.5 ? '½×' : `${v}×`);
 
 /** 回合标记：优先用录制时记下的 marks；老文档从 wire 的 m.public 回合变化推导。 */
+/** 战斗开始短标：从 wire 的 b.start 帧推导（每场战斗一条），老 Demo 也有。 */
+function battleMarksOf(doc, duration) {
+  const seen = new Set();
+  const out = [];
+  for (const f of doc.wire || []) {
+    if (f.t !== 'b.start') continue;
+    const at = Math.max(0, Number(f.at) || 0);
+    if (at > duration) continue;
+    const key = f.m?.battleId ? `${f.m.fieldId || ''}:${f.m.battleId}` : `${f.m?.fieldId || ''}:${at}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ at, fieldId: f.m?.fieldId || '' });
+  }
+  return out.slice(0, 400);
+}
+
 function marksOf(doc) {
   if (Array.isArray(doc.marks) && doc.marks.length) {
     const seen = new Set();
@@ -111,6 +128,8 @@ function Bar({ s }) {
         s.seek(at(e.clientX, e.currentTarget));
       }} onPointerCancel=${() => { s.drag = false; }}>
       <div class="dr-fill" style=${`width:${pct}%`}></div>
+      ${s.battleMarks.map((m) => html`<span class="dr-mark dr-mark--battle" style=${`left:${(m.at / total) * 100}%`}
+        title=${t('战斗开始')}></span>`)}
       ${s.marks.map((m) => html`<span key=${m.round} class="dr-mark" style=${`left:${(m.at / total) * 100}%`}
         title=${t('回合 {n} 开始', { n: m.round })}></span>`)}
       <div class="dr-head" style=${`left:${pct}%`}></div>
@@ -269,7 +288,7 @@ export function startDemoReplay(doc) {
   const s = {
     doc, idx: 0, cursor: 0, duration, playing: true, speed: 1,
     base: Date.now(), timer: 0, prev, onTick: null, active: new Map(), lastSync: 0,
-    marks: marksOf(doc).filter((m) => m.at <= duration), drag: false,
+    marks: marksOf(doc).filter((m) => m.at <= duration), battleMarks: battleMarksOf(doc, duration), drag: false,
   };
   session = s;
 
