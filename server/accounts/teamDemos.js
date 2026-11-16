@@ -9,12 +9,16 @@
 //
 // Output shape is documented in docs/TEAM_DEMO_MERGE.md §4.1. No DB / HTTP code here, so the merge is unit-testable.
 
+// shared/protocol.js is browser-safe and already used by the server (server/net.js). A model form is state, not
+// decoration: dropping it under the size cap made a replay draw the previous unit's model (the Texas report).
+import { fxForm } from '../../shared/protocol.js';
+
 export const TEAM_DOC_VERSION = 2;
 export const MAX_TEAM_PART_GZIP = 12 * 1024 * 1024;
 export const MAX_TEAM_PART_JSON = 24 * 1024 * 1024;
 export const MAX_TEAM_CANONICAL_BYTES = 8 * 1024 * 1024;
 
-const WIRE_PUBLIC = new Set(['m.public', 'm.result', 'm.ticker']);
+const WIRE_PUBLIC = new Set(['m.public', 'm.result', 'm.ticker', 'b.pool']);
 const FIELD_TYPES = new Set(['m.field', 'b.start', 'b.snap', 'b.ev', 'b.end']);
 const OWN_FIELD_TYPES = new Set(['b.start', 'b.snap', 'b.ev', 'b.end']);
 
@@ -22,6 +26,24 @@ const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 const arr = (v) => (Array.isArray(v) ? v : []);
 const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 const clampAt = (v) => Math.max(0, num(v, 0));
+
+/**
+ * Server-clock time of one part-local `at`, using the latest `m.public.serverNow` anchor at or before it.
+ * A mark is not a wire frame, so it needs the same anchor mapping as the frames around it.
+ * @param {{ wire?: any[], startedAt?: number }} part
+ * @param {number} at
+ */
+function serverAtOf(part, at) {
+  const target = clampAt(at);
+  let anchor = null;
+  for (const frame of arr(part?.wire)) {
+    const frameAt = clampAt(frame?.at);
+    if (frameAt > target || frame?.t !== 'm.public') continue;
+    const now = num(frame.serverNow ?? frame.m?.serverNow, NaN);
+    if (Number.isFinite(now) && (!anchor || frameAt >= anchor.at)) anchor = { at: frameAt, serverAt: now };
+  }
+  return anchor ? Math.round(anchor.serverAt + (target - anchor.at)) : num(part?.startedAt, 0) + target;
+}
 
 /** Stable JSON for a public-payload comparison: serverNow / deadline drift must not defeat de-duplication. */
 function publicKey(t, msg) {
@@ -109,9 +131,21 @@ export function mergeTeamDemos(parts, opts = {}) {
     ? arr(opts.participants)
     : list.flatMap((p) => arr(p.doc.players).filter((x) => x && !x.isBot).map((x) => x.playerId)).filter(Boolean))];
 
-  const aligned = list.map((p) => ({ playerId: p.playerId, doc: p.doc, frames: alignPart(p.doc) }));
+  const aligned = list.map((p) => {
+    const frames = alignPart(p.doc);
+    // Round marks are part-local too. Map them through the same serverNow anchor as the wire frames, otherwise a
+    // client with a skewed clock puts its round dot seconds away from the actual round boundary.
+    const markFrames = arr(p.doc.marks).filter((m) => isObj(m)).map((m) => ({
+      ...m, at: clampAt(m.at), serverAt: serverAtOf(p.doc, m.at),
+    }));
+    return { playerId: p.playerId, doc: p.doc, frames, markFrames };
+  });
   const allFrames = aligned.flatMap((p) => p.frames).filter((f) => isObj(f));
-  const clockBase = Math.min(...allFrames.map((f) => num(f.serverAt, Infinity)).filter((n) => Number.isFinite(n)));
+  // Prefer an anchored (high-quality) frame as the canonical origin. An old frame before the first serverNow anchor
+  // carries a local-clock fallback; using that as clockBase would shift every anchored frame by the client skew.
+  const highFrames = allFrames.filter((f) => f.clockQuality === 'high' && Number.isFinite(Number(f.serverAt)));
+  const baseFrames = highFrames.length ? highFrames : allFrames;
+  const clockBase = Math.min(...baseFrames.map((f) => num(f.serverAt, Infinity)).filter((n) => Number.isFinite(n)));
   const canonicalAt = (f) => Math.max(0, Math.round(num(f.serverAt, clockBase) - (Number.isFinite(clockBase) ? clockBase : 0)));
 
   const publicFrames = [];
@@ -162,7 +196,8 @@ export function mergeTeamDemos(parts, opts = {}) {
   for (const [fieldId, entry] of Object.entries(fields)) {
     const chosen = entry.frames.length ? entry.frames : entry.spectators;
     const sorted = chosen.slice().sort((a, b) => num(a.serverAt) - num(b.serverAt) || num(a.at) - num(b.at));
-    const metaFrame = sorted.find((f) => f.t === 'm.field');
+    // resyncs can repeat m.field; the newest one carries the latest unit metadata (devices / a changed form).
+    const metaFrame = sorted.filter((f) => f.t === 'm.field').at(-1);
     const meta = metaFrame ? stripFrame(metaFrame) : {};
     const frames = sorted.filter((f) => f.t !== 'm.field').map((f) => ({
       at: canonicalAt(f), serverAt: f.serverAt,
@@ -194,13 +229,21 @@ export function mergeTeamDemos(parts, opts = {}) {
     }
   }
   const marks = [];
-  for (const p of aligned) for (const m of arr(p.doc.marks)) {
-    if (!isObj(m)) continue;
-    if (!marks.some((x) => x.round === m.round && x.at === m.at)) marks.push(m);
+  for (const p of aligned) for (const m of p.markFrames) {
+    const at = canonicalAt(m);
+    if (!marks.some((x) => x.round === m.round && Math.abs(x.at - at) <= 100)) {
+      marks.push({ at, round: m.round, ...(m.phase != null ? { phase: m.phase } : {}) });
+    }
   }
   marks.sort((a, b) => num(a.at) - num(b.at));
-  const startedAt = Math.min(...list.map((p) => num(p.doc.startedAt, Date.now())));
-  const endedAt = Math.max(...list.map((p) => num(p.doc.endedAt, startedAt)));
+  const startedAt = Number.isFinite(clockBase)
+    ? Math.round(clockBase)
+    : Math.min(...list.map((p) => num(p.doc.startedAt, Date.now())));
+  const lastServer = allFrames.length ? Math.max(...allFrames.map((f) => num(f.serverAt, clockBase))) : startedAt;
+  // The client's startedAt/endedAt are absolute wall-clock stamps, but their difference is a usable match duration even
+  // when its clock is skewed. Keep the tail of a match whose result frame never arrived; otherwise use the last frame.
+  const clientSpans = list.map((p) => Math.max(0, num(p.doc.endedAt, num(p.doc.startedAt, 0)) - num(p.doc.startedAt, 0)));
+  const endedAt = Math.round(Math.max(lastServer, startedAt + Math.max(0, ...clientSpans)));
   const lowClock = aligned.some((p) => p.frames.some((f) => f.clockQuality === 'low'));
   return {
     version: TEAM_DOC_VERSION, kind: 'team', matchId,
@@ -232,7 +275,7 @@ export function downsampleTeamDemo(doc, { snapStep = 2 } = {}) {
     const snaps = (f.frames || []).filter((x) => x.t === 'b.snap');
     for (const x of (f.frames || [])) {
       if (x.t === 'b.ev') {
-        const ev = (x.m?.ev || []).filter((e) => Array.isArray(e) && (STATE_EV.has(e[0]) || String(e[0]).startsWith('fx:')));
+        const ev = (x.m?.ev || []).filter((e) => Array.isArray(e) && (STATE_EV.has(e[0]) || fxForm(e) !== undefined || String(e[0]).startsWith('fx:')));
         if (ev.length) frames.push({ ...x, m: { ...x.m, ev } });
       } else if (x.t === 'b.snap') {
         const i = snapIndex++;

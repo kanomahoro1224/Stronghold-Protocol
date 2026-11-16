@@ -25,11 +25,14 @@ function decodePart(row) {
 export async function putTeamDemoPart(db, { matchId, playerId, accountId, doc } = {}) {
   if (!matchId || !playerId || !doc) throw fail('BAD_PART');
   if (String(doc.matchId || '') !== String(matchId)) throw fail('MATCH_ID_MISMATCH');
+  // The outer playerId is what player_links verifies. Never let a document claim another seat as its recorder identity.
+  if (doc.playerId && String(doc.playerId) !== String(playerId)) throw fail('PLAYER_ID_MISMATCH');
   const owner = await accountOfPlayer(db, playerId);
   if (!owner || String(owner.accountId) !== String(accountId)) throw fail('PLAYER_NOT_LINKED');
   let json;
   try { json = JSON.stringify(doc); } catch { throw fail('BAD_PART'); }
-  if (json.length > MAX_TEAM_PART_JSON) throw fail('TOO_LARGE_JSON');
+  // The API limit is bytes, not code units: a part full of non-ASCII text must not slip past a .length check.
+  if (Buffer.byteLength(json, 'utf8') > MAX_TEAM_PART_JSON) throw fail('TOO_LARGE_JSON');
   const gz = gzipSync(Buffer.from(json));
   if (gz.length > MAX_TEAM_PART_GZIP) throw fail('TOO_LARGE');
   await db.query(

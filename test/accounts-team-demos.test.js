@@ -27,6 +27,7 @@ test('mergeTeamDemos: public dedupe, owner-only field frames, own private only, 
     frame(0, 'm.public', { serverNow: 1000, players: [{ playerId: 'p_a', isBot: false }, { playerId: 'p_b', isBot: false }] }),
     frame(100, 'm.field', { fieldId: 'n:p_a', players: ['p_a'], kind: 'normal' }),
     frame(100, 'b.snap', { fieldId: 'n:p_a', units: [{ id: 'u1', x: 1 }] }),
+    frame(200, 'm.field', { fieldId: 'n:p_a', players: ['p_a'], kind: 'normal', units: [{ id: 'device1' }] }),
     frame(0, 'm.private', { hand: ['a'] }),
   ]);
   const b = part('p_b', [
@@ -45,6 +46,7 @@ test('mergeTeamDemos: public dedupe, owner-only field frames, own private only, 
   assert.deepEqual(doc.availableFields.sort(), ['n:p_a', 'n:p_b']);
   assert.equal(doc.fields['n:p_a'].owner, 'p_a');
   assert.equal(doc.fields['n:p_a'].frames[0].m.units[0].x, 1, 'owner frame wins over spectator copy');
+  assert.deepEqual(doc.fields['n:p_a'].fieldMeta.units.map((u) => u.id), ['device1'], 'a resync m.field must not keep stale metadata');
   assert.equal(doc.fields['n:p_b'].owner, 'p_b');
   assert.deepEqual(Object.keys(doc.privates).sort(), ['p_a', 'p_b']);
   const view = filterTeamDemoForViewer(doc, 'p_a');
@@ -65,16 +67,38 @@ test('mergeTeamDemos: a missing participant makes partial and a field without ow
   assert.equal(doc.partial, true);
 });
 
+test('mergeTeamDemos: b.pool is a public frame and survives the merge', () => {
+  const a = part('p_a', [
+    frame(0, 'm.public', { serverNow: 1000 }),
+    frame(100, 'b.pool', { hp: 50, max: 100, teamLp: 3, acked: {} }),
+  ]);
+  const doc = mergeTeamDemos([a]);
+  assert.ok(doc.public.some((f) => f.t === 'b.pool' && f.m.hp === 50), 'boss pool must replay too');
+});
+
+test('mergeTeamDemos: canonical start/end and round marks use the server clock, not the client clock', () => {
+  const a = part('p_a', [
+    frame(0, 'm.ticker', { y: 1 }), // before the first serverNow anchor: a low-quality fallback, not the origin
+    frame(100, 'm.public', { serverNow: 10_000, round: 1 }),
+    frame(1100, 'b.snap', { fieldId: 'n:p_a', units: [{ id: 'u1', x: 1 }] }),
+  ], { startedAt: 1000, endedAt: 5000, marks: [{ at: 200, round: 1 }] });
+  const doc = mergeTeamDemos([a]);
+  assert.equal(doc.startedAt, 10_000, 'canonical origin is the first anchored server-clock frame');
+  assert.equal(doc.endedAt, 14_000, 'the client duration keeps the tail; the server clock supplies the origin');
+  assert.equal(doc.marks[0].at, 100, 'a part-local mark is mapped through serverNow');
+  assert.equal(doc.marks[0].round, 1);
+});
+
 
 test('downsampleTeamDemo: state events survive; attack animations and extra snapshots are dropped', () => {
   const frames = [];
   for (let i = 0; i < 10; i++) frames.push({ at: i * 100, t: 'b.snap', m: { fieldId: 'n:p_a', tick: i } });
-  frames.push({ at: 50, t: 'b.ev', m: { fieldId: 'n:p_a', ev: [['spawn', { id: 'u1' }], ['hit', { id: 'u1' }]] } });
+  frames.push({ at: 50, t: 'b.ev', m: { fieldId: 'n:p_a', ev: [['spawn', { id: 'u1' }], ['fx', 'form', 0, 0, { id: 'u1', form: 'alt' }], ['hit', { id: 'u1' }]] } });
   frames.push({ at: 60, t: 'b.ev', m: { fieldId: 'n:p_a', ev: [['hit', { id: 'u1' }]] } });
   const doc = { kind: 'team', fields: { 'n:p_a': { owner: 'p_a', frames } }, public: [], privates: {} };
   const out = downsampleTeamDemo(doc, { snapStep: 2 });
   const kept = out.fields['n:p_a'].frames;
   assert.equal(kept.filter((f) => f.t === 'b.snap').length, 6, 'first, last and every 2nd snapshot');
   assert.equal(kept.filter((f) => f.t === 'b.ev').length, 1, 'only the state event remains');
-  assert.deepEqual(kept.find((f) => f.t === 'b.ev').m.ev[0][0], 'spawn');
+  assert.deepEqual(kept.find((f) => f.t === 'b.ev').m.ev.map((e) => e[0]), ['spawn', 'fx'], 'a model-form fx is state, not decoration');
 });

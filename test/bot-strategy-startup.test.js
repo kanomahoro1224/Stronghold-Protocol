@@ -66,7 +66,7 @@ test('the process entry exits with a clear configuration error for an invalid st
   const result = spawnSync(process.execPath, ['server/index.js'], {
     cwd: fileURLToPath(new URL('..', import.meta.url)),
     env: { ...process.env, SP_BOT_STRATEGY: 'legcay', PORT: '0' },
-    encoding: 'utf8', timeout: 40_000, windowsHide: true, // kits/ops 270 个模块首次编译约 15 s（本机实测 14.7 s），15 s 会被 ETIMEDOUT 误杀
+    encoding: 'utf8', timeout: 90_000, windowsHide: true, // kits/ops 270 个模块首次编译在本机可达约 39 s（并发回归时更慢）；40 s 会被 ETIMEDOUT 误杀
   });
   assert.ifError(result.error);
   assert.equal(result.status, 1);

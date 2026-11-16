@@ -7,6 +7,7 @@ const doc = {
   kind: 'team', matchId: 'm_T_1', startedAt: 1000, endedAt: 5000, mode: 'coop', difficulty: 'HARD',
   players: [{ playerId: 'p_a', seat: 0, name: 'A', isBot: false }, { playerId: 'p_b', seat: 1, name: 'B', isBot: false }],
   public: [{ at: 0, t: 'm.public', m: { phase: 'prep', round: 1 } }],
+  result: { at: 4000, t: 'm.result', m: { settled: true, outcome: 'won' } },
   fields: {
     'n:p_a': { owner: 'p_a', kind: 'normal', fieldMeta: { fieldId: 'n:p_a', stageId: 's1' }, frames: [
       { at: 100, t: 'b.snap', m: { fieldId: 'n:p_a', units: [{ id: 'a1', x: 1 }] } },
@@ -27,6 +28,7 @@ test('team replay: viewer and field list', () => {
 test('team replay: one field wire has public + meta + own frames + own private, never B private', () => {
   const wire = teamWireFor(doc, 'n:p_a');
   assert.ok(wire.some((f) => f.t === 'm.public'));
+  assert.ok(wire.some((f) => f.t === 'm.result' && f.m.outcome === 'won'), 'the final result is replayed too');
   assert.ok(wire.some((f) => f.t === 'm.field' && f.m.fieldId === 'n:p_a'));
   assert.ok(wire.some((f) => f.t === 'b.snap' && f.m.units[0].id === 'a1'));
   assert.ok(wire.some((f) => f.t === 'm.private' && f.m.playerId === 'p_a'));

@@ -403,6 +403,7 @@ function switchTeamField(s, fieldId) {
   const wasPlaying = s.playing;
   s.team.fieldId = fieldId;
   s.doc = { ...s.doc, wire: teamWireFor(s.team.source, fieldId) };
+  s.battleMarks = battleMarksOf(s.doc, s.duration);
   const fields = teamFields(s.team.source);
   s.team.fields = fields;
   // seek rebuilds the selected field from its own frames; autoplay follows the previous play/pause state
@@ -429,10 +430,16 @@ export function teamWireFor(doc, fieldId) {
   const f = doc?.fields?.[fieldId];
   if (!f) return [];
   const meta = f.fieldMeta || {};
+  const frames = (f.frames || []).map((x) => ({ at: x.at, t: x.t, m: x.m }));
+  // The settlement must be the last frame the replay reaches. If it shares a timestamp with the final snapshot,
+  // a stable sort would deliver it first and show "完美作战" while the recorded enemies are still standing.
+  const lastFrameAt = frames.reduce((m, x) => Math.max(m, Number(x.at) || 0), 0);
+  const resultAt = Math.max(Number(doc.result?.at) || 0, lastFrameAt);
   const wire = [
     ...(doc.public || []).map((x) => ({ at: x.at, t: x.t, m: x.m })),
+    ...(doc.result?.t ? [{ at: resultAt, t: doc.result.t, m: doc.result.m }] : []),
     { at: 0, t: 'm.field', m: { ...meta, fieldId } },
-    ...(f.frames || []).map((x) => ({ at: x.at, t: x.t, m: x.m })),
+    ...frames,
   ];
   const viewer = teamViewerId(doc);
   for (const x of (doc.privates?.[viewer] || [])) wire.push({ at: x.at, t: x.t, m: x.m });

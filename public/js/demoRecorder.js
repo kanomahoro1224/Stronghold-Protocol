@@ -35,6 +35,8 @@ const EVENT_BYTES_CAP = 2 * 1024 * 1024;
 // 由现有 Game 画面自行渲染——不做服务端重跑，也不做客户端重模拟。
 const MAX_WIRE = 40_000;
 const MAX_WIRE_BYTES = 8 * 1024 * 1024;
+const UTF8 = new TextEncoder();
+const utf8Bytes = (s) => UTF8.encode(String(s)).length;
 const WIRE_TYPES = new Set(['m.public', 'm.private', 'm.field', 'm.result', 'm.ticker', 'b.start', 'b.snap', 'b.ev', 'b.end', 'b.pool']);
 /** A hidden tab / a reconnect flushes at most this often (each flush rewrites the whole document). */
 const FLUSH_GAP_MS = 8_000;
@@ -112,7 +114,7 @@ function recordAction(t, fields) {
   if (replaying() || !active || active.closed) return;
   if (active.events.length >= MAX_EVENTS) return;
   const a = { ...(fields && typeof fields === 'object' ? fields : {}), t };
-  const size = (() => { try { return JSON.stringify(a).length; } catch { return 0; } })();
+  const size = (() => { try { return utf8Bytes(JSON.stringify(a)); } catch { return 0; } })();
   if (active.bytes + size > EVENT_BYTES_CAP) return;
   active.bytes += size;
   active.events.push({ at: Date.now() - active.startedAt, a });
@@ -123,7 +125,7 @@ function pushWire(t, msg, local = false) {
   if (replaying() || !active || active.closed) return;
   if (active.wire.length >= MAX_WIRE) return;
   let size, body;
-  try { body = JSON.stringify(msg); size = body.length; } catch { return; }
+  try { body = JSON.stringify(msg); size = utf8Bytes(body); } catch { return; }
   if (active.wireBytes + size > MAX_WIRE_BYTES) return;
   active.wireBytes += size;
   // local frames come from live battle objects that keep changing: store an immutable copy, or a later flush
