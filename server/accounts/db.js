@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS profiles (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- 干员调配全量上云（CLOUD-SAVE-V2）：ownership / 自选编队 / 皮肤放在独立的 extras 信封里，旧客户端的三字段 PUT
+-- 不带它时 COALESCE 保留原值。
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS extras jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 CREATE TABLE IF NOT EXISTS match_records (
   id         bigserial PRIMARY KEY,
   account_id bigint REFERENCES accounts(id) ON DELETE CASCADE,

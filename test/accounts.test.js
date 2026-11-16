@@ -124,6 +124,7 @@ test('accounts: cloud save, history, demo access', { skip: !CONN }, async () => 
 
   const empty = await getProfile(db, accountId);
   assert.deepEqual(empty.loadouts, {});
+  assert.deepEqual(empty.extras, {});
 
   assert.equal((await putProfile(db, accountId, { loadouts: { squads: [{ id: 's1' }] }, stats: { wins: 2 } })).ok, true);
   const saved = await getProfile(db, accountId);
@@ -135,13 +136,44 @@ test('accounts: cloud save, history, demo access', { skip: !CONN }, async () => 
   const merged = await getProfile(db, accountId);
   assert.equal(merged.loadouts.squads[0].id, 's1');
   assert.equal(merged.settings.lang, 'zh');
+  assert.deepEqual(merged.extras, {});
+
+  // Cloud Save V2 extras are opaque, and a legacy three-field PUT cannot erase them (null/undefined = not provided).
+  assert.equal((await putProfile(db, accountId, { extras: { v: 1, ownership: { v: 2, notOwnedChars: ['char_a'] } } })).ok, true);
+  const withExtras = await getProfile(db, accountId);
+  assert.deepEqual(withExtras.extras.ownership.notOwnedChars, ['char_a']);
+  assert.equal((await putProfile(db, accountId, { stats: { wins: 3 } })).ok, true);
+  assert.deepEqual((await getProfile(db, accountId)).extras.ownership.notOwnedChars, ['char_a']);
 
   const huge = await putProfile(db, accountId, { stats: { blob: 'x'.repeat(300 * 1024) } });
   assert.equal(huge.ok, false);
   assert.equal(huge.code, 'TOO_LARGE');
+  assert.equal((await putProfile(db, accountId, { extras: { blob: 'x'.repeat(100 * 1024) } })).code, 'TOO_LARGE');
+  assert.equal((await putProfile(db, accountId, { loadouts: { blob: 'x'.repeat(80 * 1024) }, settings: { blob: 'x'.repeat(20 * 1024) } })).code,
+    'TOO_LARGE');
 
   await linkPlayer(db, accountId, 'p_test1');
   assert.equal(await linkPlayer(db, accountId, 'p_test2').then(() => true), true);
+});
+
+test('accounts: three blocks at their own limits still fit the combined cloud budget', { skip: !CONN }, async () => {
+  const account = (await db.query(`INSERT INTO accounts (email) VALUES ('budget-edge@x.co') RETURNING id`)).rows[0];
+  const accountId = String(account.id);
+  // Each value is just under its block limit, while the sum is just under 384 KiB; the old raw-body check rejected it
+  // because of JSON field names and punctuation alone.
+  const stats = { v: 1, records: [{ id: 'r1', blob: 's'.repeat(196_559) }] };
+  const extras = { v: 1, ownership: { v: 2, notOwnedChars: ['char_a'], blob: 'e'.repeat(98_239) } };
+  const loadouts = { v: 2, byChar: { char_a: { skill: 1 } }, blob: 'l'.repeat(98_143) };
+  const settings = { blob: 'g'.repeat(100) };
+  assert.equal(Buffer.byteLength(JSON.stringify(stats)), 196_600);
+  assert.equal(Buffer.byteLength(JSON.stringify(extras)), 98_303);
+  assert.equal(Buffer.byteLength(JSON.stringify(loadouts)) + Buffer.byteLength(JSON.stringify(settings)), 98_303);
+  const saved = await putProfile(db, accountId, { stats, extras, loadouts, settings });
+  assert.equal(saved.ok, true, 'block contents fit the 384 KiB budget; the wrapper is not part of the data');
+  const got = await getProfile(db, accountId);
+  assert.equal(got.stats.records[0].id, 'r1');
+  assert.equal(got.extras.ownership.notOwnedChars[0], 'char_a');
+  assert.equal(got.loadouts.byChar.char_a.skill, 1);
 });
 
 test('accounts: recorder writes a demo and one record per linked participant', { skip: !CONN }, async () => {
@@ -249,6 +281,16 @@ test('accounts: REST surface (config, code, verify, cloud, rejection)', { skip: 
       body: JSON.stringify({ email: last.to, code: last.code }) });
     assert.equal(verified.status, 200);
     const cookie = (verified.headers.get('set-cookie') || '').split(';')[0];
+
+    // 登录后走一遍云端存档：extras 透传，GET 原样带回
+    const cloudPut = await fetch(`${base}/api/cloud`, { method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ loadouts: { v: 2, byChar: { char_a: { skill: 1 } }, ops: {} },
+        extras: { v: 1, ownership: { v: 2, notOwnedChars: ['char_a'] } } }) });
+    assert.equal(cloudPut.status, 200);
+    const cloud = await (await fetch(`${base}/api/cloud`, { headers: { cookie } })).json();
+    assert.equal(cloud.loadouts.byChar.char_a.skill, 1);
+    assert.deepEqual(cloud.extras.ownership.notOwnedChars, ['char_a']);
 
     // 博士代号 / #识别号：登录后补进账号（未登录 401，撞号 409）
     const anonProfile = await fetch(`${base}/api/profile`, { method: 'PUT', headers: { 'content-type': 'application/json' },

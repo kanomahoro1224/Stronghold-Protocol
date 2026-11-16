@@ -967,7 +967,7 @@ export function serverDemoOf(rec, cloudIds, teamDemos) {
 }
 
 /**
- * The newest slice of an envelope that fits the account save (`server/accounts/store.js` MAX_SAVE_BYTES, 256 KiB).
+ * The newest slice of an envelope that fits the account save (`server/accounts/store.js` MAX_STATS_BYTES, 192 KiB).
  *
  * 同步云端 pushes the local records the cloud is missing, but the account keeps ONE JSON document: a long history does
  * not fit. The cloud copy is a backup, so the newest matches are what it keeps; the local copy keeps all of them.
@@ -975,7 +975,7 @@ export function serverDemoOf(rec, cloudIds, teamDemos) {
  * @param {number} [budget] the request body's byte budget
  * @returns {{ stats: any, dropped: number }} the envelope to upload and how many oldest records stayed here only
  */
-export function fitCloudStats(stats, budget = 256 * 1024) {
+export function fitCloudStats(stats, budget = 192 * 1024) {
   const records = Array.isArray(stats?.records) ? stats.records : [];
   const size = (n) => {
     const body = JSON.stringify({ loadouts: null, settings: null, stats: { ...stats, records: records.slice(0, n) } });

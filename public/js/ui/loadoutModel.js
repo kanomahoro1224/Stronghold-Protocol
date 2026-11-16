@@ -13,24 +13,29 @@
 // 精英2 Lv.60) are kept; stored beside the entries (`sp.pref.loadout` = { v: 1, entries, ops }; an older stored loadout
 // has none = the defaults) and sent with `room.loadout { entries, ops }` (shared/protocol.js checkLoadoutOps).
 // By operator (DESIGN §35.23, M1): official versions reuse chess ids for other operators (第一期's chess_char_1_02_a is
-// 讯使, 第二期's 角峰), so the stored choices are keyed by charId — `sp.pref.loadout` = { v: 2, byChar, ops }, shared by
-// every version — and the screens keep working on chess ids: ui/loadoutSync.js shows `entries` as a view of `byChar`
-// for the data on screen (charKeyMap / entriesView) and writes an edit back through the map of the data the view was
-// built from (rebaseByChar). A stored v1 loadout ({ v: 1, entries } by 第二期下半's chess ids) is migrated through
-// 第二期下半's chess.json (entriesToChar); 导出 writes v2 (byChar), 导入 reads v1 (chess ids of 第二期下半) and v2.
-// A v2 store also carries `entries` — the same choices by 第二期下半's chess ids, when the page has that map — which this
-// build ignores (v === 2) and an older build on the same origin (a rollback, builds side by side) still reads, so its
-// 干员调配 does not look reset.
+// 讯使, 第二期's 角峰), so the stored choices are keyed by charId. Cloud Save V2.1 (2026-11-16): the choices are stored per
+// official version — `sp.pref.loadout` is the default version, `sp.pref.loadout.<slug>` another version — because each
+// version has its own operator pool and needs its own 编队. The inner document stays v2 ({ v: 2, byChar, ops }); the
+// screens keep working on chess ids: ui/loadoutSync.js shows `entries` as a view of `byChar` for the data on screen
+// (charKeyMap / entriesView) and writes an edit back through the map of the data the view was built from (rebaseByChar).
+// A stored v1 loadout ({ v: 1, entries } by 第二期下半's chess ids) is migrated through 第二期下半's chess.json
+// (entriesToChar), then copied to every known version as the initial per-version setting. The default version's v2 store
+// also carries `entries` — the same choices by 第二期下半's chess ids, when the page has that map — which this build
+// ignores (v === 2) and an older build on the same origin (a rollback, builds side by side) still reads, so its 干员调配
+// does not look reset; per-version stores stay v2 documents without that legacy view.
 
 import { loadoutOptions, checkLoadout, checkLoadoutOps, resolveLoadout, MODULE_NONE, LOADOUT_LIMITS } from '../../../shared/protocol.js';
 import { isPotential, isCultivate, POTENTIAL_DEFAULT, CULTIVATE_DEFAULT } from '../../../shared/potential.js';
+import { DEFAULT_VERSION, VERSIONS, versionById, versionSlug } from '../../../shared/versions.js';
 import { t, N_ } from '../../../shared/i18n.js';
 
 export { MODULE_NONE };
 
-/** localStorage key (store.js loadPref/savePref prefix `sp.pref.`) and format version. */
+/** localStorage key (store.js loadPref/savePref prefix `sp.pref.`) and format version of one version's document. */
 export const LOADOUT_PREF = 'loadout';
 export const LOADOUT_VERSION = 2;
+/** The cloud/local outer document that groups the per-version loadout documents. */
+export const LOADOUT_STORE_VERSION = 3;
 
 export const PROF_ORDER = ['PIONEER', 'WARRIOR', 'TANK', 'SNIPER', 'CASTER', 'MEDIC', 'SUPPORT', 'SPECIAL'];
 export const PROF_NAME = Object.freeze({ PIONEER: N_('先锋'), WARRIOR: N_('近卫'), TANK: N_('重装'), SNIPER: N_('狙击'), CASTER: N_('术师'), MEDIC: N_('医疗'), SUPPORT: N_('辅助'), SPECIAL: N_('特种') });
@@ -108,6 +113,40 @@ export const toStored = (byChar, ops = {}, entries = undefined) => ({ v: LOADOUT
   ...(isObj(entries) ? { entries } : {}) });
 /** The v1 form (by chess id), written only while a v1 store still waits for its migration (ui/loadoutSync.js). */
 export const toStoredV1 = (entries, ops = {}) => ({ v: 1, entries: entries || {}, ops: ops || {} });
+
+/** Storage-key-safe version suffix (official ids contain @, registry slugs are lowercase and safe). */
+const VERSION_SUFFIX = /^[A-Za-z0-9_@.:-]{1,96}$/;
+const UNSAFE_VERSION = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * The `sp.pref.` key holding one version's loadout: the default keeps the historical `loadout` key; another official
+ * version uses `loadout.<versionSlug>` (the same shape as ui/diyModel.js diyPrefKey). Unknown-but-safe version ids keep
+ * their own suffix so a future version does not collide; null when the id cannot be a safe key.
+ * @param {string} [versionId] official version id (shared/versions.js) or an unknown id
+ * @returns {string|null}
+ */
+export function loadoutPrefKey(versionId = DEFAULT_VERSION) {
+  const id = typeof versionId === 'string' && versionId ? versionId : DEFAULT_VERSION;
+  if (id === DEFAULT_VERSION) return LOADOUT_PREF;
+  const v = versionById(id);
+  if (v) return `${LOADOUT_PREF}.${versionSlug(v)}`;
+  return VERSION_SUFFIX.test(id) && !UNSAFE_VERSION.has(id) ? `${LOADOUT_PREF}.${id}` : null;
+}
+
+/**
+ * The reverse of loadoutPrefKey: a stored `sp.pref.` key → the official version id it belongs to (unknown safe suffixes
+ * are returned as-is, so a future version's data survives a round trip through an older client).
+ * @param {string} key the part after `sp.pref.`
+ * @returns {string|null}
+ */
+export function loadoutVersionOfKey(key) {
+  if (key === LOADOUT_PREF) return DEFAULT_VERSION;
+  if (typeof key !== 'string' || !key.startsWith(`${LOADOUT_PREF}.`)) return null;
+  const suffix = key.slice(LOADOUT_PREF.length + 1);
+  const known = VERSIONS.find((v) => versionSlug(v) === suffix);
+  if (known) return known.id;
+  return VERSION_SUFFIX.test(suffix) && !UNSAFE_VERSION.has(suffix) ? suffix : null;
+}
 
 // ---- by operator (DESIGN §35.23) -----------------------------------------------------------------------------------
 

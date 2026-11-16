@@ -24,14 +24,16 @@
 // against the room's data (its operators too); the stored settings keep every entry — one the room does not know is
 // only left out of what is sent, never deleted. Whenever the room's content set arrives or goes (content.js contentSet)
 // the three settings are sent again, and the 自选 picker's list (`diyKitted`) is the set's own (else welcome's).
-// Official versions (DESIGN §35.23, M1): the loadout and the 干员持有 list are stored by operator (charId: `byChar`,
-// `notOwnedChars` — every version reuses chess ids for other operators) and shown as views by the chess ids of the data
-// on screen (`entries`, `notOwned`: refreshViews, rebuilt whenever that data changes — installSettingsViews); an edit is
-// written back through the map of the view it was made on (setEntries / setNotOwned `base`). A v1 store is migrated
-// through 第二期下半's chess.json (migrateSettings; nothing is sent before). The 自选 picks are the version's own
-// (diyModel.js diyPrefKey). Every sync waits for the data the server checks against (canSendSettings): never while the
-// page's content loads, in a room once the room's content is on the page, outside a room only on the server's default
-// version (第二期下半's own files unless welcome.versions names another default);
+// Official versions (DESIGN §35.23, M1): the loadout is stored per official version (`sp.pref.loadout` for the default,
+// `loadout.<slug>` for another); each version's choices are keyed by operator (charId: `byChar`) and the 干员持有 list
+// is account-global (`notOwnedChars`). The screens still work by chess ids of the data on screen (`entries`, `notOwned`:
+// refreshViews, rebuilt whenever that data changes — installSettingsViews); an edit is written back through the map of
+// the view it was made on (setEntries / setNotOwned `base`). A v1 store is migrated through 第二期下半's chess.json
+// (migrateSettings; nothing is sent before), then the old global document is copied to every known version as each
+// version's initial setting. The 自选 picks are the version's own (diyModel.js diyPrefKey). Every sync waits for the
+// data the server checks against (canSendSettings): never while the page's content loads, in a room once the room's
+// content is on the page, outside a room only on the server's default version (第二期下半's own files unless
+// welcome.versions names another default);
 // a room entered after the lobby could not send them sends them then (not at every room entry: the server keeps the
 // session's copy, and the heavy-message budget is an edit's too).
 
@@ -39,7 +41,7 @@ import { createStore, loadPref, savePref, store } from '../store.js';
 import { data, buildIndex } from '../data.js';
 import { contentSet as appContentSet, pageVersion } from '../content.js';
 import { LOADOUT_PREF, parseStored, parseStoredOps, parseStoredByChar, toStored, toStoredV1, sanitizeEntries, sanitizeOps, charKeyMap, entriesToChar,
-  entriesView, rebaseByChar } from './loadoutModel.js';
+  entriesView, rebaseByChar, loadoutPrefKey } from './loadoutModel.js';
 import { cultivationCharIds, charPotentialChanges, loadoutOptions, operatorCharIds } from '../../../shared/protocol.js';
 import { PHASE } from '../../../shared/constants.js';
 import { POTENTIAL_DEFAULT, CULTIVATE_DEFAULT } from '../../../shared/potential.js';
@@ -50,7 +52,7 @@ import { parseStoredDiy, toStoredDiy, cleanPicks, sanitizeDiyPicks, diyPrefKey }
 import { skinsStore, SKINS_KEY, SKINS_SYNC_KEY, parseStoredSkins } from './skins.js';
 import { cardStore, CARD_KEY, CARD_SYNC_KEY, cardOperators } from './seatArt.js';
 import { needsContent, serverDefaultVersion } from '../versions.js';
-import { DEFAULT_VERSION } from '../../../shared/versions.js';
+import { DEFAULT_VERSION, VERSIONS } from '../../../shared/versions.js';
 import { toast } from './toasts.js';
 import { t, N_ } from '../../../shared/i18n.js';
 
@@ -69,6 +71,36 @@ function readStoredOps() {
 function readStoredDiy(version = DEFAULT_VERSION) {
   try { return parseStoredDiy(loadPref(diyPrefKey(version), null)); } catch { return {}; }
 }
+/** The raw stored document of one version (default: the historical `loadout` key). */
+function readVersionLoadout(version = DEFAULT_VERSION) {
+  const key = loadoutPrefKey(version);
+  return key ? readPref(key) : null;
+}
+/** A version's stored v2 document → its byChar/ops; a v1 document is left to migrateSettings (byChar null). */
+function parseVersionLoadout(version = DEFAULT_VERSION) {
+  const raw = readVersionLoadout(version);
+  if (!raw || raw.v !== 2) return { byChar: null, ops: raw?.v === 1 ? parseStoredOps(raw) : {} };
+  return { byChar: parseStoredByChar(raw), ops: parseStoredOps(raw) };
+}
+
+/**
+ * Cloud Save V2.1 migration: the historical single v2 `loadout` document is copied to every known version that has no
+ * document of its own yet. It never overwrites an existing per-version document, so a player who already edited one
+ * version keeps it; a fresh device gets the same initial 编队 on every version and can then edit independently.
+ */
+function seedVersionLoadouts() {
+  const base = readPref(LOADOUT_PREF);
+  if (!base || base.v !== 2) return;
+  const byChar = parseStoredByChar(base);
+  const ops = parseStoredOps(base);
+  if (!Object.keys(byChar).length && !Object.keys(ops).length && !base.entries) return;
+  for (const v of VERSIONS) {
+    if (v.id === DEFAULT_VERSION) continue;
+    const key = loadoutPrefKey(v.id);
+    if (!key || readPref(key) != null) continue;
+    savePref(key, { ...base, seeded: true });
+  }
+}
 
 /**
  * Loadout + ownership + screen state (separate from the app store: it must survive room / match resets). By operator
@@ -80,6 +112,7 @@ export const loadoutStore = createStore({
   entries: legacyEntries || {},
   byChar: legacyEntries ? null : parseStoredByChar(storedLoadout),
   ops: readStoredOps(), // 0.2.2 潜能 / 练度: { [charId]: { potential?, cultivate? } } ({} = every operator 潜能 6, 精英2 Lv.60)
+  loadoutVersion: DEFAULT_VERSION, // the official version the entries/byChar/ops above belong to
   notOwned: legacyNotOwned || [], // 干员持有: base chess ids marked 未持有 (sorted; [] = every operator owned) — the view
   notOwnedChars: legacyNotOwned ? null : parseStoredOwnershipChars(storedOwnership),
   diy: readStoredDiy(), // 自选编队: { [slotBaseId]: { charId, skillIndex?, uniEquipId? } } ({} = every slot empty)
@@ -118,8 +151,20 @@ export function refreshViews({ target = loadoutStore } = {}) {
   const s = target.get();
   const patch = {};
   const map = shownCharMap();
-  if (map && s.byChar) {
-    const view = entriesView(s.byChar, map);
+  let byChar = s.byChar;
+  const version = pageVersion();
+  if (version !== s.loadoutVersion) {
+    const stored = parseVersionLoadout(version);
+    // A legacy v1 store stays on the default key until migrateSettings resolves; never replace it with an empty v2 map.
+    if (stored.byChar) {
+      byChar = stored.byChar;
+      patch.byChar = byChar;
+      patch.ops = stored.ops;
+      patch.loadoutVersion = version;
+    }
+  }
+  if (map && byChar) {
+    const view = entriesView(byChar, map);
     if (!same(view, s.entries)) patch.entries = view;
     viewMaps.set(patch.entries || s.entries, map);
   }
@@ -128,7 +173,6 @@ export function refreshViews({ target = loadoutStore } = {}) {
     if (!same(view, s.notOwned)) patch.notOwned = view;
     viewMaps.set(patch.notOwned || s.notOwned, map);
   }
-  const version = pageVersion();
   if (version !== s.diyVersion) { patch.diy = readStoredDiy(version); patch.diyVersion = version; }
   if (Object.keys(patch).length) target.set(patch);
 }
@@ -169,7 +213,15 @@ function legacyCopy(key, field, view) {
   const prev = readPref(key);
   return prev && prev.v === 2 && prev[field] != null ? prev[field] : undefined;
 }
-const storeLoadout = (byChar, ops) => savePref(LOADOUT_PREF, toStored(byChar, ops, legacyCopy(LOADOUT_PREF, 'entries', (m) => entriesView(byChar, m))));
+const storeLoadout = (byChar, ops, version = loadoutStore.get().loadoutVersion || DEFAULT_VERSION) => {
+  const key = loadoutPrefKey(version);
+  if (!key) return;
+  // The v1 copy older builds read lives on the historical default key only; per-version keys stay v2 documents.
+  const entries = version === DEFAULT_VERSION
+    ? legacyCopy(LOADOUT_PREF, 'entries', (m) => entriesView(byChar, m))
+    : undefined;
+  savePref(key, toStored(byChar, ops, entries));
+};
 const storeOwnership = (chars) => savePref(OWNERSHIP_PREF, toStoredOwnership(chars, legacyCopy(OWNERSHIP_PREF, 'notOwned', (m) => notOwnedView(chars, m))));
 /**
  * A v1 id that is its operator's own chess in 第二期下半 (toChess(toChar(id)) === id): two operators also have a hidden
@@ -188,7 +240,7 @@ let migration = null;
  */
 export function migrateSettings({ fetch: doFetch, target = loadoutStore } = {}) {
   const s = target.get();
-  if (s.byChar && s.notOwnedChars) return Promise.resolve(true);
+  if (s.byChar && s.notOwnedChars) { seedVersionLoadouts(); return Promise.resolve(true); }
   if (migration) return migration;
   migration = loadDefaultCharMap(doFetch ? { fetch: doFetch } : {}).then((map) => {
     migration = null;
@@ -198,12 +250,13 @@ export function migrateSettings({ fetch: doFetch, target = loadoutStore } = {}) 
     const patch = {};
     if (!cur.byChar) {
       patch.byChar = entriesToChar(cur.entries, charOf, ownChessOf(map));
-      storeLoadout(patch.byChar, cur.ops);
+      storeLoadout(patch.byChar, cur.ops, DEFAULT_VERSION);
     }
     if (!cur.notOwnedChars) {
       patch.notOwnedChars = cleanIds(cur.notOwned.filter(ownChessOf(map)).map(charOf).filter(Boolean));
       storeOwnership(patch.notOwnedChars);
     }
+    seedVersionLoadouts();
     target.set(patch);
     if (target === loadoutStore) refreshViews({ target });
     return true;
@@ -217,6 +270,7 @@ export function migrateSettings({ fetch: doFetch, target = loadoutStore } = {}) 
  */
 export function installSettingsViews() {
   const off = data.subscribe((name) => { if (name === 'chess' || name === 'config') refreshViews(); });
+  seedVersionLoadouts();
   void migrateSettings();
   refreshViews();
   return off;
@@ -228,7 +282,9 @@ function charOfFor(map, lookup) {
 }
 
 function persistLoadout(s) {
-  if (s.byChar) storeLoadout(s.byChar, s.ops); else savePref(LOADOUT_PREF, toStoredV1(s.entries, s.ops));
+  const version = s.loadoutVersion || DEFAULT_VERSION;
+  if (s.byChar) storeLoadout(s.byChar, s.ops, version);
+  else savePref(loadoutPrefKey(version) || LOADOUT_PREF, toStoredV1(s.entries, s.ops));
 }
 
 /**
@@ -250,7 +306,7 @@ export function setEntries(entries, { base, lookup } = {}) {
   }
   const map = viewMaps.get(from) || (from === s.entries ? shownCharMap() : null);
   const byChar = rebaseByChar(s.byChar, from, next, charOfFor(map, lookup));
-  storeLoadout(byChar, s.ops);
+  storeLoadout(byChar, s.ops, s.loadoutVersion);
   if (from === s.entries) {
     if (map) viewMaps.set(next, map);
     loadoutStore.set({ entries: next, byChar });

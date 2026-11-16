@@ -856,23 +856,28 @@ panel disables the gameplay switches in a version room (「改变玩法的插件
 `kind: 'plugins'` set's download state.
 
 **Settings by operator.** Chess ids are reused for other operators across versions (第一期下半's `chess_char_1_02_a` is
-讯使, 第二期下半's 角峰), so `sp.pref.loadout` = `{ v: 2, byChar, ops }` and `sp.pref.ownership` = `{ v: 2, notOwnedChars }`
-are keyed by charId and shared by every version. `loadoutStore.entries` / `notOwned` stay views by the chess ids of the
+讯使, 第二期下半's 角峰), so each version's `sp.pref.loadout` = `{ v: 2, byChar, ops }` is keyed by charId; the default
+version keeps the historical key and another version uses `loadout.<slug>` (Cloud Save V2.1, `loadoutModel.loadoutPrefKey`).
+The loadout is therefore independent per version, while `sp.pref.ownership` = `{ v: 2, notOwnedChars }` stays
+account-global. `loadoutStore.entries` / `notOwned` stay views by the chess ids of the
 data on screen (`loadoutModel.charKeyMap` — a chess id → its operator, an operator → its loadout slot first —,
 `entriesView`, `ownershipModel.notOwnedView`), rebuilt whenever that data changes (`installSettingsViews`, main.js) and
 before a send; an edit is written back through the map of the view it was made on (`setEntries` / `setNotOwned` `base`;
 `rebaseByChar` / `rebaseChars`), so an edit of a stale view is re-based, never filed under another version's operator;
 operators the view does not show are kept. A v1 store (by 第二期下半's chess ids) migrates through 第二期下半's
 `/data/chess.json`, fetched directly (`loadDefaultCharMap`, never through data.js, which may show another version);
-nothing is sent before it settles, and a store that could not migrate is not sent against another version's data. 自选
+nothing is sent before it settles, and a store that could not migrate is not sent against another version's data. The
+old single v2 document is copied to every known version that has no document yet (`seedVersionLoadouts`), never
+overwriting an existing per-version store. 自选
 picks are per version (`diyModel.diyPrefKey`: `sp.pref.diy` for 第二期下半, `sp.pref.diy.<slug>` else; `diyVersion` =
 `pageVersion()`). 导出 writes v2 (`byChar`, `notOwnedChars`; 自选 names a non-default `version`); 导入 reads v1 (mapped
 through 第二期下半's chess, `importedEntries` / `importedNotOwned`) and v2. A v1 id that is not its operator's own chess in
 第二期下半 (two operators have a hidden droppable chess there, chess_char_5_18_a / chess_char_6_10_a — the visible ones of
-第二期上半) is dropped by the migration and a v1 import, so a mark on it never marks the visible chess. The v2 stores also
-carry the v1 fields (`entries`, `notOwned`) by 第二期下半's chess ids whenever the page has that map (loaded for the
-migration or a v1 import, or the server's own files on screen; else the copy stored before), which this build ignores
-and an older build on the same origin reads (a rollback, builds side by side); older builds refuse a v2 export
+第二期上半) is dropped by the migration and a v1 import, so a mark on it never marks the visible chess. The default
+version's v2 store also carries the v1 fields (`entries`, `notOwned`) by 第二期下半's chess ids whenever the page has that
+map (loaded for the migration or a v1 import, or the server's own files on screen; else the copy stored before), which
+this build ignores and an older build on the same origin reads (a rollback, builds side by side); per-version stores stay
+v2 documents without that legacy view. Older builds refuse a v2 export
 (来自更新的版本). Every sync (loadout, 干员持有, 自选, skins, card)
 waits for the data the server checks against (`canSendSettings`): never while the page's content loads; in a room once
 the room's content is on the page; outside a room only while the page shows the server's default version (the server

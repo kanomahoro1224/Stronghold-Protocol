@@ -43,7 +43,7 @@ import { ResultView } from './result.js';
 import { toast, toastError } from '../ui/toasts.js';
 import {
   loadStats, peekStatsRecords, saveStats, emptyStats, importStats, exportStats, aggregateStats, countsTowardStats, selfRowOf, roundsOf, isModdedRecord,
-  recordToResult, demoIdFor, playableDemos, serverDemoOf, fitCloudStats, MAX_RECORDS, FULL_KEEP, IMPORT_MAX_CHARS,
+  recordToResult, demoIdFor, playableDemos, serverDemoOf, MAX_RECORDS, FULL_KEEP, IMPORT_MAX_CHARS,
   trophyMedalOf, strategyBadgeIds, bondMemberChess, highestBondRecord, achievementRecords, recordVersion, recordsOfVersion, recordsOfSeason,
 } from '../ui/stats.js';
 import { t, N_ } from '../../../shared/i18n.js';
@@ -51,7 +51,7 @@ import { scriptOf } from '../../../shared/i18nPacks.js';
 import { VersionTag } from '../ui/pluginTag.js';
 import { contentSet, retryContentSet } from '../content.js';
 import { listDemoIndex, rebuildDemoIndex, listDemoIds, getLocalDemo } from '../demoStore.js';
-import { openDemo, api, downloadDemo } from '../ui/cloud.js';
+import { openDemo, api, downloadDemo, syncCloudSave } from '../ui/cloud.js';
 import { DEFAULT_VERSION, roomPluginCs, shownVersion, seasonOf, versionContentStatus, versionLabel, welcomeVersion } from '../versions.js';
 import { VERSIONS } from '../../../shared/versions.js';
 
@@ -723,7 +723,8 @@ function StatsScreen({ tab }) {
     openDemo(doc);
   };
   const syncCloud = async () => {
-    // 一次同步 = 一次往返：拉取 → 合并 → 整份推回。按钮在请求期间禁用，另加一个冷却，连点不会发第二次请求。
+    // One round trip: GET → merge five blocks → PUT only the non-empty merged documents. The button is disabled while
+    // the promise is open and the 10 s cooldown stays, so a double click cannot send two GETs or two PUTs.
     if (syncingRef.current) return;
     const left = SYNC_COOLDOWN_MS - (Date.now() - lastSyncAt);
     if (left > 0) { toast(t('刚同步过，请 {s} 秒后再试', { s: Math.ceil(left / 1000) }), 'warn'); return; }
@@ -731,28 +732,22 @@ function StatsScreen({ tab }) {
     lastSyncAt = Date.now();
     setSyncing(true);
     try {
-      const r = await api('/api/cloud');
-      if (!r.ok) { toast(t('同步失败：请先登录云端账号'), 'error'); return; }
-      const remote = r.data?.stats;
-      // 云端为空（新账号、或存档被旧版客户端写坏）也要继续：本机记录照样推上去，否则「云端没有、本机有」永远传不上去
-      const remoteOk = !!remote && Array.isArray(remote.records);
-      const base = remoteOk ? remote : emptyStats();
-      const local = loadStats();
-      const remoteIds = new Set(base.records.map((x) => x && x.id).filter(Boolean));
-      // 两边都只补缺失的记录：云端缺的（本地有）一起上传，本地缺的（云端有）并进来
-      const { stats: merged, added } = importStats(base, local);
-      const { stats: upload, dropped } = fitCloudStats(merged);
-      const put = await api('/api/cloud', { method: 'PUT', body: { stats: upload } });
-      if (!put.ok) { toast(t('同步失败：云端未接受合并后的战绩'), 'error'); return; }
-      if (!saveStats(merged)) { toast(t('无法写入本机存储，可能已满'), 'error'); return; }
+      const r = await syncCloudSave();
+      if (!r.ok) {
+        toast(r.error === 'NOT_LOGGED_IN' ? t('同步失败：请先登录云端账号') : t('同步失败：云端未接受合并后的存档'), 'error');
+        return;
+      }
       reload();
-      // 这次真正推上去的：本地有、云端没有、而且装得进账号存档的那些
-      const uploadIds = new Set(upload.records.map((x) => x && x.id).filter(Boolean));
-      const sent = local.records.filter((x) => x && x.id && !remoteIds.has(x.id) && uploadIds.has(x.id)).length;
+      const added = r.added || {};
       const parts = [];
-      if (added) parts.push(t('云端补上 {n} 局', { n: added }));
-      if (sent) parts.push(t('本机上传 {n} 局', { n: sent }));
-      if (dropped) parts.push(t('云端只存最新的 {n} 局', { n: upload.records.length }));
+      if (added.loadout) parts.push(t('编队 +{n}', { n: added.loadout }));
+      if (added.ownership) parts.push(t('持有 +{n}', { n: added.ownership }));
+      if (added.diy) parts.push(t('自选 +{n}', { n: added.diy }));
+      if (added.skins) parts.push(t('皮肤 +{n}', { n: added.skins }));
+      if (r.statsAdded) parts.push(t('云端补上 {n} 局', { n: r.statsAdded }));
+      if (r.statsSent) parts.push(t('本机上传 {n} 局', { n: r.statsSent }));
+      if (r.statsDropped) parts.push(t('云端只存最新的 {n} 局', { n: r.statsDropped }));
+      if (r.statsError) toast(t('战绩未合并：云端数据来自更新版本的客户端'), 'warn');
       toast(parts.length ? t('已同步：{parts}', { parts: parts.join('，') }) : t('已同步：本机与云端一致'), 'success');
       // 上传后原先「下载并播放」的行可能已经在本机了；账号备份的清单也刷新一次
       api('/api/cloud/demos').then((x) => { if (x.ok) setServer((prev) => ({ ...prev, cloud: new Set((x.data.demos || []).map((d) => String(d.id))) })); }, () => {});

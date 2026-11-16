@@ -4,8 +4,8 @@
 // HttpOnly cookie, so this module never touches the token. A server without a database answers
 // GET /api/config {accounts:false} and this module hides itself (the local account in ui/accounts.js keeps working).
 //
-// 云同步：loadout (`sp.pref.loadout`) 与设置 (`sp.pref.settings`) 两份本地文档原样上传/恢复，冲突时由玩家点按钮
-// 决定方向，不自动合并（localStorage 是玩家的本机副本，云端不会悄悄覆盖它）。
+// 云同步：每个官方版本的 loadout（本地 `sp.pref.loadout` / `sp.pref.loadout.<slug>`）按版本合并后上传到
+// `profiles.loadouts` 的 versions 信封；设置（`sp.pref.settings`）仍是单份。冲突时由玩家点按钮决定方向，不自动覆盖。
 //
 // Demo：/api/history 列出本账号参与过的对局；/api/demo/:id 取回 { seed, players, events }，播放器按录制时的
 // 毫秒偏移重放动作时间轴。可视化重演（服务端按 seed 重跑并推帧）仍待接入，见 docs/ACCOUNTS.md「已知边界」。
@@ -18,6 +18,10 @@ import { listDemos, deleteDemo, putDemo, getLocalDemo } from '../demoStore.js';
 import { t } from '../../../shared/i18n.js';
 import { toast } from './toasts.js';
 import { importStats, loadStats, saveStats, fitCloudStats, emptyStats } from './stats.js';
+import { mergeLoadoutDocs, mergeExtrasDocs, readLocalExtras, applyExtras, extrasSize, readLocalLoadouts, applyLocalLoadouts } from './cloudMerge.js';
+import { DEFAULT_VERSION } from '../../../shared/versions.js';
+import { data } from '../data.js';
+import { operatorCharIds } from '../../../shared/protocol.js';
 
 // 与 server/accounts/auth.js 的 PASSWORD_MIN / PASSWORD_MAX 一致：前端只做按钮可用性判断，真正的校验在服务端
 const PW_MIN = 6;
@@ -85,21 +89,181 @@ function loadTurnstile() {
   return turnstileReady;
 }
 
+// ---- Cloud Save V2 merge / push ---------------------------------------------------------------------------------------
+
+const EXTRAS_MAX_BYTES = 96 * 1024;
+const STATS_MAX_BYTES = 192 * 1024;
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+const hasKeys = (v) => isObj(v) && Object.keys(v).length > 0;
+const hasLoadout = (doc) => isObj(doc) && ((isObj(doc.versions) && hasKeys(doc.versions)) || (isObj(doc.byChar) && hasKeys(doc.byChar))
+  || (isObj(doc.ops) && hasKeys(doc.ops)) || (isObj(doc.entries) && hasKeys(doc.entries)));
+const hasExtras = (doc) => isObj(doc) && (hasKeys(doc.ownership) || hasKeys(doc.diy) || hasKeys(doc.skins));
+
+/** Keep skin choices only for operators the current version's own data knows (CLOUD-SAVE-V2 P4). */
+function fitSkins(skins) {
+  if (!isObj(skins)) return skins;
+  const chess = data.getRaw('chess');
+  const backups = data.getRaw('backups');
+  if (!chess || !backups) return skins; // data not loaded yet: don't discard a valid remote choice
+  const ids = operatorCharIds({ chess, backups });
+  if (!ids.size) return skins;
+  const out = {};
+  for (const [charId, skinId] of Object.entries(skins)) if (ids.has(charId)) out[charId] = skinId;
+  return out;
+}
+
 /**
- * 把当前本机编队/设置上传，战绩先与云端合并再整份推回（登录成功后自动跑一次；按钮也复用同一份逻辑）。
+ * Fit the extras envelope under the server's 96 KB block limit. The normal case is far smaller; if a hand-edited store
+ * is huge, skins (pure cosmetics) go first, then the oldest 自选编队 versions, never the ownership list.
+ * @param {any} extras
+ */
+function fitExtras(extras) {
+  const doc = { ...extras };
+  // P4 retention: keep at most six 自选编队 versions; the default version is never the one dropped. Object key order is
+  // insertion order, so the oldest extra versions go first.
+  if (isObj(doc.diy)) {
+    const keys = Object.keys(doc.diy);
+    if (keys.length > 6) {
+      const diy = {};
+      const keep = keys.filter((k) => k === DEFAULT_VERSION).concat(keys.filter((k) => k !== DEFAULT_VERSION));
+      for (const k of keep.slice(0, 6)) diy[k] = doc.diy[k];
+      doc.diy = diy;
+    }
+  }
+  if (extrasSize(doc) <= EXTRAS_MAX_BYTES) return doc;
+  delete doc.skins;
+  if (extrasSize(doc) <= EXTRAS_MAX_BYTES) return doc;
+  const diy = isObj(doc.diy) ? { ...doc.diy } : null;
+  // Never send a truncated envelope: without diy there is nothing else safe to drop, and a `{v:1}` body would erase
+  // ownership on the server. Omit extras instead (the caller won't PUT that block).
+  if (!diy) return null;
+  // Keep the default version first (the one most players use), then the remaining keys in insertion order.
+  const keys = Object.keys(diy);
+  keys.sort((a, b) => (a === DEFAULT_VERSION ? -1 : b === DEFAULT_VERSION ? 1 : 0));
+  for (const key of keys.slice(0, -1)) {
+    if (extrasSize({ ...doc, diy }) <= EXTRAS_MAX_BYTES) break;
+    delete diy[key];
+  }
+  doc.diy = diy;
+  if (!hasKeys(diy)) delete doc.diy;
+  return extrasSize(doc) <= EXTRAS_MAX_BYTES ? doc : null;
+}
+
+/**
+ * Merge the local browser save with a GET /api/cloud payload. Pure with respect to the server: it reads localStorage and
+ * returns the merged documents + the PUT body. Empty documents never enter the body, so a new device cannot wipe a
+ * populated account (CLOUD-SAVE-V2 §3.3/§3.5).
+ * @param {any} remote a GET /api/cloud `data` object
+ */
+export function mergeCloudSave(remote) {
+  const r = isObj(remote) ? remote : {};
+  const load = mergeLoadoutDocs(readLocalLoadouts(), r.loadouts);
+  const extrasLocal = readLocalExtras();
+  const extras = mergeExtrasDocs(extrasLocal, r.extras);
+  let extrasDoc = hasExtras(extras.doc) ? fitExtras(extras.doc) : null;
+  const localSettings = loadPref('settings', null);
+  const settings = hasKeys(localSettings) ? localSettings : (hasKeys(r.settings) ? r.settings : null);
+
+  let stats = null;
+  let statsAdded = 0;
+  let statsDropped = 0;
+  let statsSent = 0;
+  let statsError = null;
+  try {
+    const remoteStats = r.stats && Array.isArray(r.stats.records) ? r.stats : emptyStats();
+    const localStats = loadStats();
+    const remoteIds = new Set(remoteStats.records.map((x) => x && x.id).filter(Boolean));
+    const merged = importStats(remoteStats, localStats);
+    const fittedDoc = fitCloudStats(merged.stats, STATS_MAX_BYTES);
+    const fitted = fittedDoc.stats;
+    const uploadIds = new Set(fitted.records.map((x) => x && x.id).filter(Boolean));
+    const localIds = localStats.records.map((x) => x && x.id).filter(Boolean);
+    statsAdded = merged.added || 0;
+    statsDropped = fittedDoc.dropped || 0;
+    statsSent = localIds.filter((id) => !remoteIds.has(id) && uploadIds.has(id)).length;
+    if (fitted.records.length) stats = fitted;
+  } catch (err) {
+    // A newer client's stats document cannot be merged safely; still upload the other four blocks, but never touch stats.
+    statsError = err;
+  }
+
+  const body = {};
+  const same = (a, b) => {
+    try { return JSON.stringify(a ?? null) === JSON.stringify(b ?? null); } catch { return false; }
+  };
+  // Only changed blocks go back (CLOUD-SAVE-V2 §3.5); stats is the one block that is always sent when non-empty because
+  // importStats/fitCloudStats already decided its upload set.
+  if (hasLoadout(load.doc) && !same(load.doc, r.loadouts)) body.loadouts = load.doc;
+  if (extrasDoc && !same(extrasDoc, r.extras)) body.extras = extrasDoc;
+  if (settings && !same(settings, r.settings)) body.settings = settings;
+  if (stats) body.stats = stats;
+  return {
+    body,
+    local: { loadout: load.doc, extras: extrasDoc, settings, stats: stats || (() => { try { return loadStats(); } catch { return null; } })() },
+    added: { loadout: load.added, ownership: extras.added.ownership, diy: extras.added.diy, skins: extras.added.skins },
+    statsAdded, statsDropped, statsSent, statsError, remoteHadStats: !!r.stats,
+  };
+}
+
+/**
+ * Write the merged save back to this browser. Only non-empty blocks are written: the old restore used to save the cloud's
+ * `{}` over a local loadout, which is exactly the bug CLOUD-SAVE-V2 P0 fixes.
+ * @param {ReturnType<typeof mergeCloudSave>} merged
+ */
+export function applyCloudSave(merged) {
+  const local = merged?.local || {};
+  if (hasLoadout(local.loadout)) applyLocalLoadouts(local.loadout);
+  if (hasKeys(local.settings)) savePref('settings', local.settings);
+  if (local.extras) {
+    // P4 skin housekeeping is local only: never PUT a filtered map over another version's cloud choices.
+    const extras = local.extras.skins ? { ...local.extras, skins: fitSkins(local.extras.skins) } : local.extras;
+    applyExtras(extras);
+  }
+  if (local.stats && Array.isArray(local.stats.records) && local.stats.records.length) saveStats(local.stats);
+}
+
+/**
+ * One GET → merge → PUT round trip shared by the stats page's 同步云端 and the login auto-upload. The caller only has to
+ * decide what to toast; this function writes the merged documents locally once the server accepted them.
+ */
+export async function syncCloudSave() {
+  let r;
+  try {
+    r = await api('/api/cloud');
+  } catch {
+    return { ok: false, status: 0, error: 'NETWORK_ERROR' };
+  }
+  if (!r.ok) {
+    const error = r.status === 0 ? 'NETWORK_ERROR' : (r.status === 401 ? 'NOT_LOGGED_IN' : (r.data?.error || `HTTP_${r.status || 'ERROR'}`));
+    return { ok: false, status: r.status, error };
+  }
+  let merged;
+  try {
+    merged = mergeCloudSave(r.data);
+  } catch {
+    return { ok: false, status: r.status, error: 'MERGE_FAILED' };
+  }
+  let put;
+  try {
+    put = await api('/api/cloud', { method: 'PUT', body: merged.body });
+  } catch {
+    return { ok: false, status: 0, error: 'NETWORK_ERROR', merged };
+  }
+  if (!put.ok) return { ok: false, status: put.status, error: put.data?.error || 'PUT_FAILED', merged };
+  try {
+    applyCloudSave(merged);
+  } catch {
+    return { ok: false, status: put.status, error: 'APPLY_FAILED', merged };
+  }
+  return { ok: true, ...merged };
+}
+
+/**
+ * 把当前本机编队/设置/干员调配上传，战绩先与云端合并再整份推回（登录成功后自动跑一次；按钮也复用同一份逻辑）。
  * 旧实现直接 PUT 本机快照：本机没有战绩时会把 `stats: null` 写进云端，等于抹掉别的设备同步上去的记录。
  */
 export async function uploadCurrentSave() {
-  const body = { loadouts: loadPref('loadout', null), settings: loadPref('settings', null) };
-  const remote = await api('/api/cloud');
-  if (remote.ok) {
-    try {
-      const current = remote.data?.stats;
-      const base = current && Array.isArray(current.records) ? current : emptyStats();
-      body.stats = fitCloudStats(importStats(base, loadStats()).stats).stats;
-    } catch { /* 云端存档读不懂：这次不碰战绩，留给「同步云端」处理 */ }
-  }
-  return api('/api/cloud', { method: 'PUT', body });
+  return syncCloudSave();
 }
 
 /** 上传一局本机 Demo 到账号（云端只保留最新 10 局；本机不受限）。未登录返回 401，调用方静默忽略。 */
@@ -360,25 +524,37 @@ function AccountPanel({ account, onClose, onRefresh }) {
 
   const upload = async () => {
     setBusy(true); setNote('');
-    const r = await uploadCurrentSave();
-    setBusy(false);
-    setNote(r.ok ? t('已上传到云端') : t('上传失败：{error}', { error: r.data.error || r.status }));
+    try {
+      const r = await uploadCurrentSave();
+      setNote(r.ok ? t('已上传到云端') : t('上传失败：{error}', { error: r.data?.error || r.error || r.status }));
+    } catch (err) {
+      setNote(t('上传失败：{error}', { error: err?.message || 'UNKNOWN' }));
+    } finally {
+      setBusy(false);
+    }
   };
   const restore = async () => {
     setBusy(true); setNote('');
-    const r = await api('/api/cloud');
-    setBusy(false);
-    if (!r.ok) { setNote(t('读取失败：{error}', { error: r.data.error || r.status })); return; }
-    if (r.data.loadouts != null) savePref('loadout', r.data.loadouts);
-    if (r.data.settings != null) savePref('settings', r.data.settings);
-    // 战绩不整份覆盖：云端和本机各留各的记录，按 id 合并（与「同步云端」同一条规则）
-    if (r.data.stats != null) {
-      try {
-        const { stats: merged } = importStats(r.data.stats, loadStats());
-        saveStats(merged);
-      } catch { /* 云端数据来自更新版本：本机记录保持不动 */ }
+    try {
+      const r = await api('/api/cloud');
+      if (!r.ok) { setNote(t('读取失败：{error}', { error: r.data.error || r.status })); return; }
+      // 复用与「同步云端」相同的合并规则：云端空文档不写本机，编队/持有/自选/皮肤按 charId 补缺，战绩按 id 合并。
+      const merged = mergeCloudSave(r.data);
+      applyCloudSave(merged);
+      const added = merged.added;
+      const parts = [];
+      if (added.loadout) parts.push(t('编队 +{n}', { n: added.loadout }));
+      if (added.ownership) parts.push(t('持有 +{n}', { n: added.ownership }));
+      if (added.diy) parts.push(t('自选 +{n}', { n: added.diy }));
+      if (added.skins) parts.push(t('皮肤 +{n}', { n: added.skins }));
+      if (merged.statsAdded) parts.push(t('云端补上 {n} 局', { n: merged.statsAdded }));
+      setNote(parts.length ? t('已从云端恢复：{parts}；刷新页面后生效', { parts: parts.join('，') })
+        : t('云端还没有可恢复的数据；本机存档保持不变'));
+    } catch (err) {
+      setNote(t('读取失败：{error}', { error: err?.message || 'UNKNOWN' }));
+    } finally {
+      setBusy(false);
     }
-    setNote(t('已从云端恢复编队与设置，战绩按记录合并；刷新页面后生效'));
   };
   const logout = async () => {
     await api('/api/auth/logout', { method: 'POST' });

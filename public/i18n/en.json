@@ -3134,5 +3134,12 @@
   "本机上传 {n} 局": "{n} matches uploaded from this browser",
   "云端只存最新的 {n} 局": "the cloud keeps the newest {n}",
   "已同步：{parts}": "Synced: {parts}",
-  "已从云端恢复编队与设置，战绩按记录合并；刷新页面后生效": "Loadout and settings restored from the cloud; match history is merged by record. Reload the page to apply."
+  "已从云端恢复编队与设置，战绩按记录合并；刷新页面后生效": "Loadout and settings restored from the cloud; match history is merged by record. Reload the page to apply.",
+  "编队 +{n}": "Loadout +{n}",
+  "持有 +{n}": "Owned +{n}",
+  "自选 +{n}": "Diy +{n}",
+  "皮肤 +{n}": "Skins +{n}",
+  "已从云端恢复：{parts}；刷新页面后生效": "Restored from cloud: {parts}; refresh to apply",
+  "云端还没有可恢复的数据；本机存档保持不变": "Nothing to restore in the cloud; local save unchanged",
+  "同步失败：云端未接受合并后的存档": "Sync failed: the cloud rejected the merged save"
 }

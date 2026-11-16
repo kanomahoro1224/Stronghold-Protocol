@@ -8,8 +8,8 @@
 //   POST /api/auth/logout            → { ok }
 //   GET  /api/auth/me                → { ok, account } | 401
 //   PUT  /api/profile                { name?, tag? } → { ok, account } — 只补空位
-//   GET  /api/cloud                  → { ok, loadouts, settings, stats, updatedAt }
-//   PUT  /api/cloud                  { loadouts?, settings?, stats? } → { ok, updatedAt }
+//   GET  /api/cloud                  → { ok, loadouts, settings, stats, extras, updatedAt }
+//   PUT  /api/cloud                  { loadouts?, settings?, stats?, extras? } → { ok, updatedAt }
 //   POST /api/link                   { playerId, playerToken } — verify the WS secret, then bind playerId
 //   GET  /api/history?limit=50       → { ok, matches: [...] }
 //   GET  /api/demo/:id               → { ok, demo }
@@ -23,7 +23,7 @@
 import { sendJson } from '../http/common.js';
 import { N_ } from '../../shared/i18n.js';
 import { readCookie, sessionCookie, clearCookie } from './auth.js';
-import { listMatches, getDemo, canWatchDemo, getProfile, putProfile, linkPlayer, putAccountDemo, listAccountDemos, getAccountDemo, MAX_CLOUD_DEMO_BYTES } from './store.js';
+import { listMatches, getDemo, canWatchDemo, getProfile, putProfile, linkPlayer, putAccountDemo, listAccountDemos, getAccountDemo, MAX_CLOUD_DEMO_BYTES, MAX_SAVE_BYTES } from './store.js';
 import { putTeamDemoPart, getTeamDemoStatus, mergeTeamDemo, pruneTeamParts, getTeamDemoForViewer, listTeamDemosForAccount, teamMatchForAccount } from './teamStore.js';
 import { MAX_TEAM_PART_JSON } from './teamDemos.js';
 import { verifyTeamMatchToken } from './teamToken.js';
@@ -185,9 +185,11 @@ export function createAccountApi({ db, auth, turnstile, mailer, registry, log = 
       }
 
       if (path === '/api/cloud' && (method === 'PUT' || method === 'POST')) {
-        const body = await readJson(req);
+        // Cloud Save V2's total cap is 384 KB; leave room for the JSON wrapper and reject oversized bodies before parsing.
+        const body = await readJson(req, MAX_SAVE_BYTES + 64 * 1024);
         if (!body) { json(res, 400, { ok: false, error: 'BAD_BODY' }); return true; }
-        const r = await putProfile(db, account.id, { loadouts: body.loadouts, settings: body.settings, stats: body.stats });
+        const r = await putProfile(db, account.id, { loadouts: body.loadouts, settings: body.settings, stats: body.stats,
+          extras: body.extras }, log);
         if (!r.ok) { json(res, r.code === 'TOO_LARGE' ? 413 : 400, { ok: false, error: r.code }); return true; }
         json(res, 200, { ok: true });
         return true;

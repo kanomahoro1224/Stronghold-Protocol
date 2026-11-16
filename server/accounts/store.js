@@ -1,14 +1,19 @@
 // server/accounts/store.js — cloud saves, match history, demo documents and player↔account links.
 //
-// A "cloud save" is one row per account holding three JSONB columns: loadouts (the 编队 document the settings modal
-// keeps locally), settings (the client's settings object minus secrets) and stats (aggregates the client maintains).
-// Last write wins; the client sends an updatedAt and the server keeps the newest.
+// A "cloud save" is one row per account holding loadouts (the 编队 document the settings modal keeps locally), settings
+// (the client's settings object minus secrets), stats (aggregates the client maintains) and extras (the operator-related
+// documents Cloud Save V2 adds: ownership, 自选编队 and skins). Each is a JSONB column; the server stores extras as an
+// opaque envelope and never parses it. Last write wins; the client sends an updatedAt and the server keeps the newest.
 //
 // Match history: one row per account per match (match_records), written when a match ends for every playerId that
 // has a link to an account. The demo (seed + recorded C2S events) is one row per match (demos), shared by every
 // participant of that match.
 
-export const MAX_SAVE_BYTES = 256 * 1024;
+export const MAX_SAVE_BYTES = 384 * 1024;
+/** Cloud Save V2 blocks: stats may take half the document; extras and loadouts+settings share the rest. */
+export const MAX_STATS_BYTES = 192 * 1024;
+export const MAX_EXTRAS_BYTES = 96 * 1024;
+export const MAX_REST_BYTES = 96 * 1024;
 export const MAX_DEMO_EVENTS = 20_000;
 
 /** Ask the DB for the account behind a playerId (player_links). @returns {Promise<{ accountId: string, email: string } | null>} */
@@ -32,32 +37,52 @@ export async function linkPlayer(db, accountId, playerId) {
 
 /** Load the cloud save (empty document when the row does not exist yet). */
 export async function getProfile(db, accountId) {
-  const res = await db.query(`SELECT loadouts, settings, stats, updated_at FROM profiles WHERE account_id = $1`, [String(accountId)]);
+  const res = await db.query(`SELECT loadouts, settings, stats, extras, updated_at FROM profiles WHERE account_id = $1`, [String(accountId)]);
   const row = res.rows[0];
-  if (!row) return { loadouts: {}, settings: {}, stats: {}, updatedAt: null };
-  return { loadouts: row.loadouts || {}, settings: row.settings || {}, stats: row.stats || {}, updatedAt: row.updated_at };
+  if (!row) return { loadouts: {}, settings: {}, stats: {}, extras: {}, updatedAt: null };
+  return { loadouts: row.loadouts || {}, settings: row.settings || {}, stats: row.stats || {}, extras: row.extras || {},
+    updatedAt: row.updated_at };
+}
+
+/** Byte count of a JSON value as it will be stored; `undefined`/`null` means "not provided". */
+function valueBytes(v) {
+  if (v === undefined || v === null) return 0;
+  return Buffer.byteLength(JSON.stringify(v));
 }
 
 /**
- * Upsert the cloud save. Rejects documents larger than MAX_SAVE_BYTES (the client keeps its own copy anyway).
- * @param {{ loadouts?: any, settings?: any, stats?: any }} patch — omitted keys keep their stored value
+ * Upsert the cloud save. Rejects documents larger than MAX_SAVE_BYTES (the client keeps its own copy anyway), with the
+ * Cloud Save V2 block limits so one oversized block cannot crowd out the others. `null`/`undefined` means this field was
+ * not provided and KEEPS the stored value; old clients that know only three fields therefore cannot erase extras.
+ * @param {{ loadouts?: any, settings?: any, stats?: any, extras?: any }} patch
+ * @param {{ debug?: Function }} [log] optional diagnostic sink (CLOUD-SAVE-V2 P4)
  */
-export async function putProfile(db, accountId, patch = {}) {
-  const body = JSON.stringify({ loadouts: patch.loadouts, settings: patch.settings, stats: patch.stats });
-  if (Buffer.byteLength(body) > MAX_SAVE_BYTES) return { ok: false, code: 'TOO_LARGE' };
-  // null 与 undefined 同义：这个字段本次没带。否则 JSON null 会写成 jsonb 'null'，把云端已有的存档抹掉
-  // （登录后自动上传时本机没有战绩就会是 null）。
+export async function putProfile(db, accountId, patch = {}, log = null) {
+  const statsBytes = valueBytes(patch.stats);
+  const extrasBytes = valueBytes(patch.extras);
+  const restBytes = valueBytes(patch.loadouts) + valueBytes(patch.settings);
+  if (statsBytes > MAX_STATS_BYTES || extrasBytes > MAX_EXTRAS_BYTES || restBytes > MAX_REST_BYTES) {
+    return { ok: false, code: 'TOO_LARGE' };
+  }
+  // Keep the 384 KB budget on the stored block contents. The request envelope itself is fixed and small; allow a
+  // bounded wrapper so three blocks that are each exactly at their limits are not rejected by quoting punctuation.
+  if (statsBytes + extrasBytes + restBytes > MAX_SAVE_BYTES) return { ok: false, code: 'TOO_LARGE' };
+  const body = JSON.stringify({ loadouts: patch.loadouts, settings: patch.settings, stats: patch.stats, extras: patch.extras });
+  if (Buffer.byteLength(body) > MAX_SAVE_BYTES + 4 * 1024) return { ok: false, code: 'TOO_LARGE' };
   const json = (v) => (v === undefined || v === null ? null : JSON.stringify(v));
+  log?.debug?.('[cloud] save bytes', { stats: statsBytes, extras: extrasBytes, rest: restBytes, total: statsBytes + extrasBytes + restBytes });
   await db.query(
-    `INSERT INTO profiles (account_id, loadouts, settings, stats, updated_at)
-     VALUES ($1, COALESCE($2::jsonb, '{}'::jsonb), COALESCE($3::jsonb, '{}'::jsonb), COALESCE($4::jsonb, '{}'::jsonb), now())
+    `INSERT INTO profiles (account_id, loadouts, settings, stats, extras, updated_at)
+     VALUES ($1, COALESCE($2::jsonb, '{}'::jsonb), COALESCE($3::jsonb, '{}'::jsonb), COALESCE($4::jsonb, '{}'::jsonb),
+       COALESCE($5::jsonb, '{}'::jsonb), now())
      ON CONFLICT (account_id) DO UPDATE SET
        loadouts = COALESCE($2::jsonb, profiles.loadouts),
        settings = COALESCE($3::jsonb, profiles.settings),
        stats    = COALESCE($4::jsonb, profiles.stats),
+       extras   = COALESCE($5::jsonb, profiles.extras),
        updated_at = now()
      RETURNING updated_at`,
-    [String(accountId), json(patch.loadouts), json(patch.settings), json(patch.stats)]);
+    [String(accountId), json(patch.loadouts), json(patch.settings), json(patch.stats), json(patch.extras)]);
   return { ok: true };
 }
 

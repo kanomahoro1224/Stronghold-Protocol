@@ -10,9 +10,9 @@
 | `mail.js` | 验证码邮件。配置 `SP_SMTP_*` 时用 nodemailer 直连 SMTP；未配置时只打日志，且仅在 `SP_ACCOUNTS_DEV=1` 时把验证码回显给客户端。 |
 | `turnstile.js` | Cloudflare Turnstile siteverify。未配置 secret 时使用官方 always-pass 测试密钥（site `1x00000000000000000000AA`）。 |
 | `auth.js` | 6 位验证码（10 分钟、单次、5 次尝试上限、sha256(email\|code\|pepper) 存储）、内存限流（邮箱 60s 间隔 / 5 次每小时，IP 20 次每小时）、账号 upsert、30 天会话（HttpOnly `sp_sid` cookie，DB 只存 token 的 sha256）。 |
-| `store.js` | 云存档（`profiles` 三列 jsonb：loadouts / settings / stats，单次 ≤256 KB）、战绩分页、Demo 文档、`player_links` 绑定 WS playerId ↔ 账号。 |
+| `store.js` | 云存档（`profiles` 四列 jsonb：loadouts / settings / stats / extras，单次 ≤384 KB，分块上限 stats 192 KB、extras 96 KB、loadouts+settings 96 KB）、战绩分页、Demo 文档、`player_links` 绑定 WS playerId ↔ 账号。 |
 | `recorder.js` | 可选的服务端 Demo 录制（默认关闭，`SP_ACCOUNTS_SERVER_DEMO=1`）：一局内人类 `g.*` 动作 + 棋盘帧；并为已绑定账号的参与者写 `match_records`（战绩同步）。 |
-| `api.js` | REST 路由（见下），POST/PUT 做同源 Origin 校验，请求体上限 64 KB。 |
+| `api.js` | REST 路由（见下），POST/PUT 做同源 Origin 校验，普通请求体上限 64 KB；云存档 PUT 放宽到 448 KB 以容纳四块 JSON。 |
 | `index.js` | 工厂：读环境变量，串起 db/mail/turnstile/auth/recorder/api。 |
 
 ## 环境变量
@@ -60,7 +60,7 @@ SP_ACCOUNTS_DEV=1 npm start
 | POST | `/api/auth/logout` | 删除会话，清 cookie |
 | GET | `/api/auth/me` | 当前账号或 401 |
 | PUT | `/api/profile` | `{ name?, tag? }` → 保存博士代号 / `#xxxx` 识别号，**只补空位**，已被占用回 409 `TAG_TAKEN` |
-| GET/PUT | `/api/cloud` | 云存档（loadouts / settings / stats）；PUT 支持部分字段 |
+| GET/PUT | `/api/cloud` | 云存档（loadouts / settings / stats / extras）；PUT 支持部分字段，`null` = 本次未提供 |
 | POST | `/api/link` | `{ playerId, playerToken }`：校验 WS 会话的重连令牌后把该 playerId 绑到当前账号 |
 | GET | `/api/history?limit=&before=` | 战绩（含 `demoId`） |
 | GET | `/api/cloud/demos` | 云端 Demo 列表（最多 10 条元数据） |
@@ -109,7 +109,24 @@ Demo **不存服务器**（用户 2026-11-15 决定：播放不能在服务端�
 - `public/js/ui/cloud.js`：历史面板（账号面板的「历史战绩 / Demo」）列出本机 Demo（播放 / 删除）、联机合并 Demo 与云端 Demo（最新 10 局，`下载并播放`），下载后交给 `demoReplay.js` 做同一套游戏内帧回放；没有 `wire` 的旧文档才退回动作时间轴文字回放。播放纯客户端渲染，不请求服务器运算。
 - **从战绩点开**：统计数据页「对局记录」每行一个按钮（`Demo` 列）。本机真有这份文档才是 `播放`（`playableDemos`：目录 `sp.pref.demoIndex` 还活着、IndexedDB 里却已经没有的行不再给按钮）；只有服务器上有时是 `下载并播放`（`serverDemoOf`）——账号备份按文档 id 认（记录里的 `demoId`），联机合并按 `matchId` 认（记录由 `buildRecord` / `buildQuitRecord` 从 `demoRecorder.currentDemoMatchId()` 带上；老记录用「同一个 playerId + 结束时间相差 ≤15 分钟」兜底），点击后 `downloadDemo` 落到 IndexedDB 再播，这一行随即变回 `播放`。老记录没有 `demoId` 时按「结束时间 − 时长」与模式在目录里就近匹配（`demoIdFor`）。
 
-云同步（顶栏 `同步云端`，代替原来的 `Demo 库` 入口）：一次往返做双向合并——`GET /api/cloud` 取回云端战绩，`importStats` 按记录 id 合并（云端缺的本机记录一起上传，本地缺的云端记录并进来，谁都不覆盖谁），再把合并结果 `PUT` 回去。账号存档单份 ≤256 KB，装不下的历史按最新裁剪（`fitCloudStats`），本机始终保留全部。按钮在请求期间禁用，另有 10 秒冷却，连点只发一次请求。账号面板的 `从云端恢复` 同样只合并战绩，不再整份替换。
+云同步（顶栏 `同步云端`，代替原来的 `Demo 库` 入口）：一次往返做双向合并——`GET /api/cloud` 取回四块文档，`importStats` 按记录 id 合并战绩，`cloudMerge.js` 合并编队（每个官方版本独立）、持有 / 自选 / 皮肤，再把合并结果 `PUT` 回去。账号存档四块内容合计 ≤384 KB（JSON 包装开销另留 4 KB 余量），分块上限 stats 192 KB、extras 96 KB、loadouts+settings 合计 96 KB；装不下的历史按最新裁剪（`fitCloudStats`），本机始终保留全部。按钮在请求期间禁用，另有 10 秒冷却，连点只发一次请求。账号面板的 `从云端恢复` 同样复用这套合并规则，不再整份替换；云端空文档不会写回本机。
+
+### 云存档字段（CLOUD-SAVE-V2）
+
+`profiles` 的四列：
+
+| 列 | 内容 | 上限 |
+| --- | --- | --- |
+| `loadouts` | 按官方版本分组的编队文档 `{ v: 3, versions: { [versionId]: { v: 2, byChar, ops } } }`；旧单版本 `{ v: 2, byChar, ops }` 视为默认版本 | 与 settings 合计 ≤96 KB |
+| `settings` | 界面设置（不含秘密） | 与 loadouts 合计 ≤96 KB |
+| `stats` | 本机战绩文档（按记录 id 与服务端合并） | ≤192 KB |
+| `extras` | 云存档信封：`{ v: 1, ownership, diy, skins }`；服务端不解析 | ≤96 KB |
+
+`loadouts` 合并规则：先按 `versionId` 分组，每个版本内 `byChar` / `ops` 按 charId 本机优先、云端补缺；旧 v2 单份文档只落到默认版本，并在本机首次读取时复制到所有已知版本（不覆盖已有的版本键）；未知版本键最多保留 6 个。
+
+`extras` 合并规则：`ownership.notOwnedChars` 取并集，v1 `notOwned` 列表保留而不转成空 v2；`diy` 按版本键合并、同版本按 slotId 本机优先，未知版本键保留（最多 6 个版本）；`skins` 按 charId 本机优先、云端补缺，当前版本数据载入后只在本机清理该版本不存在的 charId，不把过滤结果回写云端。空文档（`null` 或 `{}`）不参与写入。
+
+旧客户端（0.3.3）PUT 只带三字段，`extras` 走 `COALESCE` 保留原值；老数据读出 `extras: {}`。
 
 云同步范围：**战绩**（`match_records`）+ **最新 10 局 Demo**（`account_demos`）。`server/accounts/recorder.js` 默认不启用，只有 `SP_ACCOUNTS_SERVER_DEMO=1` 时才额外录服务端 Demo（排查用，不是播放路径）。
 
