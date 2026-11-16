@@ -2167,7 +2167,14 @@ export class UnitView {
     if (this.itemProgressText) {
       this.itemProgressText.visible = this.alive && !!this.itemProgressText.text;
       this.itemProgressText.scale.set(clamp(s * 0.2, 10, 16) / 16);
-      this.itemProgressText.position.set(this.screen.x, this.screen.y + s * 0.14);
+      // The prep progress label must clear the equipment pips above the feet (test/render/unitview.test.js):
+      // with no pips keep the old feet offset. The label is hidden when the unit is dead, so this only affects
+      // the visible prep/combat layout.
+      const pipBottom = this.itemPips.length
+        ? Math.max(...this.itemPips.map((pip) => pip.position.y + pip.height / 2))
+        : -Infinity;
+      const progressY = Number.isFinite(pipBottom) ? pipBottom + 2 : this.screen.y + s * 0.14;
+      this.itemProgressText.position.set(this.screen.x, progressY);
     }
   }
 
