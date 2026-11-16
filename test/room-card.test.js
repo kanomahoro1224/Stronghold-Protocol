@@ -73,7 +73,8 @@ test('public room cards survive session/seat persistence and consecutive restore
 });
 
 test('WebSocket room broadcast shares each owner card with both players, late joiners, spectators and reconnects', async (t) => {
-  const srv = await startServer({ port: 0, host: '127.0.0.1', log: quiet, MatchClass: StubMatch });
+  const srv = await startServer({ port: 0, host: '127.0.0.1', log: quiet, MatchClass: StubMatch,
+    versions: { enabled: ['act2autochess'], default: 'act2autochess' } });
   const clients = [];
   t.after(async () => { await Promise.all(clients.map((c) => c.terminate())); await srv.close(); });
   const connect = async (name, token) => {

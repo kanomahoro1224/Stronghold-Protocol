@@ -649,4 +649,6 @@ export function SettingsButton({ class: cls, size = 'sm', variant = 'ghost', lab
     ${open ? html`<${SettingsModal} open=${true} onClose=${() => setOpen(false)} />` : null}`;
 }
 
-bootUiThemes();
+// Node unit tests import this store without a DOM. booting the theme library fetches /data/local-assets.json, which is
+// a browser-only side effect (and would leak into unrelated test.fetch call logs); the app always has document.
+if (typeof document !== 'undefined') bootUiThemes();
