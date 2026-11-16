@@ -917,8 +917,22 @@ describe('local stats: official versions (DESIGN §35.23, format v3)', () => {
   });
 });
 
+test('cloud sync: a history larger than the account save keeps its newest matches', async () => {
+  const { fitCloudStats } = await import('../../public/js/ui/stats.js');
+  const utf8 = (s) => { let n = 0; for (const ch of s) { const c = ch.codePointAt(0); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4; } return n; };
+  const big = { v: 3, records: Array.from({ length: 400 }, (_, i) => ({ id: `r${i}`, t: 1_000_000 - i, selfId: 'p1', players: [{ playerId: 'p1', name: '干员'.repeat(40) }] })) };
+  const { stats, dropped } = fitCloudStats(big, 20_000);
+  assert.ok(dropped > 0, 'the budget binds');
+  assert.equal(stats.records.length + dropped, 400, 'nothing invented, nothing lost locally');
+  assert.equal(stats.records[0].id, 'r0', 'the newest stays');
+  assert.ok(utf8(JSON.stringify({ loadouts: null, settings: null, stats })) <= 20_000, 'the upload fits the account save');
+  const roomy = fitCloudStats(big, 10 * 1024 * 1024);
+  assert.equal(roomy.dropped, 0, 'a roomy budget keeps everything');
+  assert.equal(fitCloudStats({ v: 3, records: [] }, 20_000).dropped, 0);
+});
+
 test('local stats: the demo link (对局记录 plays the very match of its row)', async () => {
-  const { demoIdFor } = await import('../../public/js/ui/stats.js');
+  const { demoIdFor, playableDemos, serverDemoOf } = await import('../../public/js/ui/stats.js');
   const rec = buildRecord(baseResult(), { myId: 'p1', now: 1_000_000, demoId: 'd_abc' });
   assert.equal(rec.demoId, 'd_abc', 'the record names the demo being recorded');
   assert.equal(normalizeRecord({ ...rec, demoId: 'x'.repeat(200) }).demoId.length, 64, 'bounded');
@@ -933,6 +947,23 @@ test('local stats: the demo link (对局记录 plays the very match of its row)'
   assert.equal(demoIdFor(rec, index), 'd_abc', 'the record\'s own demo');
   assert.equal(demoIdFor(rec, []), null, 'no catalogue, no button');
   assert.equal(demoIdFor({ ...rec, demoId: 'd_gone' }, index), null, 'a deleted demo offers no substitute');
+
+  // the catalogue outlives the documents when a browser drops only IndexedDB: no row may offer 播放
+  assert.deepEqual(playableDemos(index, ['d_abc']).map((d) => d.id), ['d_abc'], 'the documents that are here');
+  assert.deepEqual(playableDemos(index, []), [], 'an empty store plays nothing');
+  assert.deepEqual(playableDemos(index, null), [], 'no ids read yet: no buttons');
+  assert.deepEqual(playableDemos(index, new Set(['d_old', 'd_abc'])).map((d) => d.id), ['d_abc', 'd_old'], 'catalogue order kept');
+  assert.deepEqual(playableDemos(index, ['zzz']), [], 'an id no row names');
+
+  // server copies: an account backup keeps the document's id; a 联机 merge is keyed by matchId
+  assert.deepEqual(serverDemoOf(rec, new Set(['d_abc']), []), { kind: 'cloud', id: 'd_abc' });
+  assert.equal(serverDemoOf(rec, new Set(), []), null, 'nothing on the server, no offer');
+  const team = [{ id: '17', matchId: 'm_9', playerIds: ['p1'], createdAt: '2026-11-16T08:00:00.000Z' }];
+  assert.deepEqual(serverDemoOf({ ...rec, matchId: 'm_9' }, new Set(), team), { kind: 'team', id: 'team_17' });
+  const ended = Date.parse('2026-11-16T08:00:00.000Z');
+  assert.deepEqual(serverDemoOf({ ...rec, t: ended }, new Set(), team), { kind: 'team', id: 'team_17' }, 'a row from before matchId');
+  assert.equal(serverDemoOf({ ...rec, t: ended + 3_600_000 }, new Set(), team), null, 'an hour later is another match');
+  assert.equal(serverDemoOf({ ...rec, t: ended, players: [{ playerId: 'pX' }] }, new Set(), team), null, 'not one of its players');
 
   // a row from before the link: matched by when the match started (t − durationMs), same mode only
   const legacy = { ...rec, demoId: undefined, t: 400_000 + 952_123, durationMs: 952_123 };

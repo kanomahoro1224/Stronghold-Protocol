@@ -199,7 +199,7 @@ export async function finishDemo(reason = 'left') {
   }
   const ok = await putDemo(doc).catch(() => false);
   if (!ok) return null;
-  handled = { id: doc.id, at: Date.now() };
+  handled = { id: doc.id, at: Date.now(), matchId: doc.matchId || null };
   // 云端备份（每账号最新 10 局）；未登录会 401，静默忽略，本机记录保留
   import('./ui/cloud.js').then((m) => m.uploadDemo(doc)).catch(() => {});
   return doc.id;
@@ -222,6 +222,17 @@ export function currentDemoMeta() {
 export function currentDemoId() {
   if (active && !active.closed) return active.id;
   if (handled && Date.now() - handled.at < HANDOFF_MS) return handled.id;
+  return null;
+}
+
+/**
+ * The matchId of the demo being recorded (or just saved), for the statistics record: 联机 demos are merged on the
+ * server under it, so a row whose local document is gone can still offer 「下载并播放」 (ui/stats.js serverDemoOf).
+ * @returns {string|null}
+ */
+export function currentDemoMatchId() {
+  if (active && !active.closed) return active.matchId || null;
+  if (handled && Date.now() - handled.at < HANDOFF_MS) return handled.matchId || null;
   return null;
 }
 

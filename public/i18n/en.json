@@ -3118,5 +3118,21 @@
   "退出 Demo": "Leave Demo",
   "继续观看": "Keep Watching",
   "退出回放": "Exit Replay",
-  "退出回放只关闭这段 Demo，不会结束任何对局，也不会记录战绩。": "Leaving the replay only closes this Demo; it does not end any match or record stats."
+  "退出回放只关闭这段 Demo，不会结束任何对局，也不会记录战绩。": "Leaving the replay only closes this Demo; it does not end any match or record stats.",
+  "这局的 Demo 在服务器上（联机合并）：下载到本机后播放": "This match's demo is on the server (merged from the team's uploads): download it to play here",
+  "这局的 Demo 备份在云端：下载到本机后播放": "This match's demo is backed up in the cloud: download it to play here",
+  "下载失败：这局的 Demo 不在服务器的云端": "Download failed: this match's demo is not on the server",
+  "同步失败：请先登录云端账号": "Sync failed: sign in to your cloud account first",
+  "云端还没有战绩": "No matches in the cloud yet",
+  "同步失败：云端未接受合并后的战绩": "Sync failed: the cloud did not accept the merged history",
+  "已同步：本机与云端一致": "Synced: this browser and the cloud match",
+  "同步失败：云端数据来自更新版本的客户端": "Sync failed: the cloud data comes from a newer client",
+  "与云端账号合并战绩：只补缺失的记录，不覆盖本机": "Merge this browser's history with the cloud account: only missing matches are added, nothing is overwritten",
+  "同步云端": "Sync cloud",
+  "刚同步过，请 {s} 秒后再试": "Just synced — try again in {s}s",
+  "云端补上 {n} 局": "{n} matches restored from the cloud",
+  "本机上传 {n} 局": "{n} matches uploaded from this browser",
+  "云端只存最新的 {n} 局": "the cloud keeps the newest {n}",
+  "已同步：{parts}": "Synced: {parts}",
+  "已从云端恢复编队与设置，战绩按记录合并；刷新页面后生效": "Loadout and settings restored from the cloud; match history is merged by record. Reload the page to apply."
 }

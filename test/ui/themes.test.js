@@ -463,3 +463,58 @@ test('storage: a blocked database keeps the pack for this library only, and the 
   const bad = await big.importZip({ arrayBuffer: async () => new TextEncoder().encode('nope').buffer });
   assert.equal(bad.code, 'bad-zip');
 });
+
+// A cold first paint can outrun the IndexedDB open (DB_TIMEOUT): that timeout used to settle `booted` forever, so
+// the library stayed empty for the whole session and bootUiThemes() reported the stored pack as broken and dropped
+// the player's choice. One retry has to read the rows, and the notice has to clear.
+test('a timed-out first read is retried instead of reporting a broken theme', async () => {
+  const open = memoryOpen();
+  // Seed the store through a healthy library, so the retry has a stored pack to find.
+  const seed = library({ openDb: open });
+  const stored = JSON.stringify(manifest({ id: 'kept-pack', name: '保留的主题' }));
+  const imported = await seed.importEntries([entry('theme.json', stored)], stored.length);
+  assert.equal(imported.ok, true, imported.code);
+
+  let calls = 0;
+  const first = await open();
+  const lib = library({
+    openDb: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('IndexedDB open timed out');
+      return first;
+    },
+  });
+
+  await lib.boot();
+  assert.equal(calls, 1);
+  assert.equal(lib.sessionOnly, true);
+  assert.equal(lib.lastNotice, 'session');
+  assert.equal(lib.get('kept-pack'), null);
+
+  await lib.boot();
+  assert.equal(calls, 2);
+  assert.equal(lib.sessionOnly, false);
+  assert.equal(lib.lastNotice, null);
+  assert.ok(lib.get('kept-pack'), 'the retry loads the stored pack');
+
+  // A healthy library is cached: a third call reads nothing.
+  await lib.boot();
+  assert.equal(calls, 2);
+});
+
+// ui/theme.js (the lobby's 液态玻璃 button) stores 'default' | 'glass' in the same `uiTheme` setting as a pack id, and
+// DEFAULT_SETTINGS ships 'default'. Read as a pack id, that made a profile that never imported anything report
+// 「这个主题已损坏」 and drop the choice on the next boot.
+test('the branch\'s own skins are not theme packs', async () => {
+  const { bindThemeSettings, bootUiThemes, themeStatus } = await import('../../public/js/uiTheme.js');
+  let saved = { uiTheme: 'default', voice: 0.8, muted: false };
+  bindThemeSettings({ get: () => saved, set: (patch) => { saved = { ...saved, ...patch }; } });
+
+  await bootUiThemes();
+  assert.equal(saved.uiTheme, 'default', 'the default skin is kept');
+  assert.notEqual(themeStatus().notice, 'broken', 'nothing is damaged');
+
+  saved = { ...saved, uiTheme: 'glass' };
+  await bootUiThemes();
+  assert.equal(saved.uiTheme, 'glass', 'the 液态玻璃 choice survives a boot');
+});

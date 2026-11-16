@@ -13,7 +13,7 @@ import { store, useStore, shallowEqual, emptyMatch, createStore, isSpectating } 
 import { GIcon } from './gameComponents.js';
 import { GuideButton } from './guide.js';
 import { recordQuit } from './stats.js';
-import { currentDemoId, finishDemo } from '../demoRecorder.js';
+import { currentDemoId, currentDemoMatchId, finishDemo } from '../demoRecorder.js';
 import { t, tParts, N_ } from '../../../shared/i18n.js';
 import { TestMark } from './testConsole.js';
 import { ladderName } from './hud.js';
@@ -72,7 +72,7 @@ export async function quitMatch() {
   } finally {
     // (a settlement that arrived while the leave was in flight is the match's record already)
     if (left && !store.get().match.result) {
-      try { recordQuit(before, { demoId: currentDemoId() }); } catch (err) { console.warn('[stats] quit record failed', err); }
+      try { recordQuit(before, { demoId: currentDemoId(), matchId: currentDemoMatchId() }); } catch (err) { console.warn('[stats] quit record failed', err); }
       // 本地 Demo 跟着一起收尾（没清完第一个回合的在 demoRecorder 里丢掉，见 keepsDemo）
       finishDemo('quit');
     }

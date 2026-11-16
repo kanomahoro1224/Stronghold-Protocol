@@ -91,6 +91,7 @@ export function ThemeSection({ activeId = '' }) {
     }
     setReport(result.report);
     if (result.notice === 'session') setNotice('session');
+    else setNotice(null);
   };
 
   const onZip = async (e) => {
@@ -117,6 +118,7 @@ export function ThemeSection({ activeId = '' }) {
         return;
       }
       selectTheme(id);
+      setNotice(null);
       refresh();
     } finally { setBusy(false); }
   };

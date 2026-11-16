@@ -297,6 +297,9 @@
 .st-demo__btn:hover, .st-demo__btn:focus-visible {
   color: var(--text-hi); background: var(--mint-a20); border-color: var(--mint-a35); outline: none;
 }
+/* 服务器上有、本机没有的 Demo（云端备份 / 联机合并）：先下载再播放，颜色区别于本机的「播放」 */
+.st-demo__btn.is-dl { color: var(--amber-300, #e8c07a); background: rgb(232 192 122 / 10%); border-color: rgb(232 192 122 / 32%); }
+.st-demo__btn.is-dl:hover, .st-demo__btn.is-dl:focus-visible { color: var(--text-hi); background: rgb(232 192 122 / 20%); border-color: rgb(232 192 122 / 46%); }
 .st-more { display: flex; justify-content: center; margin: calc(0.14 * var(--ui-unit, 1rem)) 0 0; }
 .st-hint { margin: calc(0.1 * var(--ui-unit, 1rem)) 0 0; font-size: max(calc(0.13 * var(--utility-text, var(--t))), calc(0.1 * var(--ui-unit, 1rem))); line-height: 1.6; color: var(--text-lo); letter-spacing: .04em; }
 

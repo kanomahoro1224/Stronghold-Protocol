@@ -119,3 +119,20 @@ export async function rebuildDemoIndex() {
   savePref(INDEX_KEY, all.slice(0, INDEX_MAX).map(indexEntry));
   return listDemoIndex();
 }
+
+/**
+ * The ids of the documents actually in IndexedDB. The catalogue (localStorage) and the documents are two stores: a
+ * browser that dropped only the database leaves entries behind, so 对局记录 has to ask this before offering 播放.
+ * `getAllKeys` reads no document bodies.
+ * @returns {Promise<string[]>}
+ */
+export async function listDemoIds() {
+  const db = await openDb();
+  if (!db) return [];
+  const keys = await new Promise((resolve, reject) => {
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAllKeys();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  return keys.map((k) => String(k)).filter(Boolean);
+}

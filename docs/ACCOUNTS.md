@@ -106,8 +106,10 @@ Demo **不存服务器**（用户 2026-11-15 决定：播放不能在服务端�
 - **收尾规则**（用户 2026-11-15「不管是模拟中断，还是中途退出啥的，通通记录」）：`m.result` 结算 → 存；放弃模拟 / 房间散去 → 存；掉线（`net` status 变 `reconnecting` / `closed`）与页面隐藏 / `pagehide` → **先落盘再继续录**（同一 `id`，玩家回得来就用完整版覆盖，回不来也不会丢这一局）；另一标签页顶掉会话 → 存。唯一的例外是**没清完第一个回合就退出**的对局：不写 Demo（已落盘的副本会删掉），与统计的 `countsTowardStats` 同一条规则（`clearedRounds`）。
 - `public/js/demoStore.js`：IndexedDB `sp-demos` 库，按 `id` 存 `{ startedAt, endedAt, end, rounds, mode, difficulty, players, events, snapshots }`；**本机不限局数**（用户 2026-11-15）。另有一份 `sp.pref.demoIndex` 摘要（id / 开始时间 / 模式 / 步数 / 结局），供统计数据页判断哪一行有 Demo，不必把整份文档读出来。
 - `public/js/demoReplay.js`：游戏内可视化回放（类 CS Demo），控制条含 `时间 / 总时长`、±15 秒、上/下一回合、`回合: N`、¼×–8× 倍速；进度条上一个白点代表一个回合的开始，短白条代表战斗开始。录制文档里的 `wire` 按录制时间原样喂回 `net._emit`：自己的战斗直接喂本地真实渲染帧（`b.snap` / `b.ev` / `m.field`），不重跑模拟；拖动进度条时用目标时刻最近的一张真实快照重建棋盘，再补该战场到目标时刻为止的状态事件，位置/血量与进度严格对齐；暂停会冻结时间轴、右上角倒计时与渲染帧。回放期间把 store 切到合成的 `DEMO` 房间，退出时还原。**播放全程在客户端，服务器不参与运算。**
-- `public/js/ui/cloud.js`：历史面板列出本机 Demo（播放 / 删除）与云端 Demo（最新 10 局，下载到本机后播放），下载后交给 `demoReplay.js` 做同一套游戏内帧回放；没有 `wire` 的旧文档才退回动作时间轴文字回放。播放纯客户端渲染，不请求服务器运算。
-- **从战绩点开**：统计数据页「对局记录」每行有一个 `播放` 按钮（`Demo` 列）；统计记录带上录制时的 `demoId`（`ui/stats.js` 的 `buildRecord` / `buildQuitRecord` ← `demoRecorder.currentDemoId()`），老记录没有链接时按「结束时间 − 时长」与模式在目录里就近匹配（`demoIdFor`）。同一页顶栏的 `Demo 库` 直接打开上面的历史面板。
+- `public/js/ui/cloud.js`：历史面板（账号面板的「历史战绩 / Demo」）列出本机 Demo（播放 / 删除）、联机合并 Demo 与云端 Demo（最新 10 局，`下载并播放`），下载后交给 `demoReplay.js` 做同一套游戏内帧回放；没有 `wire` 的旧文档才退回动作时间轴文字回放。播放纯客户端渲染，不请求服务器运算。
+- **从战绩点开**：统计数据页「对局记录」每行一个按钮（`Demo` 列）。本机真有这份文档才是 `播放`（`playableDemos`：目录 `sp.pref.demoIndex` 还活着、IndexedDB 里却已经没有的行不再给按钮）；只有服务器上有时是 `下载并播放`（`serverDemoOf`）——账号备份按文档 id 认（记录里的 `demoId`），联机合并按 `matchId` 认（记录由 `buildRecord` / `buildQuitRecord` 从 `demoRecorder.currentDemoMatchId()` 带上；老记录用「同一个 playerId + 结束时间相差 ≤15 分钟」兜底），点击后 `downloadDemo` 落到 IndexedDB 再播，这一行随即变回 `播放`。老记录没有 `demoId` 时按「结束时间 − 时长」与模式在目录里就近匹配（`demoIdFor`）。
+
+云同步（顶栏 `同步云端`，代替原来的 `Demo 库` 入口）：一次往返做双向合并——`GET /api/cloud` 取回云端战绩，`importStats` 按记录 id 合并（云端缺的本机记录一起上传，本地缺的云端记录并进来，谁都不覆盖谁），再把合并结果 `PUT` 回去。账号存档单份 ≤256 KB，装不下的历史按最新裁剪（`fitCloudStats`），本机始终保留全部。按钮在请求期间禁用，另有 10 秒冷却，连点只发一次请求。账号面板的 `从云端恢复` 同样只合并战绩，不再整份替换。
 
 云同步范围：**战绩**（`match_records`）+ **最新 10 局 Demo**（`account_demos`）。`server/accounts/recorder.js` 默认不启用，只有 `SP_ACCOUNTS_SERVER_DEMO=1` 时才额外录服务端 Demo（排查用，不是播放路径）。
 

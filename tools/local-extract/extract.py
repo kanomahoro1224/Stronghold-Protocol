@@ -1300,7 +1300,13 @@ def extract(args, ab_root):
             old_chars = previous.get('chars') or {}
             old = previous.get('groups') or {}
             if not args.only:
-                old = {g: v for g, v in old.items() if g.startswith(('char/', 'spine/char/'))}
+                # A full run re-extracts every group in expected_local_groups(), so the old ones go — except char
+                # sprites (kept per group below). The opt-in groups are not in that list: themes are written only by
+                # `--only theme` (autochess_themes), fx only by `--only fx`. Pruning them here left the extracted
+                # files on disk and no manifest entry, so 设置 → 界面主题 lost its official cards on the next
+                # roster re-extract and a stored official id was reported as 已损坏.
+                kept = ('char/', 'spine/char/', f'{autochess_themes.THEME_SUB}/', f'{fx.FX_SUB}/')
+                old = {g: v for g, v in old.items() if g.startswith(kept)}
         except (OSError, ValueError) as e:
             print(f'warn: previous manifest unreadable ({e}); writing only the re-extracted groups', file=sys.stderr)
     # Partial sprite packs keep previously extracted pictures, just as merge_chars keeps their URLs.

@@ -14,7 +14,13 @@ import {
 
 const DB_NAME = 'sp-ui-themes';
 const DB_STORE = 'packs';
-const DB_TIMEOUT = 4000;
+// A cold first paint is busy (thousands of asset requests, shader compilation); 4 s was enough to make a healthy
+// library look broken and drop the player's theme. 8 s still fails fast on a browser that blocks IndexedDB.
+const DB_TIMEOUT = 8000;
+
+// ui/theme.js (the lobby's 液态玻璃 button) keeps its skin in the same settings key as a pack id: 'default' | 'glass'.
+// They are this branch's own skins, never packs — the built-in 卫戍协议终端 is what a pack id of '' means.
+const BUILTIN_SKINS = new Set(['default', 'glass']);
 
 const MIME = Object.freeze({
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
@@ -321,9 +327,13 @@ export function createThemeLibrary(opts = {}) {
 
   async function boot() {
     if (booted) return booted;
+    let failed = false;
     booted = (async () => {
       try {
         const rows = await idb('readonly', (store) => store.getAll());
+        // A late success clears an earlier timeout: the library is readable after all.
+        sessionOnly = false;
+        if (lastNotice === 'session') lastNotice = null;
         const list = Array.isArray(rows) ? rows : [];
         const groups = [];
         for (const rec of list) {
@@ -336,11 +346,19 @@ export function createThemeLibrary(opts = {}) {
         }
         for (const live of groups) await registerGroup(live);
       } catch {
+        failed = true;
         sessionOnly = true;
         lastNotice = 'session';
       }
     })();
-    try { await booted; } catch { booted = null; }
+    try { await booted; } catch { failed = true; }
+    // A transient IndexedDB timeout during a busy first paint must not disable the library for the whole session:
+    // drop the settled promise so the next boot() (settings panel, bootUiThemes retry) tries again.
+    if (failed) {
+      const settled = booted;
+      booted = null;
+      return settled;
+    }
     return booted;
   }
 
@@ -1029,9 +1047,19 @@ export function noteThemeBuy(buy) {
 
 export async function bootUiThemes() {
   try { await library.boot(); } catch { /* session only */ }
+  const wanted = settingsGet().uiTheme;
+  // boot() drops its cache after a failed read, so one retry is enough: a busy first paint that outran the
+  // IndexedDB open must not condemn a stored pack (and it must not delete the player's choice).
+  if (wanted && library.sessionOnly && !library.get(wanted)) {
+    try { await library.boot(); } catch { /* still session only */ }
+  }
   let manifest;
   try { manifest = await library.loadAssetManifest(); } catch { manifest = null; }
   const id = settingsGet().uiTheme;
+  // ui/theme.js (this branch's own skin button) stores 'default' | 'glass' in the same setting, and DEFAULT_SETTINGS
+  // ships 'default'. Those are skins, not pack ids: treating one as a missing pack reported 「这个主题已损坏」 on a
+  // profile that never imported anything, and wiped the choice. The built-in terminal is what '' means here.
+  if (id && BUILTIN_SKINS.has(id)) { applyUiTheme(''); return; }
   if (id && officialThemeById(id)) {
     const installed = installedOfficialThemes(manifest).some((row) => row.id === id);
     // A lite zip has no group. Fall back quietly: the pack was never stored here — unless this browser imported it
@@ -1058,8 +1086,12 @@ export async function bootUiThemes() {
     return;
   }
   if (id && !library.get(id)) {
-    settingsSet({ uiTheme: '' });
-    library.setNotice('broken');
+    // The library itself could not be read: the pack is invisible, not damaged. Keep the choice so the next
+    // load (or the settings panel's retry) brings it back, and let the 'session' notice explain the situation.
+    if (!library.sessionOnly) {
+      settingsSet({ uiTheme: '' });
+      library.setNotice('broken');
+    }
     applyUiTheme('');
     return;
   }
@@ -1110,7 +1142,10 @@ export function composeLocalManifest(local, groups) {
 export function selectTheme(id) {
   const next = id && id !== BUILTIN_ID ? id : '';
   settingsSet({ uiTheme: next });
-  applyUiTheme(next);
+  const pack = applyUiTheme(next);
+  // The notice described the pack that was there before this choice. Once another one applies it is stale: leaving it
+  // on made the settings panel keep saying 「这个主题已损坏」 right after a working theme had been picked.
+  if (pack && library.lastNotice === 'broken') library.setNotice(null);
 }
 
 export async function importThemeZip(file) {

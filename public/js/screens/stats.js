@@ -43,15 +43,15 @@ import { ResultView } from './result.js';
 import { toast, toastError } from '../ui/toasts.js';
 import {
   loadStats, peekStatsRecords, saveStats, emptyStats, importStats, exportStats, aggregateStats, countsTowardStats, selfRowOf, roundsOf, isModdedRecord,
-  recordToResult, demoIdFor, MAX_RECORDS, FULL_KEEP, IMPORT_MAX_CHARS,
+  recordToResult, demoIdFor, playableDemos, serverDemoOf, fitCloudStats, MAX_RECORDS, FULL_KEEP, IMPORT_MAX_CHARS,
   trophyMedalOf, strategyBadgeIds, bondMemberChess, highestBondRecord, achievementRecords, recordVersion, recordsOfVersion, recordsOfSeason,
 } from '../ui/stats.js';
 import { t, N_ } from '../../../shared/i18n.js';
 import { scriptOf } from '../../../shared/i18nPacks.js';
 import { VersionTag } from '../ui/pluginTag.js';
 import { contentSet, retryContentSet } from '../content.js';
-import { listDemoIndex, rebuildDemoIndex, getLocalDemo } from '../demoStore.js';
-import { openDemo, openDemoLibrary } from '../ui/cloud.js';
+import { listDemoIndex, rebuildDemoIndex, listDemoIds, getLocalDemo } from '../demoStore.js';
+import { openDemo, api, downloadDemo } from '../ui/cloud.js';
 import { DEFAULT_VERSION, roomPluginCs, shownVersion, seasonOf, versionContentStatus, versionLabel, welcomeVersion } from '../versions.js';
 import { VERSIONS } from '../../../shared/versions.js';
 
@@ -59,6 +59,10 @@ const cx = (...p) => p.flat().filter(Boolean).join(' ');
 
 /** Rows of 对局记录 shown at first and added by each 显示更多. */
 export const HISTORY_PAGE = 50;
+
+// 同步云端：一次往返（拉取 → 合并 → 推回），按钮禁用 + 冷却，连点不会重复请求。
+const SYNC_COOLDOWN_MS = 10_000;
+let lastSyncAt = 0;
 
 // `version`: the version filter (null: the version the page shows; 'all': every record — DESIGN §35.23)
 const statsStore = createStore({ open: false, tab: 'overview', withModded: false, version: null });
@@ -508,7 +512,7 @@ function VersionFilter({ records, value, shown }) {
 const versionOffered = (s, version) => version === DEFAULT_VERSION || !!welcomeVersion(s, version);
 
 /** One 对局记录 row: what it was, who won, whether it counted and whether the settlement can be re-viewed. */
-function HistoryRow({ rec, gd, onOpen, demos, onPlay }) {
+function HistoryRow({ rec, gd, onOpen, demos, remote, onPlay }) {
   const self = selfRowOf(rec);
   const quit = rec.end === 'quit';
   const counted = countsTowardStats(rec);
@@ -542,20 +546,24 @@ function HistoryRow({ rec, gd, onOpen, demos, onPlay }) {
       <${VersionTag} version=${rec.version ?? null} compact=${true} class="st-chip" /></td>
     <td class="st-demo">${demo ? html`<button type="button" class="st-demo__btn" data-testid="history-demo"
       title=${t('播放这局的 Demo（本机录制）')} onClick=${(e) => { e.stopPropagation(); onPlay?.(rec); }}
-      onKeyDown=${(e) => e.stopPropagation()}><${Icon} name="play" /><span>${t('播放')}</span></button>` : null}</td>
+      onKeyDown=${(e) => e.stopPropagation()}><${Icon} name="play" /><span>${t('播放')}</span></button>`
+      : remote ? html`<button type="button" class="st-demo__btn is-dl" data-testid="history-demo-download"
+      title=${remote.kind === 'team' ? t('这局的 Demo 在服务器上（联机合并）：下载到本机后播放') : t('这局的 Demo 备份在云端：下载到本机后播放')}
+      onClick=${(e) => { e.stopPropagation(); onPlay?.(rec, remote); }}
+      onKeyDown=${(e) => e.stopPropagation()}><${Icon} name="play" /><span>${t('下载并播放')}</span></button>` : null}</td>
     <td class="num">${known ? fmtNum(rounds) : '—'}</td>
     <td class="st-go" aria-hidden="true">${view ? html`<${Icon} name="chevronRight" />` : null}</td>
   </tr>`;
 }
 
 /** 对局记录: every stored match, newest first, HISTORY_PAGE rows at a time. */
-function History({ records, gd, onOpen, demos, onPlay }) {
+function History({ records, gd, onOpen, demos, remoteOf, onPlay }) {
   const [shown, setShown] = useState(HISTORY_PAGE);
   const rows = records.slice(0, shown);
   return html`<${Section} title=${t('对局记录')} micro=${`HISTORY · ${records.length}`}>
     ${rows.length ? html`<div class="st-tablewrap"><table class="st-table st-table--history">
       <thead><tr><th>${t('时间')}</th><th>${t('难度')}</th><th>${t('模式')}</th><th>${t('策略')}</th><th>${t('结果')}</th><th class="st-demo">${t('Demo')}</th><th class="num">${t('回合')}</th><th aria-hidden="true"></th></tr></thead>
-      <tbody>${rows.map((r) => html`<${HistoryRow} key=${r.id} rec=${r} gd=${gd} onOpen=${onOpen} demos=${demos} onPlay=${onPlay} />`)}</tbody>
+      <tbody>${rows.map((r) => html`<${HistoryRow} key=${r.id} rec=${r} gd=${gd} onOpen=${onOpen} demos=${demos} remote=${remoteOf?.(r) || null} onPlay=${onPlay} />`)}</tbody>
     </table></div>
     ${records.length > shown ? html`<div class="st-more"><${Button} size="sm" variant="secondary" onClick=${() => setShown(shown + HISTORY_PAGE)}>${t('显示更多（还有 {n} 局）', { n: records.length - shown })}<//></div>` : null}
     <p class="st-hint">${t('点击一行，回看该局结算；中途退出的对局只留记录。')} ${t('录到了 Demo 的对局可以点「播放」回放。')} ${t('最多保留最近 {max} 局，最新的 {full} 局及盟约最高叠加战绩能回看结算。', { max: MAX_RECORDS, full: FULL_KEEP })}</p>`
@@ -622,6 +630,8 @@ function StatsScreen({ tab }) {
   const gd = useMemo(() => makeLookups(ready), [ready, data.locale(), data.contentId()]);
   const [stats, setStats] = useState(() => loadStats());
   const [replay, setReplay] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const syncingRef = useRef(false);
   const boxRef = useRef(null);
   const fileRef = useRef(null);
   const replayRef = useRef(null);
@@ -665,19 +675,91 @@ function StatsScreen({ tab }) {
   const closeReplay = () => { setReplay(null); clearReplayVersion(); };
   // 本机 Demo 目录（public/js/demoStore.js）：判断哪一行能「播放」，不读整份文档
   const [demos, setDemos] = useState(() => listDemoIndex());
+  // 目录（localStorage）和文档（IndexedDB）是两份存储：浏览器只清掉数据库时目录还在，那一行就会给出点不开的「播放」。
+  // 先问一遍真正存在的 id，只有能播的行才显示按钮。
+  const [here, setHere] = useState(() => new Set());
+  // 服务器上的副本：账号备份（/api/cloud/demos）与联机合并（/api/team-demos）。本机没有的行因此还能「下载并播放」。
+  const [server, setServer] = useState({ cloud: new Set(), team: [] });
   useEffect(() => {
-    // 目录是后加的：第一次打开本页时从 IndexedDB 补一次（旧 Demo 也能对上）
-    if (demos.length) return;
     let live = true;
-    rebuildDemoIndex().then((rows) => { if (live) setDemos(rows); }, () => {});
+    (async () => {
+      const ids = await listDemoIds().catch(() => []);
+      let rows = listDemoIndex();
+      // 目录是后加的：第一次打开本页时从 IndexedDB 补一次（旧 Demo 也能对上）
+      if (!rows.length) rows = await rebuildDemoIndex().catch(() => []);
+      if (!live) return;
+      setDemos(rows);
+      setHere(new Set(ids));
+    })();
+    (async () => {
+      const [cloud, team] = await Promise.all([
+        api('/api/cloud/demos').catch(() => ({ ok: false })),
+        api('/api/team-demos').catch(() => ({ ok: false })),
+      ]);
+      if (!live) return;
+      setServer({
+        cloud: new Set(cloud?.ok ? (cloud.data.demos || []).map((d) => String(d.id)) : []),
+        team: team?.ok ? (team.data.demos || []) : [],
+      });
+    })();
     return () => { live = false; };
   }, []);
-  const playDemo = async (rec) => {
-    const id = demoIdFor(rec, demos);
+  const playable = playableDemos(demos, here);
+  const remoteOf = (rec) => serverDemoOf(rec, server.cloud, server.team);
+  const playDemo = async (rec, remote) => {
+    if (remote) {
+      // 联机 Demo 会先按 matchId 在服务端合并，再按需下载到本机；下载后这一行就变成「播放」
+      const doc = await downloadDemo(remote.id).catch(() => null);
+      if (!doc) { toast(t('下载失败：这局的 Demo 不在服务器的云端'), 'error'); return; }
+      setDemos(listDemoIndex());
+      setHere(new Set(await listDemoIds().catch(() => [])));
+      openDemo(doc);
+      return;
+    }
+    const id = demoIdFor(rec, playable);
     if (!id) return;
     const doc = await getLocalDemo(id).catch(() => null);
     if (!doc) { toast(t('这局的 Demo 不在本机（Demo 只存在录制它的浏览器里）'), 'warn'); return; }
     openDemo(doc);
+  };
+  const syncCloud = async () => {
+    // 一次同步 = 一次往返：拉取 → 合并 → 整份推回。按钮在请求期间禁用，另加一个冷却，连点不会发第二次请求。
+    if (syncingRef.current) return;
+    const left = SYNC_COOLDOWN_MS - (Date.now() - lastSyncAt);
+    if (left > 0) { toast(t('刚同步过，请 {s} 秒后再试', { s: Math.ceil(left / 1000) }), 'warn'); return; }
+    syncingRef.current = true;
+    lastSyncAt = Date.now();
+    setSyncing(true);
+    try {
+      const r = await api('/api/cloud');
+      if (!r.ok) { toast(t('同步失败：请先登录云端账号'), 'error'); return; }
+      const remote = r.data?.stats;
+      if (!remote || !Array.isArray(remote.records)) { toast(t('云端还没有战绩'), 'warn'); return; }
+      const local = loadStats();
+      const remoteIds = new Set(remote.records.map((x) => x && x.id).filter(Boolean));
+      // 两边都只补缺失的记录：云端缺的（本地有）一起上传，本地缺的（云端有）并进来
+      const { stats: merged, added } = importStats(remote, local);
+      const { stats: upload, dropped } = fitCloudStats(merged);
+      const put = await api('/api/cloud', { method: 'PUT', body: { stats: upload } });
+      if (!put.ok) { toast(t('同步失败：云端未接受合并后的战绩'), 'error'); return; }
+      if (!saveStats(merged)) { toast(t('无法写入本机存储，可能已满'), 'error'); return; }
+      reload();
+      // 这次真正推上去的：本地有、云端没有、而且装得进账号存档的那些
+      const uploadIds = new Set(upload.records.map((x) => x && x.id).filter(Boolean));
+      const sent = local.records.filter((x) => x && x.id && !remoteIds.has(x.id) && uploadIds.has(x.id)).length;
+      const parts = [];
+      if (added) parts.push(t('云端补上 {n} 局', { n: added }));
+      if (sent) parts.push(t('本机上传 {n} 局', { n: sent }));
+      if (dropped) parts.push(t('云端只存最新的 {n} 局', { n: upload.records.length }));
+      toast(parts.length ? t('已同步：{parts}', { parts: parts.join('，') }) : t('已同步：本机与云端一致'), 'success');
+      // 上传后原先「下载并播放」的行可能已经在本机了；账号备份的清单也刷新一次
+      api('/api/cloud/demos').then((x) => { if (x.ok) setServer((prev) => ({ ...prev, cloud: new Set((x.data.demos || []).map((d) => String(d.id))) })); }, () => {});
+    } catch (err) {
+      toast(err?.code === 'stats-newer-version' ? t('同步失败：云端数据来自更新版本的客户端') : t('同步失败'), 'error');
+    } finally {
+      syncingRef.current = false;
+      setSyncing(false);
+    }
   };
   useEffect(() => clearReplayVersion, []);
   const reload = () => setStats(loadStats());
@@ -742,7 +824,7 @@ function StatsScreen({ tab }) {
         </div>
       </div>
       <div class="st-top__right">
-        <${Button} variant="ghost" size="sm" icon="play" data-testid="stats-demos" onClick=${() => openDemoLibrary()} title=${t('本机录制的 Demo：播放、下载、删除')}>${t('Demo 库')}<//>
+        <${Button} variant="ghost" size="sm" icon="refresh" data-testid="stats-sync" loading=${syncing} onClick=${syncCloud} title=${t('与云端账号合并战绩：只补缺失的记录，不覆盖本机')}>${t('同步云端')}<//>
         <${Button} variant="ghost" size="sm" data-testid="stats-export" disabled=${empty || stats.newer} onClick=${doExport} title=${t('导出为文件（可在别的设备上导入）')}>${t('导出')}<//>
         <${Button} variant="ghost" size="sm" data-testid="stats-import" disabled=${stats.newer} onClick=${() => fileRef.current?.click()} title=${t('从导出的文件导入（与现有记录合并）')}>${t('导入')}<//>
         <input ref=${fileRef} type="file" accept="application/json,.json" hidden onChange=${doFile} />
@@ -761,7 +843,7 @@ function StatsScreen({ tab }) {
             : !recs.length ? html`<p class="st-empty" data-testid="stats-version-empty">${t('这个版本还没有记录。')}</p>`
             : tab === 'bands' ? html`<${Bands} agg=${agg} gd=${gd} records=${achRecords} />`
               : tab === 'totals' ? html`<${CombatSums} agg=${agg} />`
-                : tab === 'history' ? html`<${History} records=${recs} gd=${gd} onOpen=${openRecord} demos=${demos} onPlay=${playDemo} />`
+                : tab === 'history' ? html`<${History} records=${recs} gd=${gd} onOpen=${openRecord} demos=${playable} remoteOf=${remoteOf} onPlay=${playDemo} />`
                   : html`<${Overview} agg=${agg} gd=${gd} nickname=${nickname} records=${achRecords} />`}
     </main>
   </div>`;

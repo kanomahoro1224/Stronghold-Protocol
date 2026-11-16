@@ -305,6 +305,9 @@ export function normalizeRecord(raw) {
     selfId: str(r.selfId),
     // the demo of this match in the local library (public/js/demoRecorder.js): 对局记录 plays it from its row
     ...(str(r.demoId) ? { demoId: str(r.demoId) } : {}),
+    // the match's id on the server: a 联机 demo is merged there under it, so a row without the local document
+    // can still offer 「下载并播放」 (see serverDemoOf)
+    ...(str(r.matchId, 64) ? { matchId: str(r.matchId, 64) } : {}),
     // the room's cosmetic plugins (see the header): its visual set, null without any (or a record from before 0.3.0)
     vs: vsOf(r.vs),
     // the room's gameplay plugins (see the header): its content set, null for the original game
@@ -320,7 +323,7 @@ export function normalizeRecord(raw) {
   if (r.compact === true) rec.compact = true;
   // an id-less (hand-made) record gets a content id, so both copies of it land on the same key (`vs`, `content`,
   // `version` and the demo link left out: the id of a record from before 0.3.0 stays the same)
-  if (!rec.id) rec.id = `c.${fnv1a(JSON.stringify({ ...rec, vs: undefined, content: undefined, version: undefined, demoId: undefined }))}`;
+  if (!rec.id) rec.id = `c.${fnv1a(JSON.stringify({ ...rec, vs: undefined, content: undefined, version: undefined, demoId: undefined, matchId: undefined }))}`;
   return rec;
 }
 
@@ -421,7 +424,8 @@ export function peekStatsRecords() {
 // ---- compaction + the storage budget ---------------------------------------------------------------------------
 
 const COMPACT_FRAME = ['id', 'v', 't', 'end', 'victory', 'roundsPassed', 'lastRound', 'hiddenReached', 'hiddenCleared', 'reason', 'modeId',
-  'difficulty', 'roomMode', 'durationMs', 'selfId', 'vs', 'content', 'version', 'test', 'testActions', 'demoId'];
+  'difficulty', 'roomMode', 'durationMs', 'selfId', 'vs', 'content', 'version', 'test', 'testActions', 'demoId',
+  'matchId'];
 
 /**
  * The compact form of a record: the frame and the player's OWN row without lineup, bonds and name — everything the
@@ -525,7 +529,7 @@ export function roomModeOf(modeId, roomMode) {
  * without players (the error-path settlement) or matches the local player did not take part in (spectator
  * seats get every result pushed too — eliminated players, who ARE in players[], keep recording).
  * @param {any} res raw m.result payload
- * @param {{ myId?: string|null, roomMode?: string|null, vs?: string|null, content?: any, version?: string|null, now?: number, demoId?: string|null }} ctx
+ * @param {{ myId?: string|null, roomMode?: string|null, vs?: string|null, content?: any, version?: string|null, now?: number, demoId?: string|null, matchId?: string|null }} ctx
  *   vs: the room's visual set (room.state.content.vs); content: room.state.content (its content set when it played
  *   gameplay plugins); version: the official version it played (null / 第二期下半: left out) — see the header;
  *   demoId: the local demo of the match (demoRecorder.currentDemoId), played from its 对局记录 row
@@ -559,6 +563,7 @@ export function buildRecord(res, ctx = {}) {
     roomMode: roomModeOf(str(r.modeId), ctx.roomMode),
     selfId: myId,
     demoId: str(ctx.demoId) || null,
+    matchId: str(ctx.matchId, 64) || null,
     vs: vsOf(ctx.vs),
     content: contentOf(ctx.content),
     version: ctx.version ?? null,
@@ -628,7 +633,7 @@ export function clearedRounds(phase, round) {
  * there is nothing of mine to record: no match on screen, its settlement already here (that one is recorded by
  * recordResult), a spectator seat, or a match the page never saw.
  * @param {any} state the app store state BEFORE the match is cleared
- * @param {{ live?: ReturnType<typeof createLiveMatch>, now?: number, demoId?: string|null }} [ctx]
+ * @param {{ live?: ReturnType<typeof createLiveMatch>, now?: number, demoId?: string|null, matchId?: string|null }} [ctx]
  * @returns {any|null}
  */
 export function buildQuitRecord(state, ctx = {}) {
@@ -670,6 +675,7 @@ export function buildQuitRecord(state, ctx = {}) {
     roomMode: roomModeOf(str(pub.modeId), state.room?.mode),
     selfId: myId,
     demoId: str(ctx.demoId) || null,
+    matchId: str(ctx.matchId, 64) || null,
     vs: vsOf(state.room?.content?.vs),
     content: contentOf(state.room?.content),
     // the room's version, else the frames' (m.public `version`; absent = 第二期下半, as versions.js matchFrameVersion)
@@ -753,7 +759,7 @@ export function recordResult(res, ctx = {}) {
 /**
  * Record the match the player is giving up (放弃模拟), before the app clears its state. Returns the record, or null.
  * @param {any} state the app store state before the match is cleared
- * @param {{ live?: ReturnType<typeof createLiveMatch>, now?: number, demoId?: string|null }} [ctx]
+ * @param {{ live?: ReturnType<typeof createLiveMatch>, now?: number, demoId?: string|null, matchId?: string|null }} [ctx]
  * @returns {any|null}
  */
 export function recordQuit(state, ctx = {}) {
@@ -906,6 +912,88 @@ export function demoIdFor(rec, index) {
     if (gap <= bestGap) { best = d; bestGap = gap; }
   }
   return best ? best.id : null;
+}
+
+/**
+ * The catalogue rows whose document is really in this browser.
+ *
+ * The catalogue lives in localStorage and the documents in IndexedDB (public/js/demoStore.js), so a browser that
+ * dropped only the database — or a cleared site with the preference kept — leaves entries that offered 播放 and then
+ * said 「这局的 Demo 不在本机」. 对局记录 passes the ids it read from the store, so a row is offered only when it can
+ * actually play.
+ * @param {Array<{ id: string }>} index demo catalogue, newest first
+ * @param {Iterable<string>|null|undefined} ids the ids in IndexedDB (demoStore.listDemoIds)
+ * @returns {Array<{ id: string }>} the rows that can play, order kept
+ */
+export function playableDemos(index, ids) {
+  const have = ids instanceof Set ? ids : new Set(Array.isArray(ids) ? ids : [...(ids || [])]);
+  if (!have.size) return [];
+  return (Array.isArray(index) ? index : []).filter((row) => row && typeof row.id === 'string' && have.has(row.id));
+}
+
+/**
+ * The server's copy of a match's demo, for a row whose document is not in this browser.
+ *
+ * Two places keep one: the account backup (`/api/cloud/demos`, keyed by the local document's id — the record names it
+ * in `demoId`) and the 联机 merge (`/api/team-demos`, keyed by matchId, uploaded by every player and merged when the
+ * last part arrives). A record written by this build names its `matchId`; older rows are matched by a shared player id
+ * and the upload time, because the merge is written when the match ends (`createdAt` ≈ `t`).
+ * @param {any} rec a normalized record
+ * @param {Iterable<string>|null|undefined} cloudIds the ids in /api/cloud/demos
+ * @param {Array<{ id: string, matchId?: string|null, playerIds?: string[], createdAt?: string }>|null|undefined} teamDemos /api/team-demos
+ * @returns {{ kind: 'cloud'|'team', id: string }|null} the id `downloadDemo` takes
+ */
+export function serverDemoOf(rec, cloudIds, teamDemos) {
+  if (!isObj(rec)) return null;
+  const cloud = cloudIds instanceof Set ? cloudIds : new Set(Array.isArray(cloudIds) ? cloudIds : [...(cloudIds || [])]);
+  const cloudId = typeof rec.demoId === 'string' && rec.demoId ? rec.demoId : null;
+  if (cloudId && cloud.has(cloudId)) return { kind: 'cloud', id: cloudId };
+  const list = Array.isArray(teamDemos) ? teamDemos.filter((d) => d && d.id != null) : [];
+  if (!list.length) return null;
+  if (rec.matchId) {
+    const hit = list.find((d) => d.matchId === rec.matchId);
+    if (hit) return { kind: 'team', id: `team_${hit.id}` };
+  }
+  const mine = new Set((Array.isArray(rec.players) ? rec.players : []).map((p) => p?.playerId).filter(Boolean));
+  const at = Number(rec.t);
+  if (!mine.size || !Number.isFinite(at)) return null;
+  const hit = list.find((d) => {
+    const owners = Array.isArray(d.playerIds) ? d.playerIds : [];
+    if (!owners.some((id) => mine.has(id))) return false;
+    const wrote = Date.parse(d.createdAt);
+    return Number.isFinite(wrote) && Math.abs(wrote - at) <= 15 * 60_000;
+  });
+  return hit ? { kind: 'team', id: `team_${hit.id}` } : null;
+}
+
+/**
+ * The newest slice of an envelope that fits the account save (`server/accounts/store.js` MAX_SAVE_BYTES, 256 KiB).
+ *
+ * 同步云端 pushes the local records the cloud is missing, but the account keeps ONE JSON document: a long history does
+ * not fit. The cloud copy is a backup, so the newest matches are what it keeps; the local copy keeps all of them.
+ * @param {{ records: any[] }} stats the merged envelope
+ * @param {number} [budget] the request body's byte budget
+ * @returns {{ stats: any, dropped: number }} the envelope to upload and how many oldest records stayed here only
+ */
+export function fitCloudStats(stats, budget = 256 * 1024) {
+  const records = Array.isArray(stats?.records) ? stats.records : [];
+  const size = (n) => {
+    const body = JSON.stringify({ loadouts: null, settings: null, stats: { ...stats, records: records.slice(0, n) } });
+    let bytes = 0;
+    for (const ch of body) {
+      const c = ch.codePointAt(0);
+      bytes += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+    }
+    return bytes;
+  };
+  if (!records.length) return { stats: { ...stats, records: [] }, dropped: 0 };
+  let lo = 0;
+  let hi = records.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (size(mid) <= budget) lo = mid; else hi = mid - 1;
+  }
+  return { stats: { ...stats, records: records.slice(0, lo) }, dropped: records.length - lo };
 }
 
 /** Active settlement bonds, deduplicated per player and bounded like imported bond rows. */

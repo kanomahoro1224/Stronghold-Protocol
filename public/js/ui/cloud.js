@@ -17,6 +17,7 @@ import { store, loadPref, savePref } from '../store.js';
 import { listDemos, deleteDemo, putDemo, getLocalDemo } from '../demoStore.js';
 import { t } from '../../../shared/i18n.js';
 import { toast } from './toasts.js';
+import { importStats, loadStats, saveStats } from './stats.js';
 
 // 与 server/accounts/auth.js 的 PASSWORD_MIN / PASSWORD_MAX 一致：前端只做按钮可用性判断，真正的校验在服务端
 const PW_MIN = 6;
@@ -33,7 +34,7 @@ export function cloudConfig() {
   return configPromise;
 }
 
-async function api(path, { method = 'GET', body = null } = {}) {
+export async function api(path, { method = 'GET', body = null } = {}) {
   const res = await fetch(path, {
     method, credentials: 'same-origin',
     headers: body ? { 'content-type': 'application/json' } : undefined,
@@ -141,7 +142,7 @@ export async function uploadDemo(doc) {
 }
 
 /** 云端 Demo 完整文档下载；成功后写入本机 IndexedDB 再播放（播放仍在客户端）。 */
-async function downloadDemo(id) {
+export async function downloadDemo(id) {
   const team = String(id).match(/^team_(\d+)$/);
   const r = team ? await api(`/api/team-demos/${team[1]}`) : await api(`/api/cloud/demos/${id}`);
   if (!r.ok) return null;
@@ -362,8 +363,14 @@ function AccountPanel({ account, onClose, onRefresh }) {
     if (!r.ok) { setNote(t('读取失败：{error}', { error: r.data.error || r.status })); return; }
     if (r.data.loadouts != null) savePref('loadout', r.data.loadouts);
     if (r.data.settings != null) savePref('settings', r.data.settings);
-    if (r.data.stats != null) savePref('stats', r.data.stats);
-    setNote(t('已从云端恢复编队与设置，刷新页面后生效'));
+    // 战绩不整份覆盖：云端和本机各留各的记录，按 id 合并（与「同步云端」同一条规则）
+    if (r.data.stats != null) {
+      try {
+        const { stats: merged } = importStats(r.data.stats, loadStats());
+        saveStats(merged);
+      } catch { /* 云端数据来自更新版本：本机记录保持不动 */ }
+    }
+    setNote(t('已从云端恢复编队与设置，战绩按记录合并；刷新页面后生效'));
   };
   const logout = async () => {
     await api('/api/auth/logout', { method: 'POST' });
@@ -371,10 +378,10 @@ function AccountPanel({ account, onClose, onRefresh }) {
     onRefresh?.(null);
   };
 
+  // 账号面板里的「历史战绩 / Demo」按钮暂时不展示；HistoryPanel 仍保留，入口统一走统计页。
   return html`<${Modal} open=${true} title=${t('云端账号')} micro="CLOUD ACCOUNT" onClose=${onClose}>
     <div class="cloud">
       <p class="cloud__who"><b>${account.email}</b><br /><${MicroLabel}>${t('已绑定本局玩家')}<//></p>
-      <${Button} variant="secondary" icon="chart" onClick=${() => setHistOpen(true)}>${t('历史战绩 / Demo')}<//>
       <div class="cloud__row">
         <${Button} variant="primary" loading=${busy} onClick=${upload}>${t('上传到云端')}<//>
         <${Button} variant="ghost" loading=${busy} onClick=${restore}>${t('从云端恢复')}<//>
