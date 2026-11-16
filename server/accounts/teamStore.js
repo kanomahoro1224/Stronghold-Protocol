@@ -4,7 +4,7 @@
 // and four accounts link to it (team_demo_links), so storage is not 4×. Storage only; merge math is in teamDemos.js.
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { accountOfPlayer } from './store.js';
-import { mergeTeamDemos, filterTeamDemoForViewer, fitTeamDemoToLimit, MAX_TEAM_PART_GZIP, MAX_TEAM_PART_JSON } from './teamDemos.js';
+import { mergeTeamDemos, filterTeamDemoForViewer, fitTeamDemoToLimit, MAX_TEAM_PART_GZIP, MAX_TEAM_PART_JSON, MAX_TEAM_CANONICAL_BYTES } from './teamDemos.js';
 
 const PART_RETENTION_MS = 24 * 60 * 60 * 1000;
 const PART_TIMEOUT_MS = 5 * 60 * 1000;
@@ -133,6 +133,13 @@ export async function mergeTeamDemo(db, matchId, { force = false } = {}) {
   // then a tiny replayable fallback). A missing-participant partial keeps its `partial:true`; size alone no longer
   // pretends the document is incomplete.
   const fitted = fitTeamDemoToLimit(mergedDoc);
+  // The hard limit is a write gate too: if even the tiny replayable fallback cannot fit, fail the merge instead of
+  // storing an oversized canonical and claiming the limit is enforced.
+  if (fitted.gz.length > MAX_TEAM_CANONICAL_BYTES) {
+    const e = new Error('team canonical exceeds the hard size limit');
+    e.code = 'TOO_LARGE_CANONICAL';
+    throw e;
+  }
   const doc = fitted.doc;
   const gz = fitted.gz;
   const res = await db.query(
