@@ -396,7 +396,7 @@ function seek(s, ms, autoplay = s.playing) {
       if (f.t === 'b.snap') latestSnap.set(f.m?.fieldId || '', f);
       else if (f.t === 'b.ev') {
         const ev = (f.m?.ev || []).filter(keepsState);
-        if (ev.length) stateEvents.push({ t: 'b.ev', m: { ...f.m, ev } });
+        if (ev.length) stateEvents.push({ at: f.at || 0, t: 'b.ev', m: { ...f.m, ev } });
       } else if (f.t === 'b.start') { /* 快照模式不重跑模拟 */ }
       else dispatch(f);
     } else if (f.t !== 'b.start' && f.t !== 'b.snap' && f.t !== 'b.ev' && f.t !== 'b.end' && f.t !== 'b.pool') dispatch(f);
@@ -408,8 +408,24 @@ function seek(s, ms, autoplay = s.playing) {
   syncReplayClock(s, true);
   s.onTick?.();
   afterFramesReady(s, () => {
-    for (const f of stateEvents) dispatch(f);
+    // Rebuild the target state in the right order: spawn metadata that predates the latest snapshot (compact b.snap
+    // tuples carry no defId and would otherwise become unknown enemy views), then the latest snapshot itself, then
+    // only the state events that happened AFTER that snapshot. The old all-events-first order let a pre-snapshot death
+    // revive from the snapshot (or a post-snapshot death be overwritten), which is the seek/model mismatch report.
+    const snapAt = new Map();
+    for (const [fieldId, f] of latestSnap) snapAt.set(fieldId, f.at || 0);
+    for (const f of stateEvents) {
+      const fieldId = f.m?.fieldId || '';
+      if ((f.at || 0) > (snapAt.get(fieldId) ?? -1)) continue;
+      const spawn = (f.m?.ev || []).filter((e) => Array.isArray(e) && e[0] === 'spawn');
+      if (spawn.length) dispatch({ t: 'b.ev', m: { ...f.m, ev: spawn } });
+    }
     for (const f of latestSnap.values()) dispatch(f);
+    for (const f of stateEvents) {
+      const fieldId = f.m?.fieldId || '';
+      if ((f.at || 0) <= (snapAt.get(fieldId) ?? -1)) continue;
+      dispatch(f);
+    }
     const catchTargets = new Map();
     for (const f of s.snapshotMode ? [] : active.values()) {
       const elapsed = (Number(f.m.elapsed) || 0) + (target - (f.at || 0)) / 1000;
