@@ -80,6 +80,7 @@ export class MatchViews {
       t: 'm.public',
       // team-demo grouping id (only when the platform named this match: test journals stay byte-identical)
       ...(this.matchId ? { matchId: this.matchId } : {}),
+      ...(this.matchToken ? { matchToken: this.matchToken } : {}),
       phase: this.phase,
       round: this.round,
       lastRound: this.gd.lastRound,

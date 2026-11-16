@@ -26,6 +26,7 @@ import { readCookie, sessionCookie, clearCookie } from './auth.js';
 import { listMatches, getDemo, canWatchDemo, getProfile, putProfile, linkPlayer, putAccountDemo, listAccountDemos, getAccountDemo, MAX_CLOUD_DEMO_BYTES } from './store.js';
 import { putTeamDemoPart, getTeamDemoStatus, mergeTeamDemo, pruneTeamParts, getTeamDemoForViewer, listTeamDemosForAccount, teamMatchForAccount } from './teamStore.js';
 import { MAX_TEAM_PART_JSON } from './teamDemos.js';
+import { verifyTeamMatchToken } from './teamToken.js';
 
 const MAX_BODY = 64 * 1024;
 
@@ -240,6 +241,11 @@ export function createAccountApi({ db, auth, turnstile, mailer, registry, log = 
         const matchId = decodeURIComponent(teamPart[1]);
         const body = await readJson(req, MAX_TEAM_PART_JSON + 64 * 1024);
         if (!body) { json(res, 413, { ok: false, error: 'BAD_BODY' }); return true; }
+        // matchId is public, so it alone must not authorize a write. The lobby stamps this signed token into m.public
+        // and the recorder keeps it; a guessed matchId cannot be turned into a valid part.
+        if (!verifyTeamMatchToken(matchId, body.matchToken || body.doc?.matchToken)) {
+          json(res, 403, { ok: false, error: 'TEAM_TOKEN_INVALID' }); return true;
+        }
         try {
           const r = await putTeamDemoPart(db, { matchId, playerId: body.playerId, accountId: account.id, doc: body.doc });
           await pruneTeamParts(db).catch(() => {});

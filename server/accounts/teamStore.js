@@ -4,7 +4,7 @@
 // and four accounts link to it (team_demo_links), so storage is not 4×. Storage only; merge math is in teamDemos.js.
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { accountOfPlayer } from './store.js';
-import { mergeTeamDemos, filterTeamDemoForViewer, downsampleTeamDemo, MAX_TEAM_PART_GZIP, MAX_TEAM_PART_JSON, MAX_TEAM_CANONICAL_BYTES } from './teamDemos.js';
+import { mergeTeamDemos, filterTeamDemoForViewer, fitTeamDemoToLimit, MAX_TEAM_PART_GZIP, MAX_TEAM_PART_JSON } from './teamDemos.js';
 
 const PART_RETENTION_MS = 24 * 60 * 60 * 1000;
 const PART_TIMEOUT_MS = 5 * 60 * 1000;
@@ -128,17 +128,13 @@ export async function mergeTeamDemo(db, matchId, { force = false } = {}) {
   if (!parts.length) return { ok: false, code: 'NO_PARTS' };
   const missing = participants.filter((id) => !parts.some((p) => p.playerId === id));
   if (missing.length && !force) return { ok: false, code: 'WAITING', waitingFor: missing };
-  let doc = mergeTeamDemos(parts, { matchId, participants });
-  let gz = gzipSync(Buffer.from(JSON.stringify(doc)));
-  // 超 8 MB：先丢攻击动画，再对快照降频 2× / 5× / 20×；状态事件始终保留
-  for (const snapStep of [2, 5, 20]) {
-    if (gz.length <= MAX_TEAM_CANONICAL_BYTES) break;
-    doc = downsampleTeamDemo(doc, { snapStep });
-    gz = gzipSync(Buffer.from(JSON.stringify(doc)));
-  }
-  if (gz.length > MAX_TEAM_CANONICAL_BYTES) { doc.partial = true; doc.sizeCapped = true; }
-  const json = JSON.stringify(doc);
-  gz = gzipSync(Buffer.from(json)); // doc.partial / sizeCapped may have changed after the loop
+  const mergedDoc = mergeTeamDemos(parts, { matchId, participants });
+  // 8 MB is a hard storage limit, not a label: fitTeamDemoToLimit always returns a gzip <= 8 MB (downsample, slim,
+  // then a tiny replayable fallback). A missing-participant partial keeps its `partial:true`; size alone no longer
+  // pretends the document is incomplete.
+  const fitted = fitTeamDemoToLimit(mergedDoc);
+  const doc = fitted.doc;
+  const gz = fitted.gz;
   const res = await db.query(
     `INSERT INTO team_demos (match_id, canonical, bytes, partial, available_fields)
      VALUES ($1, $2, $3, $4, $5::jsonb)
@@ -153,7 +149,7 @@ export async function mergeTeamDemo(db, matchId, { force = false } = {}) {
     if (!owner) continue;
     await db.query(
       `INSERT INTO team_demo_links (team_demo_id, account_id, player_id) VALUES ($1, $2, $3)
-       ON CONFLICT (team_demo_id, account_id) DO UPDATE SET player_id = EXCLUDED.player_id`,
+       ON CONFLICT (team_demo_id, account_id, player_id) DO NOTHING`,
       [teamDemoId, String(owner.accountId), p.playerId]);
     links.push({ accountId: String(owner.accountId), playerId: p.playerId });
   }
@@ -178,13 +174,17 @@ export async function pruneTeamParts(db, now = Date.now()) {
 /** The merged demos this account participates in, newest first (metadata only). */
 export async function listTeamDemosForAccount(db, accountId, { limit = 10 } = {}) {
   const res = await db.query(
-    `SELECT d.id, d.match_id, d.partial, d.bytes, d.available_fields, d.created_at, l.player_id
+    `SELECT d.id, d.match_id, d.partial, d.bytes, d.available_fields, d.created_at,
+            array_agg(l.player_id ORDER BY l.player_id) AS player_ids
        FROM team_demo_links l JOIN team_demos d ON d.id = l.team_demo_id
-      WHERE l.account_id = $1 ORDER BY d.created_at DESC, d.id DESC LIMIT $2`,
+      WHERE l.account_id = $1
+      GROUP BY d.id, d.match_id, d.partial, d.bytes, d.available_fields, d.created_at
+      ORDER BY d.created_at DESC, d.id DESC LIMIT $2`,
     [String(accountId), Math.min(10, Math.max(1, Number(limit) || 10))]);
   return res.rows.map((r) => ({
     id: String(r.id), matchId: r.match_id, partial: !!r.partial, bytes: Number(r.bytes) || 0,
-    availableFields: r.available_fields || [], playerId: r.player_id, createdAt: r.created_at,
+    availableFields: r.available_fields || [], playerId: r.player_ids?.[0] || null,
+    playerIds: r.player_ids || [], createdAt: r.created_at,
   }));
 }
 
@@ -193,12 +193,12 @@ export async function getTeamDemoForViewer(db, accountId, teamDemoId) {
   const link = await db.query(
     `SELECT l.player_id, d.id, d.match_id, d.canonical, d.partial, d.available_fields
        FROM team_demo_links l JOIN team_demos d ON d.id = l.team_demo_id
-      WHERE l.team_demo_id = $1 AND l.account_id = $2`,
+      WHERE l.team_demo_id = $1 AND l.account_id = $2 ORDER BY l.player_id`,
     [String(teamDemoId), String(accountId)]);
   const row = link.rows[0];
   if (!row) return null;
   let doc;
   try { doc = JSON.parse(gunzipSync(row.canonical).toString('utf8')); } catch { return null; }
-  const filtered = filterTeamDemoForViewer(doc, row.player_id);
+  const filtered = filterTeamDemoForViewer(doc, link.rows.map((x) => x.player_id));
   return { ...filtered, id: `team_${row.id}`, teamDemoId: String(row.id), partial: !!row.partial, availableFields: row.available_fields || [] };
 }

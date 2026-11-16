@@ -11,6 +11,7 @@
 
 // shared/protocol.js is browser-safe and already used by the server (server/net.js). A model form is state, not
 // decoration: dropping it under the size cap made a replay draw the previous unit's model (the Texas report).
+import { gzipSync } from 'node:zlib';
 import { fxForm } from '../../shared/protocol.js';
 
 export const TEAM_DOC_VERSION = 2;
@@ -317,11 +318,92 @@ export function downsampleTeamDemo(doc, { snapStep = 2 } = {}) {
   return { ...doc, fields };
 }
 
-/** The subset one viewer may receive: all public/fields, only their own m.private. */
+/** Last-resort slim documents keep the visual identity (last snapshot + spawn/die) while dropping animation payloads. */
+function slimTeamDemo(doc) {
+  const fields = {};
+  for (const [fieldId, f] of Object.entries(doc.fields || {})) {
+    const frames = [];
+    let lastSnap = null;
+    let lastField = null;
+    for (const x of (f.frames || [])) {
+      if (x.t === 'b.snap') lastSnap = x;
+      else if (x.t === 'm.field') lastField = x;
+      else if (x.t === 'b.ev') {
+        const ev = (x.m?.ev || []).filter((e) => Array.isArray(e) && (STATE_EV.has(e[0]) || fxForm(e) !== undefined || String(e[0]).startsWith('fx:')));
+        if (ev.length) frames.push({ ...x, m: { ...x.m, ev } });
+      }
+    }
+    if (lastSnap) frames.push(lastSnap);
+    if (lastField) frames.push(lastField);
+    fields[fieldId] = { ...f, frames };
+  }
+  // A hard cap is only reached by very long matches; keeping the first/last private frame preserves a usable HUD
+  // without carrying the whole private stream.
+  const privates = {};
+  for (const [playerId, frames] of Object.entries(doc.privates || {})) {
+    const list = arr(frames);
+    privates[playerId] = list.length > 2 ? [list[0], list[list.length - 1]] : list;
+  }
+  return { ...doc, fields, privates, sizeCapped: true };
+}
+
+/** Absolute fallback: a tiny but still replayable document (result + last public + identity snapshots). */
+function hardSlimTeamDemo(doc) {
+  const fields = {};
+  for (const [fieldId, f] of Object.entries(doc.fields || {})) {
+    const lastSnap = (f.frames || []).filter((x) => x.t === 'b.snap').pop() || null;
+    const spawns = (f.frames || []).filter((x) => x.t === 'b.ev')
+      .flatMap((x) => (x.m?.ev || []).filter((e) => Array.isArray(e) && (e[0] === 'spawn' || e[0] === 'die'))
+        .map((e) => ({ at: x.at, t: 'b.ev', m: { ...x.m, ev: [e] } })));
+    fields[fieldId] = { ...f, frames: [...spawns, ...(lastSnap ? [lastSnap] : [])] };
+  }
+  const publicFrames = arr(doc.public);
+  const privates = {};
+  for (const [playerId, frames] of Object.entries(doc.privates || {})) {
+    const list = arr(frames);
+    privates[playerId] = list.length ? [list[list.length - 1]] : [];
+  }
+  return {
+    ...doc, fields, privates,
+    public: publicFrames.length ? [publicFrames[0], publicFrames[publicFrames.length - 1]] : [],
+    marks: arr(doc.marks).slice(0, 4), sizeCapped: true, tooLarge: true,
+  };
+}
+
+/**
+ * Fit a canonical document under `maxBytes` of gzip. Multi-step downsampling first, then a slim/hard pass; the
+ * returned doc is what may be written to PostgreSQL. Exported so the hard-cap unit test can use a small limit.
+ */
+export function fitTeamDemoToLimit(doc, { maxBytes = MAX_TEAM_CANONICAL_BYTES } = {}) {
+  let current = doc;
+  let gz = gzipSync(Buffer.from(JSON.stringify(current)));
+  for (const snapStep of [2, 5, 20, 100]) {
+    if (gz.length <= maxBytes) return { doc: current, gz };
+    current = downsampleTeamDemo(current, { snapStep });
+    gz = gzipSync(Buffer.from(JSON.stringify(current)));
+  }
+  if (gz.length > maxBytes) {
+    current = slimTeamDemo(current);
+    gz = gzipSync(Buffer.from(JSON.stringify(current)));
+  }
+  if (gz.length > maxBytes) {
+    current = hardSlimTeamDemo(current);
+    gz = gzipSync(Buffer.from(JSON.stringify(current)));
+  }
+  return { doc: current, gz };
+}
+
+/**
+ * The subset one viewer may receive: all public/fields, only the m.private streams of the seats this account controls.
+ * `playerId` is usually one id, but the same account may play two seats: all of them survive as viewerIds, and the
+ * client picks the private stream that matches the field it is currently watching.
+ */
 export function filterTeamDemoForViewer(doc, playerId) {
   if (!isObj(doc) || doc.kind !== 'team') return null;
-  const keep = isObj(doc.privates) && playerId && doc.privates[playerId] ? { [playerId]: doc.privates[playerId] } : {};
+  const viewerIds = (Array.isArray(playerId) ? playerId : [playerId]).map((id) => String(id || '')).filter(Boolean);
+  const keep = {};
+  for (const id of viewerIds) if (isObj(doc.privates) && Array.isArray(doc.privates[id])) keep[id] = doc.privates[id];
   // The client needs to know which private stream survived. It used to infer it from the first privates key, which
   // only works when the server has filtered the document; an unfiltered local copy could replay another seat.
-  return { ...doc, viewerId: playerId || null, privates: keep };
+  return { ...doc, viewerId: viewerIds[0] || null, viewerIds, privates: keep };
 }

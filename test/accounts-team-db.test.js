@@ -7,6 +7,7 @@ import { linkPlayer, accountOfPlayer } from '../server/accounts/store.js';
 import { putTeamDemoPart, getTeamDemoStatus, mergeTeamDemo, getTeamDemoForViewer, listTeamDemosForAccount } from '../server/accounts/teamStore.js';
 import { createAccountApi } from '../server/accounts/api.js';
 import { createServer } from 'node:http';
+import { teamMatchToken } from '../server/accounts/teamToken.js';
 
 const CONN = process.env.SP_TEST_DATABASE_URL || '';
 let db;
@@ -103,8 +104,11 @@ test('team demo API: upload part, wait, merge all, list, filtered download; non-
   await new Promise((resolve) => server.listen(0, '127.0.0.1', () => { base = `http://127.0.0.1:${server.address().port}`; resolve(undefined); }));
   const docA = part('p_a', { matchId: 'm_API_1' });
   const docB = part('p_b', { matchId: 'm_API_1' });
+  const token = teamMatchToken('m_API_1');
   try {
-    const post = (doc, cookie) => fetch(`${base}/api/team-demos/m_API_1/parts`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: `sp_sid=${cookie}` }, body: JSON.stringify({ playerId: doc.players.find((p) => p.playerId === (cookie === 'a' ? 'p_a' : 'p_b')).playerId, doc }) });
+    const post = (doc, cookie, matchToken = token) => fetch(`${base}/api/team-demos/m_API_1/parts`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: `sp_sid=${cookie}` }, body: JSON.stringify({ playerId: doc.players.find((p) => p.playerId === (cookie === 'a' ? 'p_a' : 'p_b')).playerId, matchToken, doc }) });
+    const denied = await post(docA, 'a', 'not-the-token');
+    assert.equal(denied.status, 403, 'a known matchId without the signed token cannot append a part');
     let r = await post(docA, 'a');
     assert.equal(r.status, 200);
     let body = await r.json();
@@ -162,4 +166,23 @@ test('team demo DB: a missing participant turns into partial after the 5 minute 
   assert.equal(status.merged, true);
   assert.equal(status.partial, true);
   assert.deepEqual(status.missing, ['p_b', 'p_c']);
+});
+
+
+test('team demo DB: one account controlling two seats keeps both player links and private streams', { skip: !CONN }, async () => {
+  await linkPlayer(db, accounts.a, 'p_a2');
+  const roster = [{ playerId: 'p_a', seat: 0, name: 'A', isBot: false }, { playerId: 'p_a2', seat: 1, name: 'A2', isBot: false }];
+  const a = part('p_a', { matchId: 'm_T_MULTI', players: roster });
+  const a2 = part('p_a2', { matchId: 'm_T_MULTI', players: roster });
+  await putTeamDemoPart(db, { matchId: 'm_T_MULTI', playerId: 'p_a', accountId: accounts.a, doc: a });
+  await putTeamDemoPart(db, { matchId: 'm_T_MULTI', playerId: 'p_a2', accountId: accounts.a, doc: a2 });
+  const merged = await mergeTeamDemo(db, 'm_T_MULTI');
+  assert.equal(merged.ok, true);
+  assert.equal(merged.links.filter((l) => l.accountId === accounts.a).length, 2);
+  const view = await getTeamDemoForViewer(db, accounts.a, merged.id);
+  assert.deepEqual(view.viewerIds, ['p_a', 'p_a2']);
+  assert.deepEqual(Object.keys(view.privates).sort(), ['p_a', 'p_a2']);
+  const list = await listTeamDemosForAccount(db, accounts.a);
+  const row = list.find((d) => d.matchId === 'm_T_MULTI');
+  assert.deepEqual(row.playerIds, ['p_a', 'p_a2']);
 });

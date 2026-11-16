@@ -261,6 +261,7 @@ import { msg, wireMessage } from '../shared/i18n.js';
 import { DEFAULT_VERSION } from '../shared/versions.js';
 import { parseTestModeEnv, testModeGate, unrecognizedTestMode } from './testMode.js';
 import { cleanPlayerCard, isCardPortraitId, isCardAvatarId, cardPortraitOperatorId, cardAvatarOperatorId } from '../shared/playerCard.js';
+import { teamMatchToken } from './accounts/teamToken.js';
 
 /** Room code alphabet: uppercase letters without I and O (and no digits, so no 0/1). */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -2844,7 +2845,7 @@ export class Lobby {
     const matchNo = checkpoint ? Math.max(1, room.matchCount) : room.matchCount + 1;
     try {
       const match = await this.matchWorkerPool.create(room.code, {
-        roomCode: room.code, matchId: this.matchIdFor(room, matchNo, seed), mode: room.mode, difficulty: room.difficulty, modeId: modeIdFor(room.mode, room.difficulty),
+        roomCode: room.code, matchId: this.matchIdFor(room, matchNo, seed), matchToken: teamMatchToken(this.matchIdFor(room, matchNo, seed)), mode: room.mode, difficulty: room.difficulty, modeId: modeIdFor(room.mode, room.difficulty),
         seats, spectators: room.spectators.map((s) => s.playerId), consoleEnabled: !!room.consoleEnabled,
         hostId: room.hostId, ...(room.content ? { cs: room.content.cs } : {}),
         seed, matchNo, aiPicksLast: !!room.aiPicksLast,
@@ -2917,6 +2918,7 @@ export class Lobby {
       const opts = {
         roomCode: room.code,
         matchId: this.matchIdFor(room, matchNo, seed),
+        matchToken: teamMatchToken(this.matchIdFor(room, matchNo, seed)),
         mode: room.mode,
         difficulty: room.difficulty,
         // a plugin mode the host chose (header "Gameplay plugins"), a laddered room's official mode (规程's solo), else the
@@ -3063,7 +3065,7 @@ export class Lobby {
     try { seed = this.seedFn() >>> 0; } catch { seed = randomInt(2 ** 32); }
     try {
       const match = await this.matchWorkerPool.create(matchCode, {
-        roomCode: matchCode, matchId: this.matchIdFor(room, room ? room.matchCount + 1 : 1, seed), mode: owner.mode, difficulty: owner.difficulty, modeId: modeIdFor(owner.mode, owner.difficulty),
+        roomCode: matchCode, matchId: this.matchIdFor(room, room ? room.matchCount + 1 : 1, seed), matchToken: teamMatchToken(this.matchIdFor(room, room ? room.matchCount + 1 : 1, seed)), mode: owner.mode, difficulty: owner.difficulty, modeId: modeIdFor(owner.mode, owner.difficulty),
         seats, consoleEnabled: !!room?.consoleEnabled, aiPicksLast: !!room?.aiPicksLast, seed, matchNo: room ? room.matchCount + 1 : 1,
       }, {
         created: (match) => {

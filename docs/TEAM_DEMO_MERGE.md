@@ -149,10 +149,11 @@ playerId: store.get().me?.playerId || null,
 
 - 必须登录；
 - `body.playerId` 必须属于当前账号：查 `player_links`；
+- `body.matchToken` 必须是服务端为该 `matchId` 签发的 HMAC token（lobby 写入 `m.public.matchToken`，录制器随本机文档保存）；只知道 `matchId` 不能写入；
 - `(matchId, playerId)` 唯一；
 - 至少 2 个非 bot 玩家才创建 team demo；
 - 第一个 part 记录该局的 participants 集合，后续 part 的 participants 必须一致；
-- 不信任客户端单方面声明“这局有谁”，后续可加服务端签发的 match upload token。
+- 不信任客户端单方面声明“这局有谁”。
 
 ## 6. 上传与归组
 
@@ -166,7 +167,7 @@ playerId: store.get().me?.playerId || null,
 POST /api/team-demos/:matchId/parts
 Content-Type: application/json
 Content-Encoding: gzip
-Body: { matchId, playerId, doc }
+Body: { matchId, playerId, matchToken, doc }
 ```
 
 限制：
@@ -175,6 +176,7 @@ Body: { matchId, playerId, doc }
 - 未压缩 JSON ≤ 24 MB；
 - `doc.wire` 只接受 `version >= 2` 的 recorder 文档；
 - 同一 `(matchId, playerId)` 可重传覆盖，幂等；
+- token 缺失/不匹配 → `403 TEAM_TOKEN_INVALID`；旧的无 token 本机文档不能上传，也不会被误走单人云接口；
 - 上传成功返回 `{ ok:true, partId, waitingFor }`。
 
 查询：
@@ -229,6 +231,7 @@ CREATE TABLE team_demo_links (
 
 - 结算 `finishDemo('result')` 后立即上传；
 - 失败进入本地重试队列（IndexedDB），最多 5 次，指数退避；
+- 断线 / `pagehide` 的 `flushDemo` 也把团队 part 放进同一个重试队列；若该玩家不再回来，下一次启动会补传 partial part；
 - 页面关闭前 `sendBeacon` 或留到下次启动重试；
 - 上传成功前本机 Demo 永远保留；
 - 云端列表中出现 merged 后，不再重复显示同一局的个人版。
@@ -303,13 +306,14 @@ CREATE TABLE team_demo_links (
 ### Step 6：压缩与体积控制
 
 - canonical 用 gzip（或 zstd，如果 Node 依赖允许）；
-- 目标：gzip 后 ≤ 8 MB；
+- 硬上限：gzip 后必须 ≤ 8 MB，超过的文档不写库；
 - 超出时按优先级降采样：
   1. 攻击动画 `b.ev` 降到 2 Hz 或只保留关键技能；
-  2. `b.snap` 从 10 Hz 降到 5 Hz；
-  3. 只保留每回合最近 1 张快照；
-  4. 仍超出 → 只合并公共时间轴 + 每个玩家最近战场，标记 `partial`。
-- 状态事件（spawn / die / status / leak）绝不降采样，否则会少单位或模型错。
+  2. `b.snap` 从 10 Hz 降到 5 Hz / 2× / 5× / 20× / 100×；
+  3. 仍超出 → slim：每个战场保留最近快照 + 状态事件；仍超出 → hard-slim：只保留 spawn/die + 最近快照；
+  4. hard-slim 仍超出 → 极小可回放文档（结算 + 首尾公共帧），标记 `sizeCapped/tooLarge`；
+- 状态事件（spawn / die / status / leak）在正常降采样中不丢，否则会少单位或模型错；只有在触发硬上限的 hard-slim 才退化为 spawn/die；
+- `partial` 只表示“缺人”，不再表示“超过 8 MB”。
 
 ## 9. 回放与视角切换
 
@@ -385,8 +389,8 @@ if (type === 'g.watch') {
 - 返回给账号 A 的文档：
   - `public`
   - `fields` 全部
-  - `privates` 只含 A 的 playerId
-  - 不含 B/C/D 的 `m.private`
+  - `privates` 只含当前账号控制的所有 playerId（同账号多 seat 时返回 `viewerIds`，回放按当前战场 owner 选择对应 private）
+  - 不含其他账号的 `m.private`
 - `team_demo_links` 只允许四个参与者账号读取；
 - 观战者 / 非参与者默认不可见；
 - 上传时必须校验 `player_links`，防止账号冒领别人的 playerId；
@@ -401,7 +405,7 @@ if (type === 'g.watch') {
 | 合并 Demo | 每账号最新 10 局；同一 matchId 只算 1 局 |
 | canonical | 一份，四个账号 link 引用 |
 | parts | 合并后保留 24h 供重试/排查，之后删除 |
-| 大小 | gzip 目标 ≤ 8 MB；超过则降采样 |
+| 大小 | gzip 硬上限 ≤ 8 MB；逐级降采样，最后 hard-slim，绝不写超限文档 |
 | 替换 | merged 生成后，四个账号的云端列表用 merged 替换该局个人版；本机个人版不动 |
 
 ## 12. 失败与降级

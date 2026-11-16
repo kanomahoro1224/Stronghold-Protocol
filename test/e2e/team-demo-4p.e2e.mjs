@@ -85,18 +85,20 @@ test('four browser clients finish one team match and each records the same match
         const store = await import('/js/demoStore.js');
         const rows = await store.listDemos();
         const latest = rows[0] && await store.getLocalDemo(rows[0].id);
-        return latest ? { id: latest.id, matchId: latest.matchId, isTeam: latest.isTeam, playerId: latest.playerId, players: (latest.players || []).map((p) => p.playerId), wire: (latest.wire || []).length, fieldCount: Object.keys(latest.fields || {}).length, privates: Object.keys(latest.privates || {}).length, raw: latest } : null;
+        return latest ? { id: latest.id, matchId: latest.matchId, matchToken: latest.matchToken, isTeam: latest.isTeam, playerId: latest.playerId, players: (latest.players || []).map((p) => p.playerId), wire: (latest.wire || []).length, fieldCount: Object.keys(latest.fields || {}).length, privates: Object.keys(latest.privates || {}).length, raw: latest } : null;
       });
       assert.ok(d, `${c.label}: a local demo was recorded`);
       assert.equal(d.isTeam, true, `${c.label}: recorded as a team demo`);
       assert.equal(d.players.length, 4, `${c.label}: four human players`);
       assert.ok(d.matchId, `${c.label}: matchId stamped`);
+      assert.ok(d.matchToken, `${c.label}: signed upload token stamped`);
       assert.ok(d.wire > 0, `${c.label}: raw S2C wire saved`);
       docs.push(d);
       await c.shot(`result-${c.label}`);
     }
     const ids = [...new Set(docs.map((d) => d.matchId))];
     assert.equal(ids.length, 1, `all four parts share one matchId (${ids.join(', ')})`);
+    assert.equal(new Set(docs.map((d) => d.matchToken)).size, 1, 'all four parts share one server-signed token');
     // Merge the four documents exactly as the server does (pure JSON; no battle re-simulation). Local documents store
     // their frames in `wire`; the canonical fills `fields` from those frames, so `fieldCount` on a part may be 0.
     const merged = mergeTeamDemos(docs.map((d) => ({ playerId: d.playerId, doc: d.raw })), { matchId: ids[0] });

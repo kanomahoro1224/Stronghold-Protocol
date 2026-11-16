@@ -317,6 +317,8 @@ export class Match {
     this.roomCode = opts.roomCode ?? '----';
     /** Stamped by the platform into m.public for team-demo grouping; null on a bare test/journal match. */
     this.matchId = typeof opts.matchId === 'string' && opts.matchId ? opts.matchId : null;
+    /** Signed team-demo upload token; public only for team-demo grouping, verified by the accounts API. */
+    this.matchToken = typeof opts.matchToken === 'string' && opts.matchToken ? opts.matchToken : null;
     this.mode = opts.mode === 'solo' ? 'solo' : 'coop';
     this.difficulty = opts.difficulty;
     this.modeId = opts.modeId || modeIdFor(this.mode, opts.difficulty);

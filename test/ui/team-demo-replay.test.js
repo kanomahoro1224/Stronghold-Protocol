@@ -1,7 +1,7 @@
 // Team canonical → the flat wire stream the existing replay engine consumes; one field at a time, own private only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canReplayVisual, teamFields, teamViewerId, teamWireFor } from '../../public/js/demoReplay.js';
+import { canReplayVisual, seekRebuildFrames, teamFields, teamViewerId, teamViewerIds, teamWireFor } from '../../public/js/demoReplay.js';
 
 const doc = {
   kind: 'team', matchId: 'm_T_1', startedAt: 1000, endedAt: 5000, mode: 'coop', difficulty: 'HARD',
@@ -88,4 +88,34 @@ test('team replay: the meta at t=0 is the initial board, not the last resync', (
   assert.equal(metas[0].m.units[0].form, 'first');
   assert.equal(metas[1].m.units[0].form, 'second');
   assert.equal(metas[0].m.local, false);
+});
+
+
+test('team replay: one account playing two seats uses the private stream of the field it watches', () => {
+  const d = { ...doc, viewerIds: ['p_a', 'p_b'], privates: {
+    p_a: [{ at: 0, t: 'm.private', m: { playerId: 'p_a', hand: ['a'] } }],
+    p_b: [{ at: 0, t: 'm.private', m: { playerId: 'p_b', hand: ['b'] } }],
+  } };
+  assert.deepEqual(teamViewerIds(d), ['p_a', 'p_b']);
+  assert.equal(teamViewerId(d), 'p_a');
+  assert.deepEqual(teamFields(d).map((f) => f.fieldId), ['n:p_a', 'n:p_b']);
+  const wireB = teamWireFor(d, 'n:p_b');
+  assert.ok(wireB.some((f) => f.t === 'm.private' && f.m.playerId === 'p_b'));
+  assert.equal(wireB.some((f) => f.t === 'm.private' && f.m.playerId === 'p_a'), false);
+});
+
+
+test('team replay seek: spawn metadata before the latest snapshot, then only events after it', () => {
+  const stateEvents = [
+    { at: 100, t: 'b.ev', m: { fieldId: 'n:p_a', ev: [['spawn', 'op_texas', 1, 2]] } },
+    { at: 300, t: 'b.ev', m: { fieldId: 'n:p_a', ev: [['die', 'enemy_old', 3]] } },
+    { at: 500, t: 'b.ev', m: { fieldId: 'n:p_a', ev: [['spawn', 'enemy_new', 4, 5]] } },
+  ];
+  const latestSnap = new Map([['n:p_a', { at: 400, t: 'b.snap', m: { fieldId: 'n:p_a', units: [['op_texas', 1, 2, 3]] } }]]);
+  const out = seekRebuildFrames(stateEvents, latestSnap);
+  assert.deepEqual(out.map((f) => f.t === 'b.snap' ? 'snap' : f.m.ev[0][0]), ['spawn', 'snap', 'spawn']);
+  assert.equal(out[0].m.ev[0][1], 'op_texas', 'the pre-snapshot spawn supplies the unit definition');
+  assert.equal(out[1].m.units[0][0], 'op_texas', 'the latest snapshot is the base state');
+  assert.equal(out[2].m.ev[0][1], 'enemy_new', 'only the post-snapshot event is applied');
+  assert.equal(out.some((f) => f.m?.ev?.[0]?.[0] === 'die'), false, 'a pre-snapshot death cannot kill the snapshot state');
 });

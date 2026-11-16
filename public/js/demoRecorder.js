@@ -45,7 +45,7 @@ const HANDOFF_MS = 15_000;
 
 /** @typedef {{ id: string, startedAt: number, endedAt: number|null, end: string|null, rounds: number, settled: boolean,
  *   mode: string|null, difficulty: string|null, players: any[], events: any[], snapshots: any[], bytes: number,
- *   closed: boolean, matchId: string|null, playerId: string|null, isTeam: boolean }} DemoDoc */
+ *   closed: boolean, matchId: string|null, matchToken: string|null, playerId: string|null, isTeam: boolean }} DemoDoc */
 
 /** @type {DemoDoc | null} */
 let active = null;
@@ -82,6 +82,7 @@ function begin(frame) {
     mode: frame.modeId ?? null, difficulty: frame.difficulty ?? null,
     // team-demo grouping: the server stamps matchId into m.public; old servers / test frames leave it null
     matchId: typeof frame.matchId === 'string' && frame.matchId ? frame.matchId : null,
+    matchToken: typeof frame.matchToken === 'string' && frame.matchToken ? frame.matchToken : null,
     playerId: store.get().me?.playerId || null,
     isTeam: !!(frame.matchId && (frame.players || []).filter((p) => p && !p.isBot).length >= 2),
     players: frame.players || [], events: [], snapshots: [], marks: [], wire: [], wireBytes: 0, bytes: 0, closed: false,
@@ -95,6 +96,8 @@ function begin(frame) {
 
 function pushFrame(msg) {
   if (!active || active.closed) return;
+  // The first m.public stamps the match token; a later public frame may be the first one seen after a reconnect.
+  if (!active.matchToken && typeof msg.matchToken === 'string' && msg.matchToken) active.matchToken = msg.matchToken;
   const snap = slimFrame(msg);
   // 回合边界（用户 2026-11-15：进度条上用一个白点表示一回合的开始 / 结束）
   if (Number.isInteger(snap.round) && snap.round !== active.lastRound) {
@@ -167,6 +170,12 @@ export async function flushDemo(reason = 'disconnect', { force = false } = {}) {
   const copy = copyOf(doc, reason);
   copy.closed = false;
   const ok = await putDemo(copy).catch(() => false);
+  // A dropped socket / pagehide may be the last chance this part is ever seen: queue the team part too, not only
+  // finishDemo at settlement. If the player reconnects and finishes, the same local document is overwritten and the
+  // queued upload reads the full copy; if they never return, the partial part is at least available to the team.
+  if (copy.isTeam && copy.matchId && copy.playerId) {
+    import('./ui/cloud.js').then((m) => m.queueTeamUpload?.(copy)).catch(() => {});
+  }
   return ok ? copy.id : null;
 }
 

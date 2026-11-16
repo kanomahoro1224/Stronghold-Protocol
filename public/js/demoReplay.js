@@ -408,24 +408,7 @@ function seek(s, ms, autoplay = s.playing) {
   syncReplayClock(s, true);
   s.onTick?.();
   afterFramesReady(s, () => {
-    // Rebuild the target state in the right order: spawn metadata that predates the latest snapshot (compact b.snap
-    // tuples carry no defId and would otherwise become unknown enemy views), then the latest snapshot itself, then
-    // only the state events that happened AFTER that snapshot. The old all-events-first order let a pre-snapshot death
-    // revive from the snapshot (or a post-snapshot death be overwritten), which is the seek/model mismatch report.
-    const snapAt = new Map();
-    for (const [fieldId, f] of latestSnap) snapAt.set(fieldId, f.at || 0);
-    for (const f of stateEvents) {
-      const fieldId = f.m?.fieldId || '';
-      if ((f.at || 0) > (snapAt.get(fieldId) ?? -1)) continue;
-      const spawn = (f.m?.ev || []).filter((e) => Array.isArray(e) && e[0] === 'spawn');
-      if (spawn.length) dispatch({ t: 'b.ev', m: { ...f.m, ev: spawn } });
-    }
-    for (const f of latestSnap.values()) dispatch(f);
-    for (const f of stateEvents) {
-      const fieldId = f.m?.fieldId || '';
-      if ((f.at || 0) <= (snapAt.get(fieldId) ?? -1)) continue;
-      dispatch(f);
-    }
+    for (const f of seekRebuildFrames(stateEvents, latestSnap)) dispatch(f);
     const catchTargets = new Map();
     for (const f of s.snapshotMode ? [] : active.values()) {
       const elapsed = (Number(f.m.elapsed) || 0) + (target - (f.at || 0)) / 1000;
@@ -452,6 +435,34 @@ function seek(s, ms, autoplay = s.playing) {
   });
 }
 
+/**
+ * Rebuild a seeked target state in the only order that can reproduce a live battle:
+ *   1. spawn metadata at/before the latest snapshot (compact b.snap tuples carry no defId; without this they become
+ *      unknown-enemy views),
+ *   2. the latest snapshot itself,
+ *   3. only the state events that happened AFTER that snapshot (a pre-snapshot death must not be replayed after it;
+ *      a post-snapshot death must not be overwritten by an older snapshot).
+ * Exported so the seek ordering has a data-level regression test independent of the browser.
+ */
+export function seekRebuildFrames(stateEvents, latestSnap) {
+  const snapAt = new Map();
+  for (const [fieldId, f] of latestSnap || []) snapAt.set(fieldId, f.at || 0);
+  const out = [];
+  for (const f of stateEvents || []) {
+    const fieldId = f.m?.fieldId || '';
+    if ((f.at || 0) > (snapAt.get(fieldId) ?? -1)) continue;
+    const spawn = (f.m?.ev || []).filter((e) => Array.isArray(e) && e[0] === 'spawn');
+    if (spawn.length) out.push({ t: 'b.ev', m: { ...f.m, ev: spawn } });
+  }
+  for (const f of latestSnap?.values?.() || []) out.push(f);
+  for (const f of stateEvents || []) {
+    const fieldId = f.m?.fieldId || '';
+    if ((f.at || 0) <= (snapAt.get(fieldId) ?? -1)) continue;
+    out.push(f);
+  }
+  return out;
+}
+
 /** Switch a paused or playing team replay to another field without moving the cursor / clock. */
 function switchTeamField(s, fieldId) {
   const target = Number(s.cursor) || 0;
@@ -465,20 +476,34 @@ function switchTeamField(s, fieldId) {
   seek(s, target, wasPlaying);
 }
 
+/** All seats this viewer controls (one account may play two seats); `viewerId` is the primary one. */
+export function teamViewerIds(doc) {
+  if (Array.isArray(doc?.viewerIds) && doc.viewerIds.length) return doc.viewerIds.map(String);
+  if (doc?.viewerId) return [String(doc.viewerId)];
+  const keys = Object.keys(doc?.privates || {});
+  if (keys.length) return keys;
+  const first = (doc?.players || []).find((p) => p && !p.isBot)?.playerId;
+  return first ? [String(first)] : [];
+}
+
 /** A team document's viewer: prefer the server's `viewerId`, then the only private key, then the first human. */
 export function teamViewerId(doc) {
-  if (doc?.viewerId) return String(doc.viewerId);
-  const keys = Object.keys(doc?.privates || {});
-  if (keys.length) return keys[0];
-  return (doc?.players || []).find((p) => p && !p.isBot)?.playerId || null;
+  return teamViewerIds(doc)[0] || null;
+}
+
+/** The private stream for a field: that field's owner when this account controls it, otherwise the primary viewer. */
+function viewerForField(doc, fieldId) {
+  const ids = teamViewerIds(doc);
+  const owner = doc?.fields?.[fieldId]?.owner;
+  return ids.includes(owner) ? owner : (ids[0] || null);
 }
 
 /** Available fields of a team document, the viewer's own field first, degraded fields last. */
 export function teamFields(doc) {
-  const viewer = teamViewerId(doc);
+  const viewers = teamViewerIds(doc);
   return Object.entries(doc?.fields || {}).map(([fieldId, f]) => ({ fieldId, owner: f.owner || null, degraded: !!f.degraded }))
-    .sort((a, b) => Number(b.owner === viewer) - Number(a.owner === viewer) || Number(a.degraded) - Number(b.degraded)
-      || a.fieldId.localeCompare(b.fieldId));
+    .sort((a, b) => Number(viewers.includes(b.owner)) - Number(viewers.includes(a.owner))
+      || Number(a.degraded) - Number(b.degraded) || a.fieldId.localeCompare(b.fieldId));
 }
 
 /**
@@ -490,7 +515,7 @@ export function teamWireFor(doc, fieldId) {
   if (!f) return [];
   const meta = f.initialFieldMeta || f.fieldMeta || {};
   const frames = (f.frames || []).map((x) => ({ at: x.at, t: x.t, m: x.m }));
-  const viewer = teamViewerId(doc);
+  const viewer = viewerForField(doc, fieldId);
   const privateFrames = (doc.privates?.[viewer] || []).map((x) => ({ at: x.at, t: x.t, m: x.m }));
   // The settlement must be the last frame the replay reaches — after the final snapshot and any private frame. If it
   // shares a timestamp with the final snapshot, a stable sort would otherwise deliver it first and show "完美作战"
@@ -524,7 +549,7 @@ export function teamWireFor(doc, fieldId) {
 
 /** The synthetic single-field doc used by the existing replay engine. */
 function teamViewDoc(doc, fieldId) {
-  const viewer = teamViewerId(doc);
+  const viewer = viewerForField(doc, fieldId);
   const fieldOwner = (doc.players || []).find((p) => p.playerId === (doc.fields?.[fieldId]?.owner || viewer));
   const viewerPlayer = (doc.players || []).find((p) => p.playerId === viewer);
   return {

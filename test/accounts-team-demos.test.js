@@ -1,7 +1,7 @@
 // Pure team-demo merge: public timeline de-dup / server clock anchoring / field ownership / private isolation.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { alignPart, mergeTeamDemos, filterTeamDemoForViewer, downsampleTeamDemo } from '../server/accounts/teamDemos.js';
+import { alignPart, mergeTeamDemos, filterTeamDemoForViewer, downsampleTeamDemo, fitTeamDemoToLimit } from '../server/accounts/teamDemos.js';
 
 const frame = (at, t, m = {}) => ({ at, t, m });
 const part = (playerId, wire, over = {}) => ({
@@ -162,4 +162,25 @@ test('downsampleTeamDemo: state events survive; attack animations and extra snap
   assert.equal(kept.filter((f) => f.t === 'b.snap').length, 6, 'first, last and every 2nd snapshot');
   assert.equal(kept.filter((f) => f.t === 'b.ev').length, 1, 'only the state event remains');
   assert.deepEqual(kept.find((f) => f.t === 'b.ev').m.ev.map((e) => e[0]), ['spawn', 'fx'], 'a model-form fx is state, not decoration');
+});
+
+
+test('canonical size: fitTeamDemoToLimit never returns a gzip above the hard limit', () => {
+  const frames = [];
+  for (let i = 0; i < 1200; i++) {
+    frames.push({ at: i * 100, t: 'b.snap', m: { fieldId: 'n:a', units: Array.from({ length: 20 }, (_, j) => ({ id: `u${j}`, x: i, y: j, hp: i + j, form: `f${i % 7}` })) } });
+    frames.push({ at: i * 100 + 50, t: 'b.ev', m: { fieldId: 'n:a', ev: [['status', 0, 99, 'boost']] } });
+  }
+  const huge = {
+    kind: 'team', matchId: 'm_SIZE', availableFields: ['n:a'],
+    public: Array.from({ length: 600 }, (_, i) => ({ at: i, t: 'm.public', m: { phase: 'battle', round: 1, tick: i } })),
+    fields: { 'n:a': { owner: 'p_a', kind: 'normal', fieldMeta: { fieldId: 'n:a' }, initialFieldMeta: { fieldId: 'n:a' }, frames } },
+    privates: { p_a: Array.from({ length: 600 }, (_, i) => ({ at: i, t: 'm.private', m: { playerId: 'p_a', hand: [`h${i}`] } })) },
+    marks: [], result: { at: 120000, t: 'm.result', m: { settled: true } },
+  };
+  const { doc, gz } = fitTeamDemoToLimit(huge, { maxBytes: 4096 });
+  assert.ok(gz.length <= 4096, `gzip ${gz.length} must respect the hard limit`);
+  assert.equal(doc.sizeCapped, true);
+  assert.equal(doc.kind, 'team');
+  assert.ok(doc.result, 'settlement survives the slimming');
 });

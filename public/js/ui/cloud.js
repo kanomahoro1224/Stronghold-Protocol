@@ -96,8 +96,9 @@ export async function uploadCurrentSave() {
 /** 上传一局本机 Demo 到账号（云端只保留最新 10 局；本机不受限）。未登录返回 401，调用方静默忽略。 */
 const TEAM_UPLOAD_QUEUE = 'teamUploadQueue';
 
-function queueTeamUpload(doc) {
-  if (!doc?.id || !doc?.matchId || !doc?.playerId) return;
+export function queueTeamUpload(doc) {
+  // Without the server-signed token the upload can only be rejected; keep the local demo but do not spin a retry row.
+  if (!doc?.id || !doc?.matchId || !doc?.matchToken || !doc?.playerId) return;
   const q = loadPref(TEAM_UPLOAD_QUEUE, []);
   const rows = Array.isArray(q) ? q.filter((x) => x && x.id && x.id !== doc.id) : [];
   rows.push({ id: doc.id, matchId: doc.matchId, playerId: doc.playerId, at: Date.now() });
@@ -105,7 +106,7 @@ function queueTeamUpload(doc) {
 }
 
 async function uploadTeamPart(doc) {
-  return api(`/api/team-demos/${encodeURIComponent(doc.matchId)}/parts`, { method: 'POST', body: { playerId: doc.playerId, doc } });
+  return api(`/api/team-demos/${encodeURIComponent(doc.matchId)}/parts`, { method: 'POST', body: { playerId: doc.playerId, matchToken: doc.matchToken, doc } });
 }
 
 /** Retry team parts left on this device by an earlier failed upload (called at recorder boot / after login). */
@@ -117,7 +118,7 @@ export async function flushTeamUploads() {
   const left = [];
   for (const item of q) {
     const doc = await getLocalDemo(item.id);
-    if (!doc || !doc.isTeam || !doc.matchId || !doc.playerId) continue; // local document gone / no longer team: drop
+    if (!doc || !doc.isTeam || !doc.matchId || !doc.matchToken || !doc.playerId) continue; // gone / legacy without token: drop
     const r = await uploadTeamPart(doc).catch(() => ({ ok: false }));
     if (!r.ok) left.push(item);
   }
@@ -131,6 +132,7 @@ export async function uploadDemo(doc) {
   if (!cfg?.accounts) return { ok: false, error: 'NO_ACCOUNTS' }; // local-only server: no cloud upload, no retry queue
   // 四人局：上传自己的一份 part，服务端按 matchId 归组并只合并 JSON；单人局继续走旧接口
   if (doc.isTeam && doc.matchId && doc.playerId) {
+    if (!doc.matchToken) return { ok: false, error: 'NO_TEAM_TOKEN' }; // never fall through to a single-player upload
     const r = await uploadTeamPart(doc).catch(() => ({ ok: false }));
     if (!r.ok) queueTeamUpload(doc);
     return r;

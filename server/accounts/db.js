@@ -142,8 +142,12 @@ CREATE TABLE IF NOT EXISTS team_demo_links (
   team_demo_id bigint NOT NULL REFERENCES team_demos(id) ON DELETE CASCADE,
   account_id   bigint NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   player_id    text NOT NULL,
-  PRIMARY KEY (team_demo_id, account_id)
+  PRIMARY KEY (team_demo_id, account_id, player_id)
 );
+-- One account may control more than one seat (the same person plays two clients). The old two-column key kept only
+-- one playerId/private stream and silently overwrote the other; migrate existing databases without touching rows.
+ALTER TABLE team_demo_links DROP CONSTRAINT IF EXISTS team_demo_links_pkey;
+ALTER TABLE team_demo_links ADD CONSTRAINT team_demo_links_pkey PRIMARY KEY (team_demo_id, account_id, player_id);
 
 CREATE TABLE IF NOT EXISTS player_links (
   player_id  text PRIMARY KEY,

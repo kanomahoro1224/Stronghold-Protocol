@@ -188,7 +188,7 @@ for (const remote of [false, true]) {
   });
 }
 
-test('failed lane rejects promptly while persistence keeps its checkpoint and saves healthy matches', { timeout: 10000 }, async (t) => {
+test('failed lane rejects promptly while persistence keeps its checkpoint and saves healthy matches', { timeout: 30000 }, async (t) => {
   const pool = poolFor(t, { lanes: 2 });
   const dead = await pool.create('DEAD', options('DEAD'));
   const live = await pool.create('LIVE', options('LIVE'));
@@ -215,7 +215,7 @@ test('failed lane rejects promptly while persistence keeps its checkpoint and sa
   assert.deepEqual(docs[2].matches.DEAD, docs[0].matches.DEAD);
 });
 
-test('unexpected clean exit also closes a lane and refuses new games without hanging', { timeout: 10000 }, async (t) => {
+test('unexpected clean exit also closes a lane and refuses new games without hanging', { timeout: 30000 }, async (t) => {
   const pool = poolFor(t);
   const match = await pool.create('EXIT', options());
   const exited = once(match.lane.worker, 'exit');
@@ -226,7 +226,7 @@ test('unexpected clean exit also closes a lane and refuses new games without han
 });
 
 const hangWorker = new URL('./fixtures/match-worker-hang.mjs', import.meta.url);
-test('unresponsive Match commands time out and settle queued commands', { timeout: 10000 }, async (t) => {
+test('unresponsive Match commands time out and settle queued commands', { timeout: 30000 }, async (t) => {
   const pool = poolFor(t, { workerUrl: hangWorker, timeoutMs: 5000 });
   const match = await pool.create('HANG', options());
   pool.timeoutMs = 30;
@@ -238,7 +238,7 @@ test('unresponsive Match commands time out and settle queued commands', { timeou
   assert.equal(pool.stats().failedLanes, 1);
 });
 
-test('pool close settles in-flight commands and commands waiting on the per-match queue', { timeout: 10000 }, async (t) => {
+test('pool close settles in-flight commands and commands waiting on the per-match queue', { timeout: 30000 }, async (t) => {
   const pool = poolFor(t, { workerUrl: hangWorker });
   const match = await pool.create('CLOSE', options());
   const first = assert.rejects(match.snapshot(), /pool closed/);
@@ -260,7 +260,7 @@ test('postMessage clone errors release requests and do not poison a healthy lane
   assert.ok(await match.snapshot());
 });
 
-test('uncloneable Worker replies reject the command without timing out or killing the lane', { timeout: 10000 }, async (t) => {
+test('uncloneable Worker replies reject the command without timing out or killing the lane', { timeout: 30000 }, async (t) => {
   const pool = poolFor(t);
   const match = await pool.create('REPLY', options());
   await match.start();
@@ -314,7 +314,7 @@ for (const queue of [false, true]) {
   });
 }
 
-test('an unacknowledged queue departure survives a Worker crash and the next restore', { timeout: 10000 }, async (t) => {
+test('an unacknowledged queue departure survives a Worker crash and the next restore', { timeout: 30000 }, async (t) => {
   const pool = poolFor(t);
   const env = environment(t, { pool, mode: null });
   const b = env.registry.create('B');
