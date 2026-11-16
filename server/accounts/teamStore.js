@@ -89,15 +89,21 @@ export async function getTeamDemoStatus(db, matchId) {
   const participants = participantsOf(parts);
   const uploaded = [...new Set(parts.map((p) => p.playerId))];
   const missing = participants.filter((id) => !uploaded.includes(id));
-  let row = await db.query(`SELECT partial, available_fields, bytes FROM team_demos WHERE match_id = $1`, [String(matchId)]);
+  let row = await db.query(`SELECT id, partial, available_fields, bytes FROM team_demos WHERE match_id = $1`, [String(matchId)]);
   let merged = row.rows[0] || null;
-  // 人齐才自动合并；缺人超过 5 分钟时，下一次状态查询用已上传的 parts 生成 partial（不阻塞上传）
+  // 全员到齐但一次合并失败 / 还停在旧的 partial：状态查询本身要补合并。否则只有再上传一次 part 才会恢复，
+  // 而客户端此时通常已经在等一个永远不会出现的 merged=true。
+  if (parts.length && !missing.length && (!merged || merged.partial)) {
+    const m = await mergeTeamDemo(db, matchId, { force: false });
+    if (m.ok) merged = { id: m.id, partial: m.partial, available_fields: m.availableFields, bytes: m.bytes || 0 };
+  }
+  // 缺人超过 5 分钟时，下一次状态查询用已上传的 parts 生成 partial（不阻塞上传）。
   if (missing.length && !merged && parts.length) {
     const oldest = await db.query(`SELECT MIN(uploaded_at) AS oldest FROM team_demo_parts WHERE match_id = $1`, [String(matchId)]);
     const since = oldest.rows[0]?.oldest ? new Date(oldest.rows[0].oldest).getTime() : NaN;
     if (Number.isFinite(since) && Date.now() - since >= PART_TIMEOUT_MS) {
       const m = await mergeTeamDemo(db, matchId, { force: true });
-      if (m.ok) merged = { partial: m.partial, available_fields: m.availableFields, bytes: m.bytes || 0 };
+      if (m.ok) merged = { id: m.id, partial: m.partial, available_fields: m.availableFields, bytes: m.bytes || 0 };
     }
   }
   return {
@@ -105,6 +111,7 @@ export async function getTeamDemoStatus(db, matchId) {
     matchId, participants, uploaded, missing,
     waitingFor: missing,
     merged: !!merged,
+    mergedId: merged?.id ? String(merged.id) : null,
     partial: merged ? !!merged.partial : missing.length > 0,
     bytes: merged ? Number(merged.bytes) || 0 : 0,
     availableFields: merged ? merged.available_fields || [] : [],

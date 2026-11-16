@@ -59,6 +59,8 @@ test('team demo DB: parts → waiting → merge → links → filtered viewer', 
   const va = await getTeamDemoForViewer(db, accounts.a, merged.id);
   const vb = await getTeamDemoForViewer(db, accounts.b, merged.id);
   assert.ok(va && vb);
+  assert.equal(va.viewerId, 'p_a');
+  assert.equal(vb.viewerId, 'p_b');
   assert.deepEqual(Object.keys(va.privates), ['p_a'], 'A receives only A private');
   assert.deepEqual(Object.keys(vb.privates), ['p_b'], 'B receives only B private');
   assert.deepEqual(va.availableFields.sort(), ['n:p_a', 'n:p_b']);
@@ -134,6 +136,19 @@ test('team demo API: upload part, wait, merge all, list, filtered download; non-
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
+
+test('team demo DB: a status query recovers a stale partial once everyone has uploaded', { skip: !CONN }, async () => {
+  const a = part('p_a', { matchId: 'm_T_4' });
+  const b = part('p_b', { matchId: 'm_T_4' });
+  await putTeamDemoPart(db, { matchId: 'm_T_4', playerId: 'p_a', accountId: accounts.a, doc: a });
+  const partial = await mergeTeamDemo(db, 'm_T_4', { force: true });
+  assert.equal(partial.partial, true);
+  await putTeamDemoPart(db, { matchId: 'm_T_4', playerId: 'p_b', accountId: accounts.b, doc: b });
+  const status = await getTeamDemoStatus(db, 'm_T_4');
+  assert.equal(status.merged, true);
+  assert.equal(status.partial, false, 'status re-merges the stale partial after B uploads');
+  assert.ok(status.mergedId);
+});
 
 test('team demo DB: a missing participant turns into partial after the 5 minute timeout', { skip: !CONN }, async () => {
   const doc = part('p_a', { matchId: 'm_TO_1', players: [

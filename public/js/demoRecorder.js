@@ -123,10 +123,12 @@ function recordAction(t, fields) {
 /** One S2C frame of the replay stream (kept verbatim: b.start specs and m.* are what the UI renders). */
 function pushWire(t, msg, local = false) {
   if (replaying() || !active || active.closed) return;
-  if (active.wire.length >= MAX_WIRE) return;
   let size, body;
   try { body = JSON.stringify(msg); size = utf8Bytes(body); } catch { return; }
-  if (active.wireBytes + size > MAX_WIRE_BYTES) return;
+  // Normal frames stop at the cap, but settlement frames must still close the replay: a long match used to drop the
+  // final m.result / RESULT frame once the byte cap was hit, and the merged demo could never show the result.
+  const essential = t === 'm.result' || t === 'b.end' || (t === 'm.public' && msg?.phase === PHASE.RESULT);
+  if (!essential && (active.wire.length >= MAX_WIRE || active.wireBytes + size > MAX_WIRE_BYTES)) return;
   active.wireBytes += size;
   // local frames come from live battle objects that keep changing: store an immutable copy, or a later flush
   // would save the final positions into every earlier snapshot

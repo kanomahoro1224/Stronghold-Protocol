@@ -261,7 +261,8 @@ function runTo(s, target) {
   if (s.idx >= wire.length) {
     s.playing = false;
     s.cursor = s.duration;
-    // 播完停在最后一帧：冻结战斗 sim，不继续在后台空跑
+    // 播完停在最后一帧：冻结战斗 sim，不继续在后台空跑（public.paused 同步，否则 runner 订阅会解冻）
+    storeReplayPaused(true);
     battleRunner?.setPaused?.(true);
     s.onTick?.();
     syncReplayClock(s, true);
@@ -293,7 +294,8 @@ function tick() {
       return;
     }
     s.waiting = false;
-    s.base += Date.now() - (s.waitAt || Date.now());
+    // waitAt can be shifted by a pause; never subtract a future anchor or resume would jump backwards.
+    s.base += Math.max(0, Date.now() - (s.waitAt || Date.now()));
   }
   const el = (Date.now() - s.base) * s.speed;
   runTo(s, Math.min(s.duration, el));
@@ -307,13 +309,26 @@ function holdClock(s) {
   s.clockTimer = setInterval(() => { if (session === s) syncReplayClock(s, true); else clearInterval(s.clockTimer); }, 250);
 }
 
+/**
+ * The battle runner follows `match.public.paused` in its own store subscription. A direct setPaused(true) without
+ * updating that field is immediately undone when setPaused publishes `match.battle` — the root cause of the replay
+ * "pause" that kept simulating. Keep the public flag in step with every replay pause / resume / seek / end.
+ */
+function storeReplayPaused(on) {
+  const cur = store.get().match?.public;
+  const base = cur && typeof cur === 'object' ? cur : {};
+  store.patch('match', { public: { ...base, paused: !!on, pausedAt: on ? Date.now() : null } });
+}
+
 function pause(s) {
   if (!s.playing) return;
   s.paused = true;
   s.playing = false;
+  s.pauseStartedAt = Date.now();
   clearTimeout(s.timer);
   s.timer = 0;
   // 真暂停：冻结战斗 sim 时钟与回放时钟（右上角倒计时停在同一秒）
+  storeReplayPaused(true);
   battleRunner?.setPaused?.(true);
   syncReplayClock(s, true);
   holdClock(s);
@@ -322,9 +337,19 @@ function pause(s) {
 
 function play(s) {
   if (s.playing) return;
+  const pausedFor = s.pauseStartedAt ? Math.max(0, Date.now() - s.pauseStartedAt) : 0;
+  s.pauseStartedAt = 0;
   s.paused = false;
   clearInterval(s.clockTimer);
   if (s.idx >= (s.doc.wire || []).length) { seek(s, 0, true); return; }
+  // A pause during the settlement wait / catch-up must not be counted as battle time on resume: shift the old anchors
+  // by exactly the paused duration, otherwise the bar jumps ahead and can pass a frame that was never dispatched.
+  if (pausedFor) {
+    if (s.waitAt) s.waitAt += pausedFor;
+    if (s.endGraceAt) s.endGraceAt += pausedFor;
+    if (s.catchSince) s.catchSince += pausedFor;
+  }
+  storeReplayPaused(false);
   battleRunner?.setPaused?.(false);
   s.playing = true;
   s.base = Date.now() - s.cursor / s.speed;
@@ -343,12 +368,14 @@ function play(s) {
 function seek(s, ms, autoplay = s.playing) {
   clearInterval(s.clockTimer);
   s.paused = false;
+  s.pauseStartedAt = 0;
   s.waiting = false;
   s.endGraceAt = 0;
   const target = Math.max(0, Math.min(s.duration, ms));
   s.playing = false;
   clearTimeout(s.timer);
   // 先恢复战斗时钟再重建：否则暂停期间的 setPaused(false) 会把新 b.start 的 t0 平移整个暂停时长
+  try { storeReplayPaused(false); } catch { /* ignore */ }
   try { battleRunner?.setPaused?.(false); } catch { /* ignore */ }
   // 清掉上一位置的战斗 sim，避免拖动时新旧战斗重叠
   try { battleRunner?.clear?.(); } catch { /* ignore */ }
@@ -396,8 +423,12 @@ function seek(s, ms, autoplay = s.playing) {
     s.onTick?.();
     if (autoplay && s.cursor < s.duration) play(s);
     else {
+      // Dragging while paused must leave the battle paused too: seek() cleared the public flag/runner above, and
+      // without re-arming them the local simulation kept stepping behind the frozen cursor.
       s.paused = true;
       s.playing = false;
+      storeReplayPaused(true);
+      battleRunner?.setPaused?.(true);
       syncReplayClock(s, true);
       holdClock(s); // 暂停中拖动：停在目标帧，不擅自恢复播放
       s.onTick?.();
@@ -418,16 +449,20 @@ function switchTeamField(s, fieldId) {
   seek(s, target, wasPlaying);
 }
 
-/** A team document's viewer: the server already filtered privates to this account, so its only key is the viewer. */
+/** A team document's viewer: prefer the server's `viewerId`, then the only private key, then the first human. */
 export function teamViewerId(doc) {
+  if (doc?.viewerId) return String(doc.viewerId);
   const keys = Object.keys(doc?.privates || {});
   if (keys.length) return keys[0];
   return (doc?.players || []).find((p) => p && !p.isBot)?.playerId || null;
 }
 
-/** Available fields of a team document, owner first. */
+/** Available fields of a team document, the viewer's own field first, degraded fields last. */
 export function teamFields(doc) {
-  return Object.entries(doc?.fields || {}).map(([fieldId, f]) => ({ fieldId, owner: f.owner || null, degraded: !!f.degraded }));
+  const viewer = teamViewerId(doc);
+  return Object.entries(doc?.fields || {}).map(([fieldId, f]) => ({ fieldId, owner: f.owner || null, degraded: !!f.degraded }))
+    .sort((a, b) => Number(b.owner === viewer) - Number(a.owner === viewer) || Number(a.degraded) - Number(b.degraded)
+      || a.fieldId.localeCompare(b.fieldId));
 }
 
 /**
@@ -474,11 +509,12 @@ export function teamWireFor(doc, fieldId) {
 /** The synthetic single-field doc used by the existing replay engine. */
 function teamViewDoc(doc, fieldId) {
   const viewer = teamViewerId(doc);
-  const owner = (doc.players || []).find((p) => p.playerId === (doc.fields?.[fieldId]?.owner || viewer));
+  const fieldOwner = (doc.players || []).find((p) => p.playerId === (doc.fields?.[fieldId]?.owner || viewer));
+  const viewerPlayer = (doc.players || []).find((p) => p.playerId === viewer);
   return {
     ...doc,
     id: doc.id || `team_${doc.matchId || ''}`,
-    owner: { playerId: viewer, name: owner?.name || null },
+    owner: { playerId: viewer, name: viewerPlayer?.name || fieldOwner?.name || null },
     wire: teamWireFor(doc, fieldId),
   };
 }
@@ -529,7 +565,7 @@ export function startDemoReplay(input) {
     doc, team: team ? { source: team, viewer, fieldId: firstField, fields } : null,
     snapshotMode: team ? true : (doc.wire || []).some((f) => f.local), idx: 0, cursor: 0, duration, playing: true, speed: 1,
     base: Date.now(), timer: 0, clockTimer: 0, prev, onTick: null, active: new Map(), lastSync: 0,
-    marks: marksOf(doc).filter((m) => m.at <= duration), battleMarks: battleMarksOf(doc, duration), drag: false, paused: false, waiting: false, waitAt: 0, endGraceAt: 0, catchingUp: false, catchTargets: new Map(), catchSince: 0,
+    marks: marksOf(doc).filter((m) => m.at <= duration), battleMarks: battleMarksOf(doc, duration), drag: false, paused: false, pauseStartedAt: 0, waiting: false, waitAt: 0, endGraceAt: 0, catchingUp: false, catchTargets: new Map(), catchSince: 0,
   };
   session = s;
 
@@ -586,7 +622,7 @@ export function startDemoReplay(input) {
   });
 
   render(html`<${Bar} s=${s} />`, uiHost);
-  afterFramesReady(s, () => { if (s.playing) { s.base = Date.now() - s.cursor / s.speed; tick(); } });
+  afterFramesReady(s, () => { if (session === s && s.playing) { s.base = Date.now() - s.cursor / s.speed; tick(); } });
   return true;
 }
 
@@ -595,6 +631,10 @@ export function stopDemoReplay() {
   if (!session) return;
   const s = session;
   session = null;
+  s.playing = false;
+  s.paused = false;
+  s.catchingUp = false;
+  s.waiting = false;
   clearTimeout(s.timer);
   clearTimeout(s.readyTimer);
   s.readySeq = (s.readySeq || 0) + 1;

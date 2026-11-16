@@ -180,8 +180,8 @@ Body: { matchId, playerId, doc }
 查询：
 
 ```http
-GET /api/team-demos/:matchId/status   // 已上传玩家、缺谁、合并状态
-GET /api/team-demos/:id               // 按当前账号过滤后的回放文档
+GET /api/team-demos/:matchId/status   // 已上传玩家、缺谁、合并状态；全员到齐且无 canonical / 旧 partial 时自动补合并
+GET /api/team-demos/:id               // 按当前账号过滤后的回放文档；带 viewerId 和只属于自己的 m.private
 ```
 
 ### 6.2 表结构
@@ -315,6 +315,9 @@ CREATE TABLE team_demo_links (
 
 ### 9.1 数据加载
 
+- canonical 下载会带 `viewerId`（当前账号的 playerId），客户端据此选择自己的 `m.private`；不再依赖
+  `Object.keys(privates)[0]`，否则直接拿到未过滤文档时可能选中别人的 private。
+
 `canReplayVisual(doc)` 增加：
 
 ```js
@@ -409,7 +412,7 @@ if (type === 'g.watch') {
 | 2–3 人上传，超时 5 分钟 | 生成 `partial:true`，只提供已上传战场；UI 标注“部分视角” |
 | 某 part 超 12 MB | 返回 `TOO_LARGE`，客户端降采样后重传；失败则 partial |
 | 某 part 损坏 | 隔离该 part，用其余 part 合并 |
-| 合并失败 | 保留 parts，后台重试 3 次；仍失败则保留个人版 |
+| 合并失败 | 保留 parts；下次 status 查询在全员到齐时自动重试合并，仍失败则保留个人版 |
 | 客户端未登录 | 只落本机，不参与合并 |
 | 旧版 Demo 无 matchId | 不参与合并，继续单机回放 |
 | 切到无数据 field | 提示，不切换，不阻塞回放 |

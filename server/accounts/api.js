@@ -244,7 +244,9 @@ export function createAccountApi({ db, auth, turnstile, mailer, registry, log = 
           const r = await putTeamDemoPart(db, { matchId, playerId: body.playerId, accountId: account.id, doc: body.doc });
           await pruneTeamParts(db).catch(() => {});
           const status = await getTeamDemoStatus(db, matchId);
-          // all declared human participants are in → merge immediately; a partial waits for the timeout / retry
+          // Re-merge on every upload, not only the first complete set: a re-uploaded part must replace the canonical
+          // copy too, otherwise an old video stays linked forever. getTeamDemoStatus also merges on a plain status
+          // query when no canonical exists / only a stale partial does, but that alone would not refresh a full one.
           let merged = null;
           if (!status.missing.length) merged = await mergeTeamDemo(db, matchId, { force: false });
           json(res, 200, { ok: true, partId: String(account.id), waitingFor: status.waitingFor, merged: !!merged?.ok, id: merged?.ok ? merged.id : null });

@@ -51,6 +51,7 @@ test('mergeTeamDemos: public dedupe, owner-only field frames, own private only, 
   assert.equal(doc.fields['n:p_b'].owner, 'p_b');
   assert.deepEqual(Object.keys(doc.privates).sort(), ['p_a', 'p_b']);
   const view = filterTeamDemoForViewer(doc, 'p_a');
+  assert.equal(view.viewerId, 'p_a');
   assert.deepEqual(Object.keys(view.privates), ['p_a'], 'B private never reaches A');
   assert.deepEqual(view.fields, doc.fields, 'all fields are visible');
 });

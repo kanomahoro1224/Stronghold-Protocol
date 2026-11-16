@@ -321,5 +321,7 @@ export function downsampleTeamDemo(doc, { snapStep = 2 } = {}) {
 export function filterTeamDemoForViewer(doc, playerId) {
   if (!isObj(doc) || doc.kind !== 'team') return null;
   const keep = isObj(doc.privates) && playerId && doc.privates[playerId] ? { [playerId]: doc.privates[playerId] } : {};
-  return { ...doc, privates: keep };
+  // The client needs to know which private stream survived. It used to infer it from the first privates key, which
+  // only works when the server has filtered the document; an unfiltered local copy could replay another seat.
+  return { ...doc, viewerId: playerId || null, privates: keep };
 }

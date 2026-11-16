@@ -61,6 +61,19 @@ test('team replay: a public RESULT recorded before the last field frame is moved
   assert.equal(wire[wire.length - 3].t, 'b.snap');
 });
 
+
+test('team replay: viewerId wins over another private key and field order prefers the viewer', () => {
+  const d = { ...doc, viewerId: 'p_b', privates: {
+    p_a: [{ at: 0, t: 'm.private', m: { playerId: 'p_a', hand: ['a'] } }],
+    p_b: [{ at: 0, t: 'm.private', m: { playerId: 'p_b', hand: ['b'] } }],
+  } };
+  assert.equal(teamViewerId(d), 'p_b');
+  assert.deepEqual(teamFields(d).map((f) => f.fieldId), ['n:p_b', 'n:p_a']);
+  const wire = teamWireFor(d, 'n:p_a');
+  assert.ok(wire.some((f) => f.t === 'm.private' && f.m.playerId === 'p_b'));
+  assert.equal(wire.some((f) => f.t === 'm.private' && f.m.playerId === 'p_a'), false);
+});
+
 test('team replay: the meta at t=0 is the initial board, not the last resync', () => {
   const resync = { ...doc, fields: { ...doc.fields, 'n:p_a': {
     owner: 'p_a', kind: 'normal',
