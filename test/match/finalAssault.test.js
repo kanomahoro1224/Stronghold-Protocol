@@ -101,22 +101,41 @@ test('a departure in the Hidden Core prep keeps the intact pair and re-pairs onl
   }
 });
 
-test('boss pool: solo × 1, co-op × 4 with alive / 4; shared and never negative', () => {
-  const { tuning, ...RAW } = DATA;
+test('boss pool = bloodPoint[difficulty] × the players alive at the fight\'s start (solo × 1) × tuning; config restores the fixed pool; shared and never negative', () => {
+  // DESIGN §25.13.4: the owner's decision of 2026-10-06 adopts PR #209 by @qingjingshenghuo (bloodPoint is one player's
+  // share) and replaces the fixed pool of 「保持固定血量」 — config bossHpScale (perPlayer false, solo 0.25) restores it.
+  // Research numbers (data/tuning.json left out).
+  const { tuning, ...RAW } = DATA; // eslint-disable-line no-unused-vars
   const gd = new GameData(RAW, 'mode_multi_hard');
-  for (const n of [4, 3, 2, 1, undefined, 9]) {
-    const count = n == null ? 4 : Math.min(n, 4);
-    assert.equal(bossPoolHp(gd, 'boss_1', n), 1800000 * count, `${n} alive`);
-    assert.equal(gd.bossPoolHp('boss_1', n), bossPoolHp(gd, 'boss_1', n));
-  }
-  const fixed = new GameData({ ...RAW, config: { ...RAW.config,
-    modes: { ...RAW.config.modes, mode_multi_hard: { ...RAW.config.modes.mode_multi_hard,
-      bossHpScale: { ...RAW.config.modes.mode_multi_hard.bossHpScale, aliveScaling: false } } } } }, 'mode_multi_hard');
-  assert.equal(bossPoolHp(fixed, 'boss_1', 1), 7200000, 'explicit mode override disables attenuation');
-  const fallback = { boss: (id) => gd.boss(id), difficulty: gd.difficulty, mode: gd.mode, config: gd.config, isSolo: false };
-  assert.equal(bossPoolHp(fallback, 'boss_1', 2), gd.bossPoolHp('boss_1', 2), 'fallback also attenuates');
-  assert.equal(bossPoolHp(new GameData(RAW, 'mode_single_abyss'), 'boss_5', 1), 3000000);
+  for (const n of [1, 2, 3, 4]) assert.equal(bossPoolHp(gd, 'boss_1', n), 1800000 * n, `${n} alive`);
+  assert.equal(bossPoolHp(gd, 'boss_1'), 1800000 * 4, 'no count given: a full team');
+  assert.equal(bossPoolHp(gd, 'boss_1', 9), 1800000 * 4, 'at most aliveFull (4) players');
+  assert.equal(gd.bossPoolHp('boss_1', 2), bossPoolHp(gd, 'boss_1', 2), 'GameData agrees');
+  assert.equal(bossPoolHp(new GameData(RAW, 'mode_single_abyss'), 'boss_5', 1), 3000000, 'solo: the table value');
   assert.equal(bossPoolHp(new GameData(RAW, 'mode_single_funny'), 'boss_2', 1), 225000);
+  // the flip back: the fixed pool of 0.1.x (perPlayer false; solo 0.25), and its optional × alive / 4 (aliveScaling)
+  const withScale = (over) => ({ ...RAW, config: { ...RAW.config, bossHpScale: { ...RAW.config.bossHpScale, ...over } } });
+  const fixed = withScale({ perPlayer: false, solo: 0.25 });
+  for (const n of [4, 3, 2, 1, undefined, 9]) assert.equal(bossPoolHp(new GameData(fixed, 'mode_multi_hard'), 'boss_1', n), 1800000, `fixed pool, ${n} alive`);
+  assert.equal(bossPoolHp(new GameData(fixed, 'mode_single_abyss'), 'boss_5', 1), 750000);
+  assert.equal(bossPoolHp(new GameData(fixed, 'mode_single_funny'), 'boss_2', 1), 56250);
+  const scaled = new GameData(withScale({ perPlayer: false, aliveScaling: true }), 'mode_multi_hard');
+  assert.equal(bossPoolHp(scaled, 'boss_1', 4), 1800000);
+  assert.equal(bossPoolHp(scaled, 'boss_1', 3), 1350000);
+  assert.equal(bossPoolHp(scaled, 'boss_1', 2), 900000);
+  assert.equal(bossPoolHp(scaled, 'boss_1', 1), 450000);
+  assert.equal(bossPoolHp(scaled, 'boss_1'), 1800000, 'no count given: a full team');
+  assert.equal(bossPoolHp(scaled, 'boss_1', 9), 1800000, 'never above the data value');
+  // a mode's own entry overrides the global one
+  const perMode = { ...RAW, config: { ...RAW.config, modes: { ...RAW.config.modes, mode_multi_hard: { ...RAW.config.modes.mode_multi_hard, bossHpScale: { ...RAW.config.modes.mode_multi_hard.bossHpScale, perPlayer: false } } } } };
+  assert.equal(bossPoolHp(new GameData(perMode, 'mode_multi_hard'), 'boss_1', 3), 1800000, 'the mode entry first');
+  assert.equal(bossPoolHp(new GameData(perMode, 'mode_multi_abyss'), 'boss_1', 3), 3600000 * 3, 'other modes keep the global rule');
+  // the balance layer multiplies the pool (docs/BALANCE.md)
+  for (const modeId of ['mode_single_funny', 'mode_multi_hard']) {
+    const tuned = new GameData(DATA, modeId);
+    const raw = new GameData(RAW, modeId);
+    assert.equal(bossPoolHp(tuned, 'boss_2', 4), Math.max(1, Math.round(bossPoolHp(raw, 'boss_2', 4) * tuned.bossHpMul('boss_2'))));
+  }
   const pool = new SharedBossPool(100);
   assert.equal(pool.damage('a', 60), 60);
   assert.equal(pool.damage('b', 60), 40);

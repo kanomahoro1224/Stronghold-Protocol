@@ -510,18 +510,18 @@ if (type === 'g.watch') {
 | 时钟偏差 | 切视角位置偏移 | serverNow 锚点；后续 b.start 带 serverNow |
 | private 泄露 | 严重隐私问题 | 服务端过滤，绝不返回他人 private |
 | 服务端存储增长 | 成本 | 一份 canonical + links；parts 24h 清理 |
-| matchId 被伪造 | 数据污染 | player_links 校验 + 后续签名 token |
+| matchId 被伪造 | 数据污染 | `player_links` 校验 + 服务端签发的 `matchToken`（HMAC，只存在于 room 的 `m.public`） |
 | 回放切视角复杂 | 暂停/seek 回归 | 复用现有 field 索引与 seek 逻辑，先做单 field 重建测试 |
-| 旧 Demo 不兼容 | 用户困惑 | 旧文档继续单人路径，明确提示不支持合并 |
+| 旧 Demo 不兼容 | 用户困惑 | 无 `matchToken` 的旧团队文档只保留本机，不走团队上传；单人旧文档仍走单人路径 |
 
 ## 16. 待确认决策
 
 1. 合并局是否替换该局的个人云端版，还是两者都保留？
 2. 非参与者 / 观战者是否允许看合并 Demo？（默认否）
-3. 上传鉴权 MVP 用 `player_links` 够不够，还是首版就加 match upload token？
+3. 上传鉴权：已加 match upload token（2026-11-16 用户授权），不再只靠 `player_links`。
 4. canonical 存 PostgreSQL `bytea` 还是对象存储？按当前部署规模，首版 `bytea` 可接受。
-5. 合并文档上限定 8 MB 还是 12 MB？
-6. 缺人时等 5 分钟还是 2 分钟？
+5. 合并文档上限：已定 8 MB 硬上限（2026-11-16 用户授权）。
+6. 缺人等待：保持 5 分钟（2026-11-16 用户授权）。
 7. 视角切换是否允许“跳到他当前没有帧的空档”，还是只在有帧的时间点可切？
 
 ## 17. 验收标准
@@ -555,12 +555,16 @@ if (type === 'g.watch') {
 - **纯合并器**：`server/accounts/teamDemos.js`：`m.public.serverNow` 锚定时间、公共帧去重、按 field owner 选帧（观战副本仅降级兜底）、private 按 playerId 隔离；不重跑战斗。
 - **上传 / 状态 / 列表 / 下载 API**：`POST /api/team-demos/:matchId/parts`、`GET /api/team-demos/:matchId/status`、`GET /api/team-demos`、`GET /api/team-demos/:id`（按登录账号过滤 private）。
 - **客户端**：四人局 `uploadDemo` 自动走 part 接口；云端 Demo 面板增加「联机合并 Demo」列表；`demoReplay` 能把 team canonical 转成单 field wire，并拦截 `g.watch` 在暂停/播放中切 field，保持游标和暂停状态。
+- **上传鉴权**：lobby 为每局签发 `matchToken`（`server/accounts/teamToken.js`），写入 `m.public`；recorder 存进本机文档，API 在 `POST /parts` 常量时间校验，`matchId` 本身不再能授权写入。
+- **多 seat 账号**：`team_demo_links` 主键改为 `(team_demo_id, account_id, player_id)`；同一账号控制两个座位时保留两条 link/两份 private，下载返回 `viewerIds`，回放按当前 field owner 选对应 private。
+- **8 MB 硬上限**：`fitTeamDemoToLimit` 逐级降采样 + slim + hard-slim，最终 gzip 一定 ≤ 8 MB；`sizeCapped` 不再伪装成 `partial`。
+- **断线补传**：`flushDemo` 在团队局把 part 加入重试队列，断线/`pagehide` 后即使玩家不再回来，下次启动也会补传 partial part。
 
 ### 尚未完成 / 待确认
 
-- 真实 PostgreSQL 集成测试已跑通（`test/accounts-team-db.test.js`，5/5）：part gzip 入库、四人 link、按账号过滤 private、缺人超时 partial、冒领 playerId 拒绝。
-- 缺人超时自动 `partial`、8 MB 体积降采样、上传失败本机重试队列已实现。
+- 真实 PostgreSQL 集成测试已跑通（`test/accounts-team-db.test.js`，7/7）：part gzip 入库、四人 link、按账号过滤 private、缺人超时 partial、冒领 playerId 拒绝、stale partial 自动恢复、同账号多 seat 两条 link/private、token 拒绝。
+- 缺人超时自动 `partial`、8 MB 硬上限、上传失败本机重试队列、断线补传已实现。
 - 4 人真实 Chromium 对局已跑通（`test/e2e/team-demo-4p.e2e.mjs`）：四个浏览器建房、四人开局、快速回合 1 结束；四份本机 part 的 `matchId` 一致，纯合并器从真实 `wire` 生成 4 个 field / 4 份 private。
 - 合并回放浏览器验收已跑通（`test/e2e/team-demo.e2e.mjs`）：`.dr-bar` 正常渲染、`g.watch` 切到队友 field、暂停时钟冻结、暂停中拖动时间轴到回合中间不回到 0:00，且保持当前 field。
 - 云端上传在无数据库服务器会因 `/api/config.accounts=false` 直接跳过并保留本机记录，不会产生 405；有 `SP_DATABASE_URL` 时仍走 part 上传。
-- §16 的决策目前按文档默认执行：merged 替换个人云版、非参与者不可见、`player_links` 鉴权、canonical 存 PostgreSQL、目标 8 MB、缺人等待 5 分钟；如用户选择不同，再调整。
+- §16 的决策按 2026-11-16 用户授权执行：merged 替换个人云版、非参与者不可见、`player_links` + match upload token、canonical 存 PostgreSQL、硬上限 8 MB、缺人等待 5 分钟；后续如需改动再调整。
