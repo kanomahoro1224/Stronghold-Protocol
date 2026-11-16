@@ -565,6 +565,7 @@ if (type === 'g.watch') {
 - **多 seat 账号**：`team_demo_links` 主键改为 `(team_demo_id, account_id, player_id)`；同一账号控制两个座位时保留两条 link/两份 private，下载返回 `viewerIds`，回放按当前 field owner 选对应 private。
 - **8 MB 硬上限**：`fitTeamDemoToLimit` 逐级降采样 + slim + hard-slim，最终 gzip 一定 ≤ 8 MB；`sizeCapped` 不再伪装成 `partial`。
 - **断线补传**：`flushDemo` 在团队局把 part 加入重试队列，断线/`pagehide` 后即使玩家不再回来，下次启动也会补传 partial part。
+- **回放不是对局**：Demo 的 `DEMO` 房间退出只结束回放，`quitMatch` 不发 `g.leave/room.leave`；`recordQuit`/`recordResult` 在 DEMO 状态直接拒绝，任何退出按钮都不会写本机战绩。
 
 ### 尚未完成 / 待确认
 

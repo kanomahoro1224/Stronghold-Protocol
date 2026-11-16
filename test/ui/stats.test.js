@@ -322,6 +322,20 @@ describe('local stats: the match left early (放弃模拟)', () => {
     assert.equal(live.sawStart, true);
   });
 
+  test('a DEMO replay is never a played match: no quit record and no result record', () => {
+    withStorage(() => {
+      const base = liveState({ phase: PHASE.PREP, round: 4 });
+      const demo = { ...base, room: { ...base.room, code: 'DEMO' } };
+      const live = watched([demo]);
+      assert.equal(buildQuitRecord(demo, { live, now: 4e6 }), null, 'the demo room is not a match');
+      assert.equal(recordQuit(demo, { live, now: 4e6 }), null);
+      assert.equal(live.active, false, 'the tracker is put to rest instead of producing a record');
+      assert.equal(loadStats().records.length, 0);
+      assert.equal(recordResult(baseResult(), { myId: 'p1', demo: true }), null, 'a replayed result cannot be stored');
+      assert.equal(loadStats().records.length, 0);
+    });
+  });
+
   test('recordQuit stores it through localStorage once; the settlement of the same match is a different record', () => {
     withStorage(() => {
       const s = liveState({ phase: PHASE.PREP, round: 4 });

@@ -3114,5 +3114,9 @@
   "隐匿地块": "Hidden tile",
   "其上的双方地面单位获得隐匿，离开地块后解除": "Ground units from both sides gain invisibility while on it; leaving the tile removes it",
   "敌方单位被阻挡时显形，解除阻挡后立即恢复隐匿": "Enemy units become visible when blocked and return to invisibility immediately when unblocked",
-  "这台服务器已经带有这个官方主题，直接在下面选用即可。": "This server already has this official theme; select it below."
+  "这台服务器已经带有这个官方主题，直接在下面选用即可。": "This server already has this official theme; select it below.",
+  "退出 Demo": "Leave Demo",
+  "继续观看": "Keep Watching",
+  "退出回放": "Exit Replay",
+  "退出回放只关闭这段 Demo，不会结束任何对局，也不会记录战绩。": "Leaving the replay only closes this Demo; it does not end any match or record stats."
 }

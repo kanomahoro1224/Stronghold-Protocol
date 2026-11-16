@@ -61,6 +61,9 @@ import { DEFAULT_VERSION, versionById } from '../../../shared/versions.js';
 export const STATS_VERSION = 3;
 /** localStorage key under the app's `sp.pref.` prefix (store.js loadPref). */
 export const STATS_PREF_KEY = 'stats';
+/** The synthetic room code demoReplay.js swaps in; it is never a played match. */
+const DEMO_ROOM_CODE = 'DEMO';
+
 /** Oldest records are dropped beyond this many matches. */
 export const MAX_RECORDS = 1000;
 /** The newest records that keep their full rows (lineups, bonds, teammates) — what the settlement replay reads. */
@@ -629,6 +632,10 @@ export function clearedRounds(phase, round) {
  * @returns {any|null}
  */
 export function buildQuitRecord(state, ctx = {}) {
+  // A replay is not a played match: no matter which in-game exit button was pressed, it must never enter
+  // 对局记录 or the aggregates. The demo bars' own 退出 stops playback directly; this also covers the game
+  // chrome's 放弃模拟 dialog, which reuses quitMatch().
+  if (state?.room?.code === DEMO_ROOM_CODE) return null;
   const live = ctx.live ?? liveMatch;
   const now = int(ctx.now, Date.now());
   const pub = state?.match?.public;
@@ -739,7 +746,7 @@ function storeRecord(rec) {
  * @returns {any|null}
  */
 export function recordResult(res, ctx = {}) {
-  if (liveMatch.test === true) return null;
+  if (liveMatch.test === true || ctx.demo === true) return null;
   return storeRecord(buildRecord(res, ctx));
 }
 
@@ -751,6 +758,7 @@ export function recordResult(res, ctx = {}) {
  */
 export function recordQuit(state, ctx = {}) {
   const live = ctx.live ?? liveMatch;
+  if (state?.room?.code === DEMO_ROOM_CODE) { live.active = false; return null; }
   const rec = storeRecord(buildQuitRecord(state, ctx));
   live.active = false; // one record per match
   return rec;

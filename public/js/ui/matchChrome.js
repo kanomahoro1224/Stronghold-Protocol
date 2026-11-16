@@ -48,6 +48,13 @@ store.subscribe((s, prev) => { if (awayStore.get().away && awayEnds(s, prev)) aw
  */
 export async function quitMatch() {
   const before = store.get();
+  // Demo replay: its store room is the synthetic DEMO room, not a server match. The exit button must only leave
+  // playback — never send g.leave / room.leave, never finish a recorder, and never write 对局记录. Clearing the
+  // synthetic state makes demoReplay's own store subscription restore the screen it came from.
+  if (before.room?.code === 'DEMO') {
+    store.set({ room: null, match: emptyMatch() });
+    return;
+  }
   let left = false;
   try {
     try { await net.request('g.leave', {}); left = true; } catch (err) {
@@ -81,6 +88,7 @@ export async function quitMatch() {
  */
 export function ExitModal({ open, onClose, solo, onAway }) {
   const [busy, setBusy] = useState(null);
+  const demo = useStore((s) => s.room?.code === 'DEMO');
   // a spectator seat (community report #26) only leaves its seat: nothing of the match is given up
   const spectator = useStore((s) => isSpectating(s.room, s.me.playerId));
   const quit = async () => {
@@ -89,6 +97,13 @@ export function ExitModal({ open, onClose, solo, onAway }) {
     setBusy(null);
     onClose();
   };
+  if (demo) {
+    return html`<${Modal} open=${open} onClose=${onClose} tone="red" title=${t('退出 Demo')} micro="LEAVE DEMO" width="6.8rem"
+      actions=${html`<${Button} variant="secondary" onClick=${onClose}>${t('继续观看')}<//>
+        <${Button} variant="danger" icon="exit" loading=${busy === 'quit'} onClick=${quit}>${t('退出回放')}<//>`}>
+      <div class="exitm"><p>${t('退出回放只关闭这段 Demo，不会结束任何对局，也不会记录战绩。')}</p></div>
+    <//>`;
+  }
   if (spectator) {
     return html`<${Modal} open=${open} onClose=${onClose} tone="red" title=${t('离开观战')} micro="LEAVE SPECTATING" width="6.8rem"
       actions=${html`<${Button} variant="secondary" onClick=${onClose}>${t('取消')}<//>

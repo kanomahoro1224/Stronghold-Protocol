@@ -76,3 +76,19 @@ test('an acknowledged departure is conclusive even when a redundant request woul
   assert.equal(store.get().match.public, null);
   assert.deepEqual(s.sent, ['g.leave']);
 });
+
+test('a DEMO replay exits locally: no g.leave / room.leave and no match record', async (t) => {
+  const previous = store.get();
+  store.set({
+    ...initialState,
+    room: { code: 'DEMO', mode: 'coop', inMatch: true },
+    match: { ...emptyMatch(), public: { phase: 'PREP', round: 3, players: [{ playerId: 'p1', alive: true }] } },
+  });
+  t.after(() => store.set(previous));
+  const sent = [];
+  t.mock.method(net, 'request', async (type) => { sent.push(type); return { t: 'ok' }; });
+  await quitMatch();
+  assert.deepEqual(sent, [], 'a replay never talks to the server');
+  assert.equal(store.get().room, null, 'only the synthetic room is cleared');
+  assert.equal(store.get().match.public, null);
+});
