@@ -240,6 +240,8 @@ export function LoginForm({ onDone, mode = '', profile = null }) {
     reconnectSocket();
     // 登录后先把这台设备上的编队/设置传上去，换设备时才有东西可恢复
     uploadCurrentSave().catch(() => {});
+    // A team part queued before login (uploadDemo at settle) needs the account link that just succeeded.
+    flushTeamUploads().catch(() => {});
     onDone?.(account, link.ok);
   };
 

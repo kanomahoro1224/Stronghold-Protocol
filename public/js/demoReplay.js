@@ -75,6 +75,10 @@ const speedLabel = (v) => (v === 0.25 ? '¼×' : v === 0.5 ? '½×' : `${v}×`);
 
 /** 这条帧会结束一场战斗 / 整局：必须等本地战斗真的打完再发，否则怪还在打就弹出「完美作战」。 */
 const ENDS_BATTLE = (f) => f.t === 'b.end' || f.t === 'm.result' || (f.t === 'm.public' && f.m?.phase === PHASE.RESULT);
+/** A seek / catch-up may be genuinely long (a stale page loading a battle), but the progress bar must not run to the
+ *  result while the sim is still behind it. The end wait has no time cap: a battle that is still running is not a
+ *  result, and showing 「完美作战」 early is exactly the report this guards. */
+const CATCHUP_WAIT_MS = 120_000;
 
 /** 本地战斗 sim 是否还没结束（回放按真实战斗动画等待，不抢跑结算）。 */
 function battleStillRunning() {
@@ -228,10 +232,12 @@ function runTo(s, target) {
     if (s.snapshotMode && f.t === 'b.start') { s.idx++; continue; } // 新 Demo 直接放录下的战斗帧，不重跑模拟
     if (!s.snapshotMode && ENDS_BATTLE(f)) {
       const now = Date.now();
-      // 本地战斗没打完 → 等；刚打完也留 300ms 给死亡动画，避免「怪还在」就弹完美作战
+      // 本地战斗没打完 → 等；刚打完也留 300ms 给死亡动画，避免「怪还在」就弹完美作战。
+      // No timeout here: the old 20 s fallback could dispatch the result while a long battle was still running.
       if (battleStillRunning()) {
         if (!s.waiting) { s.waiting = true; s.waitAt = now; }
-        if (now - (s.waitAt || 0) < 20_000) { s.onTick?.(); return; }
+        s.onTick?.();
+        return;
       } else if (!s.endGraceAt) {
         s.endGraceAt = now;
         s.waiting = true;
@@ -267,8 +273,10 @@ function tick() {
   if (!session || !session.playing) return;
   const s = session;
   if (s.catchingUp) {
-    // 跳转后先让战斗 sim 真正算到目标时刻，再继续放帧；否则进度条会跑到结算，战斗还在后面追
-    if (!catchUpDone(s) && Date.now() - (s.catchSince || 0) < 20_000) {
+    // 跳转后先让战斗 sim 真正算到目标时刻，再继续放帧；否则进度条会跑到结算，战斗还在后面追。
+    // A failed/missing sim must not freeze the player forever; after the guard the loop refuses to dispatch a result
+    // until the battle itself is done (runTo's end wait), so the bar cannot claim a perfect clear early.
+    if (!catchUpDone(s) && Date.now() - (s.catchSince || 0) < CATCHUP_WAIT_MS) {
       syncReplayClock(s);
       s.timer = setTimeout(tick, 40);
       return;
@@ -278,8 +286,8 @@ function tick() {
     s.onTick?.();
   }
   if (s.waiting) {
-    // 等战斗结束期间冻结进度与时钟，结束后把等待时长从 base 里补掉
-    if (battleStillRunning() && Date.now() - (s.waitAt || 0) < 20_000) {
+    // 等战斗结束期间冻结进度与时钟，结束后把等待时长从 base 里补掉。No timeout: see runTo.
+    if (battleStillRunning()) {
       syncReplayClock(s);
       s.timer = setTimeout(tick, 40);
       return;
@@ -429,21 +437,37 @@ export function teamFields(doc) {
 export function teamWireFor(doc, fieldId) {
   const f = doc?.fields?.[fieldId];
   if (!f) return [];
-  const meta = f.fieldMeta || {};
+  const meta = f.initialFieldMeta || f.fieldMeta || {};
   const frames = (f.frames || []).map((x) => ({ at: x.at, t: x.t, m: x.m }));
-  // The settlement must be the last frame the replay reaches. If it shares a timestamp with the final snapshot,
-  // a stable sort would deliver it first and show "完美作战" while the recorded enemies are still standing.
-  const lastFrameAt = frames.reduce((m, x) => Math.max(m, Number(x.at) || 0), 0);
-  const resultAt = Math.max(Number(doc.result?.at) || 0, lastFrameAt);
-  const wire = [
-    ...(doc.public || []).map((x) => ({ at: x.at, t: x.t, m: x.m })),
-    ...(doc.result?.t ? [{ at: resultAt, t: doc.result.t, m: doc.result.m }] : []),
-    { at: 0, t: 'm.field', m: { ...meta, fieldId } },
-    ...frames,
-  ];
   const viewer = teamViewerId(doc);
-  for (const x of (doc.privates?.[viewer] || [])) wire.push({ at: x.at, t: x.t, m: x.m });
-  wire.sort((a, b) => (a.at || 0) - (b.at || 0));
+  const privateFrames = (doc.privates?.[viewer] || []).map((x) => ({ at: x.at, t: x.t, m: x.m }));
+  // The settlement must be the last frame the replay reaches — after the final snapshot and any private frame. If it
+  // shares a timestamp with the final snapshot, a stable sort would otherwise deliver it first and show "完美作战"
+  // while the recorded enemies are still standing.
+  const lastDataAt = Math.max(
+    frames.reduce((m, x) => Math.max(m, Number(x.at) || 0), 0),
+    (doc.public || []).reduce((m, x) => Math.max(m, Number(x.at) || 0), 0),
+    privateFrames.reduce((m, x) => Math.max(m, Number(x.at) || 0), 0),
+  );
+  const resultAt = Math.max(Number(doc.result?.at) || 0, lastDataAt);
+  const resultFrame = doc.result?.t ? { at: resultAt, t: doc.result.t, m: doc.result.m } : null;
+  // A public RESULT frame recorded before the final data would switch the screen to the result while the final
+  // enemies are still on it; clamp end-of-match public frames.
+  const isEndPublic = (x) => x.t === 'm.public' && x.m?.phase === PHASE.RESULT;
+  const publicFrames = (doc.public || []).map((x) => (isEndPublic(x) ? { at: Math.max(Number(x.at) || 0, lastDataAt), t: x.t, m: x.m } : { at: x.at, t: x.t, m: x.m }));
+  const wire = [
+    ...publicFrames,
+    // A recorder's local battle flag must not make the replay ask the runner to re-show a live sim; this field is a
+    // recorded frame stream played back through the normal renderer.
+    { at: 0, t: 'm.field', m: { ...meta, fieldId, local: false } },
+    ...frames,
+    ...privateFrames,
+  ];
+  if (resultFrame) wire.push(resultFrame);
+  // At an equal timestamp the settlement must still be the last frame, or the final snapshot would precede
+  // "完美作战" and the result card would show before the last enemies die.
+  const endFrame = (f) => f === resultFrame || isEndPublic(f);
+  wire.sort((a, b) => (a.at || 0) - (b.at || 0) || (endFrame(a) ? 1 : 0) - (endFrame(b) ? 1 : 0));
   return wire;
 }
 

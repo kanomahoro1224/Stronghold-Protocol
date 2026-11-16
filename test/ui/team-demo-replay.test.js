@@ -35,3 +35,44 @@ test('team replay: one field wire has public + meta + own frames + own private, 
   assert.equal(wire.some((f) => f.t === 'm.private' && f.m.playerId === 'p_b'), false);
   assert.equal(wire.some((f) => f.t === 'b.snap' && f.m.units[0].id === 'b1'), false, 'other field frames stay out');
 });
+
+test('team replay: a settlement sharing the final frame timestamp still sorts last', () => {
+  const tied = { ...doc, result: { at: 100, t: 'm.result', m: { settled: true, outcome: 'won' } },
+    fields: { ...doc.fields, 'n:p_a': { ...doc.fields['n:p_a'], frames: [
+      { at: 100, t: 'b.snap', m: { fieldId: 'n:p_a', units: [{ id: 'a1', x: 1 }] } },
+    ] } } };
+  const wire = teamWireFor(tied, 'n:p_a');
+  const last = wire[wire.length - 1];
+  assert.equal(last.t, 'm.result', 'the result is after the final snapshot at the same at');
+  assert.equal(wire[wire.length - 2].t, 'b.snap');
+});
+
+test('team replay: a public RESULT recorded before the last field frame is moved after it', () => {
+  const early = { ...doc, public: [
+    { at: 0, t: 'm.public', m: { phase: 'prep', round: 1 } },
+    { at: 50, t: 'm.public', m: { phase: 'RESULT', round: 2 } },
+  ], fields: { ...doc.fields, 'n:p_a': { ...doc.fields['n:p_a'], frames: [
+    { at: 100, t: 'b.snap', m: { fieldId: 'n:p_a', units: [{ id: 'a1', x: 1 }] } },
+  ] } } };
+  const wire = teamWireFor(early, 'n:p_a');
+  assert.equal(wire[wire.length - 1].t, 'm.result');
+  assert.equal(wire[wire.length - 2].t, 'm.public');
+  assert.equal(wire[wire.length - 2].m.phase, 'RESULT');
+  assert.equal(wire[wire.length - 3].t, 'b.snap');
+});
+
+test('team replay: the meta at t=0 is the initial board, not the last resync', () => {
+  const resync = { ...doc, fields: { ...doc.fields, 'n:p_a': {
+    owner: 'p_a', kind: 'normal',
+    initialFieldMeta: { fieldId: 'n:p_a', units: [{ id: 'a1', form: 'first' }] },
+    fieldMeta: { fieldId: 'n:p_a', units: [{ id: 'a1', form: 'second' }] },
+    frames: [
+      { at: 100, t: 'm.field', m: { fieldId: 'n:p_a', units: [{ id: 'a1', form: 'second' }] } },
+      { at: 100, t: 'b.snap', m: { fieldId: 'n:p_a', units: [{ id: 'a1', x: 1 }] } },
+    ],
+  } } };
+  const metas = teamWireFor(resync, 'n:p_a').filter((f) => f.t === 'm.field');
+  assert.equal(metas[0].m.units[0].form, 'first');
+  assert.equal(metas[1].m.units[0].form, 'second');
+  assert.equal(metas[0].m.local, false);
+});

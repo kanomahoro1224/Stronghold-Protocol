@@ -24,7 +24,7 @@ import { sendJson } from '../http/common.js';
 import { N_ } from '../../shared/i18n.js';
 import { readCookie, sessionCookie, clearCookie } from './auth.js';
 import { listMatches, getDemo, canWatchDemo, getProfile, putProfile, linkPlayer, putAccountDemo, listAccountDemos, getAccountDemo, MAX_CLOUD_DEMO_BYTES } from './store.js';
-import { putTeamDemoPart, getTeamDemoStatus, mergeTeamDemo, pruneTeamParts, getTeamDemoForViewer, listTeamDemosForAccount } from './teamStore.js';
+import { putTeamDemoPart, getTeamDemoStatus, mergeTeamDemo, pruneTeamParts, getTeamDemoForViewer, listTeamDemosForAccount, teamMatchForAccount } from './teamStore.js';
 import { MAX_TEAM_PART_JSON } from './teamDemos.js';
 
 const MAX_BODY = 64 * 1024;
@@ -32,11 +32,20 @@ const MAX_BODY = 64 * 1024;
 /** @returns {Promise<any | null>} parsed JSON body, or null for an invalid/oversized one */
 async function readJson(req, maxBytes = MAX_BODY) {
   if (req.method === 'GET' || req.method === 'HEAD') return {};
-  let raw = '';
+  // .length is UTF-16 code units; the team endpoint accepts a 24 MB UTF-8 JSON body, so count the actual bytes.
+  const declared = Number(req.headers?.['content-length']);
+  if (Number.isFinite(declared) && declared > maxBytes) return null;
+  const chunks = [];
+  let bytes = 0;
   for await (const chunk of req) {
-    raw += chunk;
-    if (raw.length > maxBytes) return null;
+    // Decode after the whole body: decoding each chunk separately can split a UTF-8 character and corrupt JSON
+    // (Chinese names in a team Demo part are exactly that case).
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8');
+    bytes += buf.length;
+    if (bytes > maxBytes) return null;
+    chunks.push(buf);
   }
+  const raw = Buffer.concat(chunks).toString('utf8');
   if (!raw.trim()) return {};
   try { return JSON.parse(raw); } catch { return null; }
 }
@@ -249,7 +258,13 @@ export function createAccountApi({ db, auth, turnstile, mailer, registry, log = 
 
       const teamStatus = path.match(/^\/api\/team-demos\/([^/]+)\/status$/);
       if (teamStatus && (method === 'GET' || method === 'HEAD')) {
-        json(res, 200, await getTeamDemoStatus(db, decodeURIComponent(teamStatus[1])));
+        const matchId = decodeURIComponent(teamStatus[1]);
+        // Uploaders / linked participants can inspect a match's upload progress; an unrelated account must not learn
+        // the participant and uploaded/missing sets from a guessed matchId.
+        if (!await teamMatchForAccount(db, account.id, matchId)) {
+          json(res, 404, { ok: false, error: 'NOT_FOUND' }); return true;
+        }
+        json(res, 200, await getTeamDemoStatus(db, matchId));
         return true;
       }
 

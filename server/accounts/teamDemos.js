@@ -63,8 +63,11 @@ function fieldInfo(t, msg) {
   if (!isObj(msg)) return null;
   const fieldId = msg.fieldId || msg.m?.fieldId || null;
   if (!fieldId) return null;
-  const players = (arr(msg.players).length ? arr(msg.players) : arr(msg.members).length ? arr(msg.members) : arr(msg.m?.players)).map((p) =>
-    isObj(p) ? p.playerId : p).filter(Boolean);
+  const players = (arr(msg.players).length ? arr(msg.players)
+    : arr(msg.members).length ? arr(msg.members)
+      : arr(msg.m?.players).length ? arr(msg.m?.players)
+        : arr(msg.m?.spec?.players).length ? arr(msg.m?.spec?.players)
+          : arr(msg.spec?.players)).map((p) => (isObj(p) ? p.playerId : p)).filter(Boolean);
   return { fieldId, players };
 }
 
@@ -108,7 +111,14 @@ export function alignPart(part) {
 }
 
 const stripFrame = (frame) => {
-  if (isObj(frame.m)) return { ...frame.m };
+  if (isObj(frame.m)) {
+    const m = { ...frame.m };
+    // `local` is a recorder-only flag (a live battle object fed these frames). The canonical document is a recorded
+    // stream, so carrying it into a replay would make the game ask the runner to re-show a live sim.
+    delete m.local;
+    delete m.clockQuality;
+    return m;
+  }
   const m = { ...frame };
   delete m.t; delete m.at; delete m.serverAt; delete m.local; delete m.clockQuality;
   return m;
@@ -173,10 +183,20 @@ export function mergeTeamDemos(parts, opts = {}) {
 
   // one entry per field, from its owner's part when that part has frames; a spectator copy is the degraded fallback
   const fields = {};
-  const fieldOwners = new Map(); // fieldId → players, learned from every part's m.field / b.start
-  for (const p of aligned) for (const f of p.frames) {
+  const fieldOwners = new Map(); // fieldId → players; m.public.fields is authoritative, frame metadata is fallback
+  for (const f of allFrames) {
+    if (f.t !== 'm.public') continue;
+    for (const view of arr(f.m?.fields)) {
+      if (!isObj(view) || !view.fieldId) continue;
+      const ids = arr(view.players).map((x) => (isObj(x) ? x.playerId : x)).filter(Boolean);
+      if (ids.length) fieldOwners.set(view.fieldId, ids);
+    }
+  }
+  for (const f of allFrames) {
     const c = classify(f.t, f);
-    if (c.kind === 'field' && c.fieldId && (c.players || []).length) fieldOwners.set(c.fieldId, c.players);
+    if (c.kind === 'field' && c.fieldId && (c.players || []).length && !fieldOwners.has(c.fieldId)) {
+      fieldOwners.set(c.fieldId, c.players);
+    }
   }
   for (const p of aligned) {
     for (const f of p.frames) {
@@ -187,28 +207,38 @@ export function mergeTeamDemos(parts, opts = {}) {
       const who = (c.players && c.players.length ? c.players : fieldOwners.get(fieldId) || []);
       const partOwns = who.includes(p.playerId);
       let entry = fields[fieldId];
-      if (!entry) entry = fields[fieldId] = { owner: null, frames: [], spectators: [], degraded: true };
-      if (partOwns) { entry.owner = p.playerId; entry.frames.push(f); }
-      else entry.spectators.push(f);
+      if (!entry) entry = fields[fieldId] = { owners: new Map(), spectators: [], degraded: true };
+      if (partOwns) {
+        const list = entry.owners.get(p.playerId) || [];
+        list.push(f);
+        entry.owners.set(p.playerId, list);
+      } else entry.spectators.push(f);
     }
   }
   const availableFields = [];
   for (const [fieldId, entry] of Object.entries(fields)) {
-    const chosen = entry.frames.length ? entry.frames : entry.spectators;
+    // A boss pair has two owners on one field; their copies are the same stream, so take the fullest one, not both.
+    const ownerFrames = [...entry.owners.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))[0] || null;
+    const chosen = ownerFrames?.[1].length ? ownerFrames[1] : entry.spectators;
     const sorted = chosen.slice().sort((a, b) => num(a.serverAt) - num(b.serverAt) || num(a.at) - num(b.at));
-    // resyncs can repeat m.field; the newest one carries the latest unit metadata (devices / a changed form).
-    const metaFrame = sorted.filter((f) => f.t === 'm.field').at(-1);
+    // fieldMeta is the initial board: the earliest m.field must be at t=0, not the last resync, or the replay builds
+    // final units / final enemy forms at the start. Later resyncs stay in frames at their own timestamps.
+    const metaFrames = sorted.filter((f) => f.t === 'm.field');
+    const initialFrame = metaFrames[0] || null;
+    const metaFrame = metaFrames.at(-1);
     const meta = metaFrame ? stripFrame(metaFrame) : {};
-    const frames = sorted.filter((f) => f.t !== 'm.field').map((f) => ({
+    const initialMeta = initialFrame ? stripFrame(initialFrame) : meta;
+    const frames = sorted.filter((f) => f !== initialFrame).map((f) => ({
       at: canonicalAt(f), serverAt: f.serverAt,
       ...(f.clockQuality === 'low' ? { clockQuality: 'low' } : {}), t: f.t, m: stripFrame(f),
     }));
     fields[fieldId] = {
-      owner: entry.owner || null,
+      owner: ownerFrames?.[0] || null,
       kind: meta.kind || (fieldId.startsWith('b:') ? 'boss' : 'normal'),
       fieldMeta: { ...meta, fieldId },
+      initialFieldMeta: { ...initialMeta, fieldId },
       frames,
-      degraded: !entry.frames.length,
+      degraded: !ownerFrames?.[1].length,
     };
     availableFields.push(fieldId);
   }

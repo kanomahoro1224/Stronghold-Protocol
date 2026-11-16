@@ -30,8 +30,9 @@ const part = (playerId, over = {}) => ({
   matchId: 'm_T_1', startedAt: 1000, endedAt: 5000, mode: 'coop', difficulty: 'HARD',
   players: [{ playerId: 'p_a', seat: 0, name: 'A', isBot: false }, { playerId: 'p_b', seat: 1, name: 'B', isBot: false }],
   marks: [], wire: [
-    frame(0, 'm.public', { serverNow: 1000, phase: 'prep', round: 1 }),
-    frame(100, 'm.field', { fieldId: `n:${playerId}`, players: [playerId], kind: 'normal' }),
+    // the real server's m.public carries fields[]; the real m.field / b.start carry no players.
+    frame(0, 'm.public', { serverNow: 1000, phase: 'prep', round: 1, fields: [{ fieldId: `n:${playerId}`, players: [playerId] }] }),
+    frame(100, 'm.field', { fieldId: `n:${playerId}`, kind: 'normal' }),
     frame(100, 'b.snap', { fieldId: `n:${playerId}`, units: [{ id: `${playerId}_1`, x: 1 }] }),
     frame(0, 'm.private', { playerId, hand: [playerId] }),
   ], ...over,
@@ -63,6 +64,13 @@ test('team demo DB: parts → waiting → merge → links → filtered viewer', 
   assert.deepEqual(va.availableFields.sort(), ['n:p_a', 'n:p_b']);
   assert.deepEqual((await listTeamDemosForAccount(db, accounts.a)).map((d) => d.id), [merged.id]);
   assert.equal(await getTeamDemoForViewer(db, accounts.a, '999999'), null, 'other / unknown id is not readable');
+
+  // a re-merge without B must drop B's old link: a stale link must not keep access to the new canonical.
+  await db.query(`DELETE FROM team_demo_parts WHERE match_id = 'm_T_1' AND player_id = 'p_b'`);
+  const again = await mergeTeamDemo(db, 'm_T_1', { force: true });
+  assert.equal(again.ok, true);
+  assert.equal(again.links.length, 1, 'only A is linked after the re-merge');
+  assert.equal(await getTeamDemoForViewer(db, accounts.b, again.id), null, 'B loses access to the re-merged canonical');
 });
 
 test('team demo DB: force merge after missing participant is partial and only uses the uploaded field', { skip: !CONN }, async () => {
@@ -100,6 +108,9 @@ test('team demo API: upload part, wait, merge all, list, filtered download; non-
     let body = await r.json();
     assert.equal(body.ok, true);
     assert.deepEqual(body.waitingFor, ['p_b']);
+    // B has not uploaded yet, but is a declared participant linked to p_b: the status endpoint must recognize it.
+    const waiting = await fetch(`${base}/api/team-demos/m_API_1/status`, { headers: { cookie: 'sp_sid=b' } });
+    assert.equal(waiting.status, 200);
     r = await post(docB, 'b');
     body = await r.json();
     assert.equal(body.ok, true);

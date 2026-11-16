@@ -38,9 +38,35 @@ export async function putTeamDemoPart(db, { matchId, playerId, accountId, doc } 
   await db.query(
     `INSERT INTO team_demo_parts (match_id, player_id, account_id, doc, bytes)
      VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (match_id, player_id) DO UPDATE SET doc = EXCLUDED.doc, bytes = EXCLUDED.bytes, uploaded_at = now()`,
+     ON CONFLICT (match_id, player_id) DO UPDATE SET account_id = EXCLUDED.account_id, doc = EXCLUDED.doc,
+       bytes = EXCLUDED.bytes, uploaded_at = now()`,
     [String(matchId), String(playerId), String(accountId), gz, gz.length]);
+  // A player who rebinds to another account must not keep the old account's canonical download link. The new account
+  // gets its link at the next merge; until then it can still inspect status through the part it just uploaded.
+  await db.query(
+    `DELETE FROM team_demo_links WHERE player_id = $1 AND account_id <> $2`,
+    [String(playerId), String(accountId)]);
   return { ok: true, bytes: gz.length };
+}
+
+/**
+ * Whether this account may inspect a team demo match: it uploaded a part, is linked to the canonical, or owns one of
+ * the human playerIds declared by an uploaded part (the only participant list available before everyone uploads).
+ */
+export async function teamMatchForAccount(db, accountId, matchId) {
+  const parts = await listTeamDemoParts(db, matchId);
+  if (parts.some((p) => p.accountId != null && String(p.accountId) === String(accountId))) return true;
+  const participants = participantsOf(parts);
+  if (participants.length) {
+    const linked = await db.query(
+      `SELECT 1 FROM player_links WHERE account_id = $1 AND player_id = ANY($2::text[]) LIMIT 1`,
+      [String(accountId), participants]);
+    if (linked.rows[0]) return true;
+  }
+  const canonical = await db.query(
+    `SELECT 1 FROM team_demos d JOIN team_demo_links l ON l.team_demo_id = d.id
+      WHERE d.match_id = $1 AND l.account_id = $2 LIMIT 1`, [String(matchId), String(accountId)]);
+  return !!canonical.rows[0];
 }
 
 /** All parts of one match, newest upload wins (the unique key already guarantees one row per player). */
@@ -65,13 +91,13 @@ export async function getTeamDemoStatus(db, matchId) {
   const missing = participants.filter((id) => !uploaded.includes(id));
   let row = await db.query(`SELECT partial, available_fields, bytes FROM team_demos WHERE match_id = $1`, [String(matchId)]);
   let merged = row.rows[0] || null;
-  // 五人到齐才自动合并；缺人超过 5 分钟时，下一次状态查询用已上传的 parts 生成 partial（不阻塞上传）
+  // 人齐才自动合并；缺人超过 5 分钟时，下一次状态查询用已上传的 parts 生成 partial（不阻塞上传）
   if (missing.length && !merged && parts.length) {
     const oldest = await db.query(`SELECT MIN(uploaded_at) AS oldest FROM team_demo_parts WHERE match_id = $1`, [String(matchId)]);
-    const since = oldest.rows[0]?.oldest ? Date.parse(oldest.rows[0].oldest) : NaN;
+    const since = oldest.rows[0]?.oldest ? new Date(oldest.rows[0].oldest).getTime() : NaN;
     if (Number.isFinite(since) && Date.now() - since >= PART_TIMEOUT_MS) {
       const m = await mergeTeamDemo(db, matchId, { force: true });
-      if (m.ok) merged = { partial: m.partial, available_fields: m.availableFields, bytes: 0 };
+      if (m.ok) merged = { partial: m.partial, available_fields: m.availableFields, bytes: m.bytes || 0 };
     }
   }
   return {
@@ -110,7 +136,7 @@ export async function mergeTeamDemo(db, matchId, { force = false } = {}) {
     `INSERT INTO team_demos (match_id, canonical, bytes, partial, available_fields)
      VALUES ($1, $2, $3, $4, $5::jsonb)
      ON CONFLICT (match_id) DO UPDATE SET canonical = EXCLUDED.canonical, bytes = EXCLUDED.bytes,
-       partial = EXCLUDED.partial, available_fields = EXCLUDED.available_fields
+       partial = EXCLUDED.partial, available_fields = EXCLUDED.available_fields, created_at = now()
      RETURNING id`,
     [String(matchId), gz, gz.length, !!doc.partial, JSON.stringify(doc.availableFields)]);
   const teamDemoId = String(res.rows[0].id);
@@ -124,7 +150,16 @@ export async function mergeTeamDemo(db, matchId, { force = false } = {}) {
       [teamDemoId, String(owner.accountId), p.playerId]);
     links.push({ accountId: String(owner.accountId), playerId: p.playerId });
   }
-  return { ok: true, id: teamDemoId, partial: !!doc.partial, availableFields: doc.availableFields, links };
+  // Remove links from an earlier canonical only after every new link is in place: a mid-merge failure must not
+  // revoke the old participants' access. A re-merge without one participant still drops that stale link.
+  const accountIds = links.map((l) => l.accountId);
+  if (accountIds.length) {
+    await db.query(`DELETE FROM team_demo_links WHERE team_demo_id = $1 AND NOT (account_id = ANY($2::bigint[]))`,
+      [teamDemoId, accountIds]);
+  } else {
+    await db.query(`DELETE FROM team_demo_links WHERE team_demo_id = $1`, [teamDemoId]);
+  }
+  return { ok: true, id: teamDemoId, partial: !!doc.partial, availableFields: doc.availableFields, bytes: gz.length, links };
 }
 
 /** Purge parts older than 24h (call opportunistically after an upload/merge). */

@@ -94,6 +94,7 @@
     "n:p_a": {
       "owner": "p_a",
       "kind": "normal",
+      "initialFieldMeta": { "fieldId": "n:p_a", "rect": {}, "stageId": "...", "units": [] },
       "fieldMeta": { "fieldId": "n:p_a", "rect": {}, "stageId": "..." },
       "frames": [
         { "at": 24000, "serverAt": 1794727058097, "t": "b.snap", "m": { "...": "..." } }
@@ -110,6 +111,8 @@
   "availableFields": ["n:p_a", "n:p_b", "n:p_c", "n:p_d"]
 }
 ```
+
+`initialFieldMeta` 是最早一条 `m.field`（时间轴 0 秒的棋盘），`fieldMeta` 是最新一条重同步；后续 `m.field` 也保留在 `frames` 里，换形态 / 换装备按它自己的时间生效。
 
 `frames` 里的 `at` 是 canonical 对局时间（从 `startedAt` 起算），`serverAt` 是用于跨客户端排序的绝对毫秒。两者都保留，回放优先用 `at`，合并/诊断用 `serverAt`。
 
@@ -402,7 +405,7 @@ if (type === 'g.watch') {
 
 | 情况 | 行为 |
 | --- | --- |
-| 只有 1 人上传 | 不生成 team demo；个人版仍可看 |
+| 只有 1 人上传 | 5 分钟内不生成；超时后生成 `partial:true`（单人视角），个人版仍可看 |
 | 2–3 人上传，超时 5 分钟 | 生成 `partial:true`，只提供已上传战场；UI 标注“部分视角” |
 | 某 part 超 12 MB | 返回 `TOO_LARGE`，客户端降采样后重传；失败则 partial |
 | 某 part 损坏 | 隔离该 part，用其余 part 合并 |
