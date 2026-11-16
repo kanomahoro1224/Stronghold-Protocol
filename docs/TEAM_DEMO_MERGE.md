@@ -535,6 +535,12 @@ if (type === 'g.watch') {
 - 缺一人上传时能在超时后生成 partial，并明确标注；
 - 单人 Demo 805 测试与 typecheck 不回归。
 
+## 17.1 生产部署注意
+
+- **必须给所有进程设置同一个 `SP_TEAM_TOKEN_SECRET`**：`teamToken.js` 在未配置时会生成进程内随机 secret；单进程重启或多 worker 之间不共享，旧本机 Demo 的 `matchToken` 会在重启/换 worker 后失效。生产部署、多 worker、蓝绿发布都应显式配置。
+- token 只放在 room 的 `m.public` 和服务端召回的本机 Demo 文档里；不要写进日志、URL 或对外静态文件。
+- 无 `matchToken` 的旧团队本机 Demo 不会再上传到团队表（严格安全行为）；单人旧文档仍可按原逻辑走 `/api/cloud/demos`。
+
 ## 18. 里程碑建议
 
 | 里程碑 | 内容 | 可验收结果 |
