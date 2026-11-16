@@ -79,7 +79,8 @@ function readVersionLoadout(version = DEFAULT_VERSION) {
 /** A version's stored v2 document → its byChar/ops; a v1 document is left to migrateSettings (byChar null). */
 function parseVersionLoadout(version = DEFAULT_VERSION) {
   const raw = readVersionLoadout(version);
-  if (!raw || raw.v !== 2) return { byChar: null, ops: raw?.v === 1 ? parseStoredOps(raw) : {} };
+  if (!raw || (raw.v !== 1 && raw.v !== 2)) return { byChar: {}, ops: {}, empty: true };
+  if (raw.v !== 2) return { byChar: null, ops: raw?.v === 1 ? parseStoredOps(raw) : {}, legacy: true };
   return { byChar: parseStoredByChar(raw), ops: parseStoredOps(raw) };
 }
 
@@ -160,6 +161,13 @@ export function refreshViews({ target = loadoutStore } = {}) {
       byChar = stored.byChar;
       patch.byChar = byChar;
       patch.ops = stored.ops;
+      patch.loadoutVersion = version;
+    } else if (stored.empty) {
+      // A version with no document yet is an empty, independent loadout; it must not keep the previous version's byChar
+      // (an edit would otherwise be saved under the previous version and the new version could never start fresh).
+      byChar = {};
+      patch.byChar = {};
+      patch.ops = {};
       patch.loadoutVersion = version;
     }
   }
