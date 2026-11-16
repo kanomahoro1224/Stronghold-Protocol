@@ -734,11 +734,13 @@ function StatsScreen({ tab }) {
       const r = await api('/api/cloud');
       if (!r.ok) { toast(t('同步失败：请先登录云端账号'), 'error'); return; }
       const remote = r.data?.stats;
-      if (!remote || !Array.isArray(remote.records)) { toast(t('云端还没有战绩'), 'warn'); return; }
+      // 云端为空（新账号、或存档被旧版客户端写坏）也要继续：本机记录照样推上去，否则「云端没有、本机有」永远传不上去
+      const remoteOk = !!remote && Array.isArray(remote.records);
+      const base = remoteOk ? remote : emptyStats();
       const local = loadStats();
-      const remoteIds = new Set(remote.records.map((x) => x && x.id).filter(Boolean));
+      const remoteIds = new Set(base.records.map((x) => x && x.id).filter(Boolean));
       // 两边都只补缺失的记录：云端缺的（本地有）一起上传，本地缺的（云端有）并进来
-      const { stats: merged, added } = importStats(remote, local);
+      const { stats: merged, added } = importStats(base, local);
       const { stats: upload, dropped } = fitCloudStats(merged);
       const put = await api('/api/cloud', { method: 'PUT', body: { stats: upload } });
       if (!put.ok) { toast(t('同步失败：云端未接受合并后的战绩'), 'error'); return; }

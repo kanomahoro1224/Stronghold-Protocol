@@ -45,6 +45,9 @@ export async function getProfile(db, accountId) {
 export async function putProfile(db, accountId, patch = {}) {
   const body = JSON.stringify({ loadouts: patch.loadouts, settings: patch.settings, stats: patch.stats });
   if (Buffer.byteLength(body) > MAX_SAVE_BYTES) return { ok: false, code: 'TOO_LARGE' };
+  // null 与 undefined 同义：这个字段本次没带。否则 JSON null 会写成 jsonb 'null'，把云端已有的存档抹掉
+  // （登录后自动上传时本机没有战绩就会是 null）。
+  const json = (v) => (v === undefined || v === null ? null : JSON.stringify(v));
   await db.query(
     `INSERT INTO profiles (account_id, loadouts, settings, stats, updated_at)
      VALUES ($1, COALESCE($2::jsonb, '{}'::jsonb), COALESCE($3::jsonb, '{}'::jsonb), COALESCE($4::jsonb, '{}'::jsonb), now())
@@ -54,9 +57,7 @@ export async function putProfile(db, accountId, patch = {}) {
        stats    = COALESCE($4::jsonb, profiles.stats),
        updated_at = now()
      RETURNING updated_at`,
-    [String(accountId), patch.loadouts === undefined ? null : JSON.stringify(patch.loadouts),
-      patch.settings === undefined ? null : JSON.stringify(patch.settings),
-      patch.stats === undefined ? null : JSON.stringify(patch.stats)]);
+    [String(accountId), json(patch.loadouts), json(patch.settings), json(patch.stats)]);
   return { ok: true };
 }
 

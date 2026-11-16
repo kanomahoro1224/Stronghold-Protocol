@@ -17,7 +17,7 @@ import { store, loadPref, savePref } from '../store.js';
 import { listDemos, deleteDemo, putDemo, getLocalDemo } from '../demoStore.js';
 import { t } from '../../../shared/i18n.js';
 import { toast } from './toasts.js';
-import { importStats, loadStats, saveStats } from './stats.js';
+import { importStats, loadStats, saveStats, fitCloudStats, emptyStats } from './stats.js';
 
 // 与 server/accounts/auth.js 的 PASSWORD_MIN / PASSWORD_MAX 一致：前端只做按钮可用性判断，真正的校验在服务端
 const PW_MIN = 6;
@@ -85,13 +85,21 @@ function loadTurnstile() {
   return turnstileReady;
 }
 
-/** 把当前本机编队/设置/统计整包上传（登录成功后自动跑一次；按钮也复用同一份逻辑）。 */
+/**
+ * 把当前本机编队/设置上传，战绩先与云端合并再整份推回（登录成功后自动跑一次；按钮也复用同一份逻辑）。
+ * 旧实现直接 PUT 本机快照：本机没有战绩时会把 `stats: null` 写进云端，等于抹掉别的设备同步上去的记录。
+ */
 export async function uploadCurrentSave() {
-  return api('/api/cloud', { method: 'PUT', body: {
-    loadouts: loadPref('loadout', null),
-    settings: loadPref('settings', null),
-    stats: loadPref('stats', null),
-  } });
+  const body = { loadouts: loadPref('loadout', null), settings: loadPref('settings', null) };
+  const remote = await api('/api/cloud');
+  if (remote.ok) {
+    try {
+      const current = remote.data?.stats;
+      const base = current && Array.isArray(current.records) ? current : emptyStats();
+      body.stats = fitCloudStats(importStats(base, loadStats()).stats).stats;
+    } catch { /* 云端存档读不懂：这次不碰战绩，留给「同步云端」处理 */ }
+  }
+  return api('/api/cloud', { method: 'PUT', body });
 }
 
 /** 上传一局本机 Demo 到账号（云端只保留最新 10 局；本机不受限）。未登录返回 401，调用方静默忽略。 */
