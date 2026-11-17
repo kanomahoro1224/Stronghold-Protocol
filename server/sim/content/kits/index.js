@@ -446,9 +446,21 @@ export const PENDING_KIT_CHARS = Object.freeze([]);
  */
 export const PENDING_DIY_KIT_CHARS = Object.freeze([]);
 
+// Vite 构建期用 glob 把 ops/ 下每个 kit 文件静态收进 bundle，运行期按文件名查表。
+// 只写 `import(\`./ops/${file}\`)` 的话构建期无法静态分析，产物里没有这些 chunk，页面会 404（op-mantra.js 等）。
+// Node（服务端、工具、测试）没有 import.meta.glob，捕获后回退到原生动态 import。
+const KIT_MODULES = (() => {
+  try {
+    return import.meta.glob('./ops/*.js');
+  } catch {
+    return null;
+  }
+})();
+
 async function loadKitFile(file) {
   try {
-    // upstream 0.3.4: a dynamic specifier per file — the hand-kept KIT_LOADERS map fell behind the ops/*.js set
+    const load = KIT_MODULES && KIT_MODULES[`./ops/${file}`];
+    if (load) return await load();
     return await import(`./ops/${file}`);
   } catch (e) {
     console.error(`[content] failed to load kits/ops/${file}: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
