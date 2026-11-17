@@ -72,6 +72,8 @@ COPY --from=build /app/shared ./shared
 COPY --from=build /app/server ./server
 COPY --from=build /app/data ./data
 COPY --from=build /app/public ./public
+# /CHANGELOG.md is served from the repo root (server/http/static.js); the build stage never copies it.
+COPY CHANGELOG.md ./CHANGELOG.md
 COPY --from=build /app/config ./config
 # the Spine and atlas parsers the plugin packer and the plugin studio use (server/plugins/pack.js, server/studio/)
 COPY --from=build /app/tools/assets ./tools/assets
