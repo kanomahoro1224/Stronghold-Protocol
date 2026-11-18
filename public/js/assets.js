@@ -336,7 +336,13 @@ export function isAssetUrl(v, ext = '') {
 }
 
 export function validSpine(sp) {
-  return isObj(sp) && typeof sp.skel === 'string' && /^\/[^\s]*\.(?:skel|json)$/.test(sp.skel) && typeof sp.atlas === 'string' && isObj(sp.anims);
+  // A manifest handed to the client has already had every `/assets/…` URL rewritten to the CDN (data.js ART_MANIFESTS
+  // → rewriteAssetPaths), so a skeleton may be site-absolute OR an absolute http(s) URL. Accept both (isAssetUrl), and
+  // both skeleton formats: binary `.skel` and `.json`.
+  return isObj(sp)
+    && (isAssetUrl(sp.skel, '.skel') || isAssetUrl(sp.skel, '.json'))
+    && typeof sp.atlas === 'string'
+    && isObj(sp.anims);
 }
 
 /** Best 2D picture for a unit asset id (operator avatar, token avatar, enemy icon, item icon); `opts` reaches avatarUrl. */
