@@ -26,11 +26,11 @@ export async function handleResourceRequest(request, { caches = globalThis.cache
       return network;
     } catch {
       const hit = await matchResource(url, caches);
-      return hit ? cachedReply(hit, range) : null;
+      return servable(hit, request) ? cachedReply(hit, range) : null;
     }
   }
   const hit = await matchResource(url, caches);
-  if (hit) return cachedReply(hit, range);
+  if (servable(hit, request)) return cachedReply(hit, range);
   try {
     const network = await fetcher(request);
     if ((network?.ok || network?.type === 'opaque') && (network.type === 'opaque' || network.status === 200)) cacheInBackground(url, network, caches, waitUntil);
@@ -43,6 +43,18 @@ export async function handleResourceRequest(request, { caches = globalThis.cache
 async function cachedReply(hit, range) {
   if (!range) return hit;
   try { return await rangeResponse(hit, range); } catch { return hit; }
+}
+
+/**
+ * Whether a cache entry may answer this request. An opaque response (a cross-origin `<img>`, `<audio>` or `@font-face`
+ * read) carries no status or headers and is only legal for a `no-cors` request: handing it to a `cors` one — every
+ * `fetch()` the app makes, e.g. artTransport/blob image loads — makes the browser fail the request with
+ * "an 'opaque' response was used for a request whose type is not no-cors" (net::ERR_FAILED). Such a request goes to the
+ * network instead, and its own (non-opaque) response replaces nothing: the entry stays for the no-cors callers.
+ */
+function servable(hit, request) {
+  if (!hit) return false;
+  return hit.type !== 'opaque' || request.mode === 'no-cors';
 }
 
 function isAudioRequest(url) {

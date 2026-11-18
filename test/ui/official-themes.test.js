@@ -31,6 +31,11 @@ test('official card metadata and a safe served URL', () => {
   assert.equal(officialAssetUrl(group, { path: '/assets/local/themes/ac_n_initial/theme.json' }), null);
   assert.equal(officialAssetUrl(group, { path: '/assets/local/themes/ac_n_iron/../secret' }), null);
   assert.equal(officialAssetUrl(group, { path: 'https://evil.example/theme.json' }), null);
+  // a manifest served with the assets CDN configured carries absolute URLs (data.js rewriteAssetPaths): the group
+  // check runs on the pathname, so the card keeps resolving and a foreign path is still refused
+  const CDN = 'https://local.xiaolubao.com/Stronghold-Protocol-04';
+  assert.equal(officialAssetUrl(group, { path: `${CDN}/assets/local/themes/ac_n_iron/theme.json` }), `${CDN}/assets/local/themes/ac_n_iron/theme.json`);
+  assert.equal(officialAssetUrl(group, { path: `${CDN}/assets/local/themes/ac_n_initial/theme.json` }), null);
   const listed = installedOfficialThemes({
     groups: {
       'themes/ac_n_iron': { 'theme.json': { path: '/assets/local/themes/ac_n_iron/theme.json' }, 'thumb.webp': { path: '/assets/local/themes/ac_n_iron/thumb.webp' } },
@@ -38,6 +43,18 @@ test('official card metadata and a safe served URL', () => {
   });
   assert.deepEqual(listed.map((row) => row.id), ['ac_n_iron']);
   assert.equal(listed[0].thumbnailUrl, '/assets/local/themes/ac_n_iron/thumb.webp');
+  assert.deepEqual(installedOfficialThemes({
+    groups: {
+      'themes/ac_n_iron': { 'theme.json': { path: `${CDN}/assets/local/themes/ac_n_iron/theme.json` }, 'thumb.webp': { path: `${CDN}/assets/local/themes/ac_n_iron/thumb.webp` } },
+    },
+  }), [{
+    id: 'ac_n_iron',
+    group: 'themes/ac_n_iron',
+    name: '乌萨斯齐心团',
+    description: '卫戍协议模拟中的乌萨斯工人团体，每个人都是大嗓门。',
+    themeUrl: `${CDN}/assets/local/themes/ac_n_iron/theme.json`,
+    thumbnailUrl: `${CDN}/assets/local/themes/ac_n_iron/thumb.webp`,
+  }]);
   assert.deepEqual(installedOfficialThemes({ groups: {} }), []);
   assert.deepEqual(installedOfficialThemes(null), []);
 });

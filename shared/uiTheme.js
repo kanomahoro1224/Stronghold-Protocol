@@ -342,12 +342,26 @@ export function officialAssetUrl(group, entry) {
   if (typeof path !== 'string') return null;
   if (path.includes('..') || path.includes('\\') || /[?#\s\u0000]/.test(path)) return null;
   if (path.startsWith('blob:')) return IMPORTED_GROUPS.has(group) ? path : null;
-  // The server serves the manifest with content-hash segments ('/assets/~<hash>/local/…', shared/assetPaths.js):
-  // check the plain path, return the served one.
-  const plain = splitHashedPath(path).path;
+  // The app is served a manifest whose '/assets/…' URLs are already rewritten to the assets CDN when one is configured
+  // (data.js rewriteAssetPaths / the server's view, docs/ASSETS.md「CDN」): an entry may therefore be an absolute
+  // http(s) URL. The group check runs on its pathname, so an absolute URL still has to point under
+  // '/assets/local/<group>/' — a foreign host with an unrelated path stays rejected.
+  const local = /^https?:\/\//i.test(path) ? urlPathname(path) : path;
+  if (!local) return null;
+  // The server serves the manifest with content-hash segments ('/assets/~<hash>/local/…', shared/assetPaths.js) and a
+  // CDN URL carries its own base path ('/<prefix>/assets/local/…'): check from the '/assets/' segment, return the
+  // served URL untouched.
+  const at = local.indexOf('/assets/');
+  if (at < 0) return null;
+  const plain = splitHashedPath(local.slice(at)).path;
   if (!plain.startsWith('/assets/local/')) return null;
   const prefix = `/assets/local/${group}/`;
   return plain.startsWith(prefix) ? path : null;
+}
+
+/** Pathname of an absolute URL, or null when it does not parse. */
+function urlPathname(url) {
+  try { return new URL(url).pathname; } catch { return null; }
 }
 
 /**

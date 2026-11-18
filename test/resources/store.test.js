@@ -846,3 +846,25 @@ describe('the Service Worker handler', () => {
     assert.equal(await again.text(), '0123456789');
   });
 });
+
+test('an opaque cache entry answers only a no-cors request (a cors fetch goes to the network)', async () => {
+  // A cross-origin <img>/<audio> read is cached as an opaque response (no status, no headers). Handing that entry to a
+  // cors request — every fetch() the app makes, e.g. the blob image loader — makes the browser fail it with
+  // "an 'opaque' response was used for a request whose type is not no-cors" (net::ERR_FAILED), so such a request must
+  // fall through to the network instead.
+  const opaque = new Response('cached');
+  Object.defineProperty(opaque, 'type', { value: 'opaque' });
+  const cache = { match: async () => opaque, put: async () => {}, keys: async () => [] };
+  const caches = { keys: async () => [`${CACHE_PREFIX}test`], open: async () => cache };
+  const url = `${ORIGIN}/assets/opaque-entry.png`;
+  let calls = 0;
+  const fetcher = async () => { calls += 1; return new Response('network', { headers: { 'cache-control': 'no-store' } }); };
+
+  const cors = await handleResourceRequest(new Request(url, { mode: 'cors' }), { caches, fetcher });
+  assert.equal(await cors.text(), 'network');
+  assert.equal(calls, 1);
+
+  const image = await handleResourceRequest(new Request(url, { mode: 'no-cors' }), { caches, fetcher });
+  assert.equal(await image.text(), 'cached');
+  assert.equal(calls, 1, 'the no-cors read is still answered from the cache');
+});
