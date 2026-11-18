@@ -938,16 +938,31 @@ export function playableDemos(index, ids) {
  * in `demoId`) and the 联机 merge (`/api/team-demos`, keyed by matchId, uploaded by every player and merged when the
  * last part arrives). A record written by this build names its `matchId`; older rows are matched by a shared player id
  * and the upload time, because the merge is written when the match ends (`createdAt` ≈ `t`).
+ *
+ * 账号备份的行 id 是数据库自增列，**不是**录制那台设备的 `d_…`。绑定靠 `demoKey`（上传时写的本地 id，记录里的
+ * `demoId` 就是它）：拿行 id 去比 `rec.demoId` 永远不相等，另一台设备同步了战绩也看不到「下载并播放」。
+ * 老记录没有 `demoId` 时再按 `matchId` 对（上传时一并存的 m.public matchId），这样同一条战绩在两台设备上都能落到同一局。
  * @param {any} rec a normalized record
- * @param {Iterable<string>|null|undefined} cloudIds the ids in /api/cloud/demos
+ * @param {Array<{ id: string, demoKey?: string|null, matchId?: string|null }>|Iterable<string>|null|undefined} cloudDemos
+ *   /api/cloud/demos rows (a bare id set is the older shape: each id is taken as its own demoKey)
  * @param {Array<{ id: string, matchId?: string|null, playerIds?: string[], createdAt?: string }>|null|undefined} teamDemos /api/team-demos
  * @returns {{ kind: 'cloud'|'team', id: string }|null} the id `downloadDemo` takes
  */
-export function serverDemoOf(rec, cloudIds, teamDemos) {
+export function serverDemoOf(rec, cloudDemos, teamDemos) {
   if (!isObj(rec)) return null;
-  const cloud = cloudIds instanceof Set ? cloudIds : new Set(Array.isArray(cloudIds) ? cloudIds : [...(cloudIds || [])]);
+  const rows = cloudDemos instanceof Set
+    ? [...cloudDemos].map((id) => ({ id, demoKey: id }))
+    : (Array.isArray(cloudDemos) ? cloudDemos.filter((d) => d && d.id != null) : []);
   const cloudId = typeof rec.demoId === 'string' && rec.demoId ? rec.demoId : null;
-  if (cloudId && cloud.has(cloudId)) return { kind: 'cloud', id: cloudId };
+  if (cloudId) {
+    const hit = rows.find((d) => typeof d.demoKey === 'string' && d.demoKey === cloudId)
+      || rows.find((d) => String(d.id) === cloudId);
+    if (hit) return { kind: 'cloud', id: String(hit.id) };
+  }
+  if (rec.matchId) {
+    const hit = rows.find((d) => typeof d.matchId === 'string' && d.matchId && d.matchId === rec.matchId);
+    if (hit) return { kind: 'cloud', id: String(hit.id) };
+  }
   const list = Array.isArray(teamDemos) ? teamDemos.filter((d) => d && d.id != null) : [];
   if (!list.length) return null;
   if (rec.matchId) {

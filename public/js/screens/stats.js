@@ -698,7 +698,8 @@ function StatsScreen({ tab }) {
       ]);
       if (!live) return;
       setServer({
-        cloud: new Set(cloud?.ok ? (cloud.data.demos || []).map((d) => String(d.id)) : []),
+        // 行（{ id, demoKey }）而不是 id 集合：账号备份的行 id 是数据库自增列，和战绩里的 demoId（本地 d_…）对不上
+        cloud: cloud?.ok ? (cloud.data.demos || []) : [],
         team: team?.ok ? (team.data.demos || []) : [],
       });
     })();
@@ -750,7 +751,7 @@ function StatsScreen({ tab }) {
       if (r.statsError) toast(t('战绩未合并：云端数据来自更新版本的客户端'), 'warn');
       toast(parts.length ? t('已同步：{parts}', { parts: parts.join('，') }) : t('已同步：本机与云端一致'), 'success');
       // 上传后原先「下载并播放」的行可能已经在本机了；账号备份的清单也刷新一次
-      api('/api/cloud/demos').then((x) => { if (x.ok) setServer((prev) => ({ ...prev, cloud: new Set((x.data.demos || []).map((d) => String(d.id))) })); }, () => {});
+      api('/api/cloud/demos').then((x) => { if (x.ok) setServer((prev) => ({ ...prev, cloud: x.data.demos || [] })); }, () => {});
     } catch (err) {
       toast(err?.code === 'stats-newer-version' ? t('同步失败：云端数据来自更新版本的客户端') : t('同步失败'), 'error');
     } finally {

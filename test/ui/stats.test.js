@@ -957,6 +957,13 @@ test('local stats: the demo link (对局记录 plays the very match of its row)'
 
   // server copies: an account backup keeps the document's id; a 联机 merge is keyed by matchId
   assert.deepEqual(serverDemoOf(rec, new Set(['d_abc']), []), { kind: 'cloud', id: 'd_abc' });
+  // the account backup's row id is the database's own column, not the recorder's id: the link is demoKey, and the
+  // id handed to downloadDemo must be the row id (that is what /api/cloud/demos/:id takes)
+  assert.deepEqual(serverDemoOf(rec, [{ id: '412', demoKey: 'd_abc' }], []), { kind: 'cloud', id: '412' });
+  assert.equal(serverDemoOf(rec, [{ id: '412', demoKey: 'd_other' }], []), null, 'another match\'s backup is not this row');
+  // 老记录没带 demoId（或换了设备后 id 丢了）：按上传时一并存的 matchId 落到同一局
+  assert.deepEqual(serverDemoOf({ ...rec, demoId: undefined, matchId: 'm_7' }, [{ id: '900', demoKey: 'd_x', matchId: 'm_7' }], []),
+    { kind: 'cloud', id: '900' });
   assert.equal(serverDemoOf(rec, new Set(), []), null, 'nothing on the server, no offer');
   const team = [{ id: '17', matchId: 'm_9', playerIds: ['p1'], createdAt: '2026-11-16T08:00:00.000Z' }];
   assert.deepEqual(serverDemoOf({ ...rec, matchId: 'm_9' }, new Set(), team), { kind: 'team', id: 'team_17' });

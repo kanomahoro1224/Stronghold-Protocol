@@ -160,7 +160,9 @@ export async function addMatchRecord(db, { accountId, playerId, matchKey, mode, 
 // ---- 云端 Demo（每账号只保留最新 CLOUD_DEMOS 局；Demo 仍是本机录制、本机播放，云端只做跨设备备份） ----
 
 export const CLOUD_DEMOS = 10;
-export const MAX_CLOUD_DEMO_BYTES = 3 * 1024 * 1024;
+// 可视化回放的 wire（整条 m.* / b.* 流）在长局里能到 8 MB（demoRecorder MAX_WIRE_BYTES）：旧上限 3 MB 让这类对局
+// 直接 413，战绩同步过去了、Demo 却永远上不了云端。放宽到 12 MB（联机 part 上限是 24 MB）。
+export const MAX_CLOUD_DEMO_BYTES = 12 * 1024 * 1024;
 
 /**
  * 上传一局 Demo 到账号，并裁到最新 CLOUD_DEMOS 局。
@@ -178,16 +180,19 @@ export async function putAccountDemo(db, accountId, doc = {}) {
   if (Buffer.byteLength(body) > MAX_CLOUD_DEMO_BYTES) return { ok: false, code: 'TOO_LARGE' };
   if (!doc.demoKey && !doc.id) return { ok: false, code: 'NO_KEY' };
   const demoKey = String(doc.demoKey || doc.id).slice(0, 64);
+  // 与战绩绑定的第二个键：同一条战绩在别的设备上没有 demo_key 时，还能按 matchId 找到这一局
+  const matchId = typeof doc.matchId === 'string' && doc.matchId ? doc.matchId.slice(0, 128) : null;
   const startedAt = Number.isFinite(Number(doc.startedAt)) ? new Date(Number(doc.startedAt)) : null;
   const res = await db.query(
-    `INSERT INTO account_demos (account_id, demo_key, started_at, mode, difficulty, players, events, snapshots, marks, owner, wire, bytes)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12)
+    `INSERT INTO account_demos (account_id, demo_key, match_id, started_at, mode, difficulty, players, events, snapshots, marks, owner, wire, bytes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13)
      ON CONFLICT (account_id, demo_key) DO UPDATE SET
+       match_id = EXCLUDED.match_id,
        started_at = EXCLUDED.started_at, mode = EXCLUDED.mode, difficulty = EXCLUDED.difficulty,
        players = EXCLUDED.players, events = EXCLUDED.events, snapshots = EXCLUDED.snapshots,
        marks = EXCLUDED.marks, owner = EXCLUDED.owner, wire = EXCLUDED.wire, bytes = EXCLUDED.bytes
      RETURNING id`,
-    [String(accountId), demoKey, startedAt, doc.mode || null, doc.difficulty || null,
+    [String(accountId), demoKey, matchId, startedAt, doc.mode || null, doc.difficulty || null,
       JSON.stringify(players), JSON.stringify(events), JSON.stringify(snapshots), JSON.stringify(marks),
       owner ? JSON.stringify(owner) : null, JSON.stringify(wire), Buffer.byteLength(body)]);
   // 只保留最新 CLOUD_DEMOS 局（按开局时间，其次上传时间）
@@ -202,13 +207,14 @@ export async function putAccountDemo(db, accountId, doc = {}) {
 /** 账号的云端 Demo 列表（元数据，不含 events/snapshots），最新在前。 */
 export async function listAccountDemos(db, accountId, { limit = CLOUD_DEMOS } = {}) {
   const res = await db.query(
-    `SELECT id, demo_key, started_at, mode, difficulty, bytes,
+    `SELECT id, demo_key, match_id, started_at, mode, difficulty, bytes,
             jsonb_array_length(events) AS event_count, jsonb_array_length(snapshots) AS frame_count
        FROM account_demos WHERE account_id = $1
        ORDER BY COALESCE(started_at, created_at) DESC, id DESC LIMIT $2`,
     [String(accountId), Math.min(CLOUD_DEMOS, Math.max(1, Number(limit) || CLOUD_DEMOS))]);
   return res.rows.map((r) => ({
-    id: String(r.id), demoKey: r.demo_key, startedAt: r.started_at, mode: r.mode, difficulty: r.difficulty,
+    id: String(r.id), demoKey: r.demo_key, matchId: r.match_id || null,
+    startedAt: r.started_at, mode: r.mode, difficulty: r.difficulty,
     bytes: Number(r.bytes) || 0, events: Number(r.event_count) || 0, frames: Number(r.frame_count) || 0,
   }));
 }
@@ -216,12 +222,14 @@ export async function listAccountDemos(db, accountId, { limit = CLOUD_DEMOS } = 
 /** 取回一局云端 Demo 的完整文档（仅本人）。 */
 export async function getAccountDemo(db, accountId, id) {
   const res = await db.query(
-    `SELECT id, demo_key, started_at, mode, difficulty, players, events, snapshots, marks, owner, wire
+    `SELECT id, demo_key, match_id, started_at, mode, difficulty, players, events, snapshots, marks, owner, wire
        FROM account_demos WHERE account_id = $1 AND id = $2`, [String(accountId), String(id)]);
   const row = res.rows[0];
   if (!row) return null;
   return {
-    id: `cloud_${row.id}`, demoKey: row.demo_key,
+    // 文档 id 保持上传时的本地 id（demo_key）：战绩记录里的 demoId 就是它，下载后本机这一行才能直接「播放」，
+    // 而不是多出一份 cloud_<n>、让同一条战绩永远只认云端副本。
+    id: row.demo_key || `cloud_${row.id}`, demoKey: row.demo_key, matchId: row.match_id || null,
     startedAt: row.started_at ? new Date(row.started_at).getTime() : Date.now(),
     mode: row.mode, difficulty: row.difficulty,
     players: row.players || [], events: row.events || [], snapshots: row.snapshots || [],

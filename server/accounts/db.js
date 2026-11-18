@@ -117,6 +117,9 @@ CREATE TABLE IF NOT EXISTS account_demos (
 ALTER TABLE account_demos ADD COLUMN IF NOT EXISTS wire jsonb NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE account_demos ADD COLUMN IF NOT EXISTS marks jsonb NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE account_demos ADD COLUMN IF NOT EXISTS owner jsonb;
+-- 与战绩绑定：m.public 的 matchId（旧文档没有，回放行仍按 demo_key 对上）
+ALTER TABLE account_demos ADD COLUMN IF NOT EXISTS match_id text;
+CREATE INDEX IF NOT EXISTS account_demos_match_idx ON account_demos (account_id, match_id);
 CREATE INDEX IF NOT EXISTS account_demos_account_idx ON account_demos (account_id, started_at DESC);
 
 -- 四人联机 Demo：每个玩家上传自己的 part，服务端只合并 JSON，不重跑战斗（docs/TEAM_DEMO_MERGE.md）。

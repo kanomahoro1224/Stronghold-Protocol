@@ -320,9 +320,13 @@ test('accounts: REST surface (config, code, verify, cloud, rejection)', { skip: 
     const listRes = await (await fetch(`${base}/api/cloud/demos`, { headers: { cookie } })).json();
     assert.equal(listRes.ok, true);
     assert.equal(listRes.demos.length, 1);
+    // 绑定键：行的 demoKey 是录制那台设备的本地 id（战绩里的 demoId），行 id 只是数据库自增列
+    assert.equal(listRes.demos[0].demoKey, 'd_rest_1');
     const id = listRes.demos[0].id;
     const docRes = await (await fetch(`${base}/api/cloud/demos/${id}`, { headers: { cookie } })).json();
     assert.equal(docRes.ok, true);
+    // 下载回来的文档沿用本地 id，另一台设备上这一行才能直接「播放」
+    assert.equal(docRes.demo.id, 'd_rest_1');
     assert.equal(docRes.demo.events.length, 1);
     assert.equal(docRes.demo.snapshots.length, 1);
   } finally {

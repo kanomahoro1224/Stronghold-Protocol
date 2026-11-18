@@ -299,7 +299,48 @@ export async function flushTeamUploads() {
 }
 
 /** 上传一局本机 Demo 到账号（云端只保留最新 10 局；本机不受限）。未登录返回 401，调用方静默忽略。 */
-export async function uploadDemo(doc) {
+const DEMO_UPLOAD_QUEUE = 'demoUploadQueue';
+
+/** 单机 Demo 上传失败（未登录 / 断网 / 超限）时排一行，下次开机或登录后补传；最多记 20 局。 */
+export function queueDemoUpload(doc) {
+  if (!doc?.id || doc.isTeam) return; // 四人局走 teamUploadQueue（要 matchToken 才能重传）
+  const q = loadPref(DEMO_UPLOAD_QUEUE, []);
+  const rows = Array.isArray(q) ? q.filter((x) => (typeof x === 'string' ? x : x?.id) !== doc.id) : [];
+  rows.push({ id: doc.id, at: Date.now() });
+  savePref(DEMO_UPLOAD_QUEUE, rows.slice(-20));
+}
+
+/** Retry single-player demos this device could not upload earlier (their local documents are still here). */
+let flushingDemoUploads = false;
+export async function flushDemoUploads() {
+  if (flushingDemoUploads) return;
+  const cfg = await cloudConfig().catch(() => null);
+  if (!cfg?.accounts) return; // no database: the queue stays on this device
+  const q = loadPref(DEMO_UPLOAD_QUEUE, []);
+  if (!Array.isArray(q) || !q.length) return;
+  flushingDemoUploads = true;
+  try {
+    const left = [];
+    for (const item of q) {
+      const id = typeof item === 'string' ? item : item?.id;
+      if (!id) continue;
+      const doc = await getLocalDemo(id).catch(() => null);
+      if (!doc || doc.isTeam) continue; // deleted here, or a team part (flushTeamUploads owns those)
+      const r = await uploadDemo(doc, { queue: false }).catch(() => ({ ok: false, status: 0, data: {} }));
+      // 413：这一局超过账号上限，重试无意义，丢出队列，免得每次开机都白跑一趟
+      if (!r.ok && r.status !== 413 && r.data?.error !== 'TOO_LARGE') left.push({ id, at: (typeof item === 'object' && item?.at) || Date.now() });
+    }
+    savePref(DEMO_UPLOAD_QUEUE, left);
+  } finally {
+    flushingDemoUploads = false;
+  }
+}
+
+/**
+ * @param {any} doc the local demo document
+ * @param {{ queue?: boolean }} [opts] queue a failed upload for a later retry (default true; the flush passes false)
+ */
+export async function uploadDemo(doc, { queue = true } = {}) {
   if (!doc) return { ok: false, error: 'NO_DOC' };
   const cfg = await cloudConfig().catch(() => null);
   if (!cfg?.accounts) return { ok: false, error: 'NO_ACCOUNTS' }; // local-only server: no cloud upload, no retry queue
@@ -310,7 +351,13 @@ export async function uploadDemo(doc) {
     if (!r.ok) queueTeamUpload(doc);
     return r;
   }
-  return api('/api/cloud/demos', { method: 'POST', body: doc });
+  const r = await api('/api/cloud/demos', { method: 'POST', body: doc }).catch(() => ({ ok: false, status: 0, data: {} }));
+  // 战绩会跟着账号走，Demo 却只在本机录：传不上去（未登录 / 断网）就排进队列，换设备前把这一局补上。
+  // 413 是「这一局太大」，重传多少次都一样，不排队（服务器上限 MAX_CLOUD_DEMO_BYTES）。
+  const tooLarge = r.status === 413 || r.data?.error === 'TOO_LARGE';
+  if (!r.ok && tooLarge) console.warn('[demo] cloud backup rejected: this demo is larger than the account limit');
+  if (!r.ok && queue && !tooLarge) queueDemoUpload(doc);
+  return r;
 }
 
 /** 云端 Demo 完整文档下载；成功后写入本机 IndexedDB 再播放（播放仍在客户端）。 */
@@ -417,6 +464,8 @@ export function LoginForm({ onDone, mode = '', profile = null }) {
     uploadCurrentSave().catch(() => {});
     // A team part queued before login (uploadDemo at settle) needs the account link that just succeeded.
     flushTeamUploads().catch(() => {});
+    // 单机 Demo 也一样：登录前录的那几局现在才有账号可挂，补传后换设备才看得到
+    flushDemoUploads().catch(() => {});
     onDone?.(account, link.ok);
   };
 
