@@ -558,6 +558,7 @@ function MatchScreen() {
   // for the tap on a device (gameLogic.deviceTipAt); the renderer's pick skips devices, a tap on one lands in tileClick
   const deviceUnitsRef = useRef(new Map());
   const hudRef = useRef(null);
+  const stageWarned = useRef(null);   // 已报过「数据里没有这个 stage」的关卡，避免每帧重复告警
   // b.ev / b.snap that arrive before the UI entered their field (the battle's first ticks race the m.public /
   // m.field re-render): kept per fieldId and replayed on enter so no unit's 'spawn' UnitInfo is ever lost.
   const evBufRef = useRef(new Map());   // fieldId → ev tuples since that field's m.field
@@ -612,7 +613,12 @@ function MatchScreen() {
     if (!view) return;
     const st = ownView ? ownStage : baseStage;
     if (st) view.setStage(st);
-  }, [view, ownView, ownStage, baseStage]);
+    // 排查用：关卡数据里没有这个 stage（多半是数据集不对：回放要按录制时的官方版本取数据），棋盘会整片空。
+    else if (gd.ready && pub?.stageId && stageWarned.current !== pub.stageId) {
+      stageWarned.current = pub.stageId;
+      console.warn('[game] stage not in this data set:', pub.stageId, '— content:', data.contentId?.() || null);
+    }
+  }, [view, ownView, ownStage, baseStage, gd.ready, pub?.stageId]);
   // the stage behind the board ON SCREEN — the own one (机变 overrides applied) or, while watching a teammate, the plain
   // one — and how a tapped BOARD tile maps to it (GitHub issue #184: tileClick → gameLogic.terrainInfo). Everywhere but a
   // boss-prep board the two spaces are the same: a 最终攻势 / 隐秘核心 battle renders the stage's own rows (GEO.BOSS_RECT),

@@ -566,6 +566,34 @@ export function canReplayVisual(doc) {
 }
 export function isReplaying() { return !!session; }
 
+const HASH64 = /^[0-9a-f]{64}$/;
+
+/**
+ * 回放要按「录制时那场对局」的官方版本取数据。真实房间的版本来自服务器的 room.state（version + content.cs），
+ * 合成出来的 DEMO 房间没有它：content.js 的 versionWanted 于是拿不到 cs、不加载版本集，页面仍用基础数据 —
+ * 规程（act3…）之类非默认版本的关卡在基础 stages.json 里不存在，查不到 stage 的三维棋盘只剩空场景（2D 层已交给它）。
+ * 版本依次取自：Demo 文档（新录制）、m.public / m.result 帧（服务器给非默认对局写入）、上一个房间；cs 再退到 welcome.versions。
+ * @returns {{ version: string, content?: any } | null} 合并进 DEMO 房间的字段，无版本信息时 null
+ */
+function demoVersionOf(doc, prev) {
+  const wire = Array.isArray(doc?.wire) ? doc.wire : [];
+  const frameVersion = wire.find((f) => (f.t === 'm.public' || f.t === 'm.result')
+    && typeof f.m?.version === 'string' && f.m.version)?.m.version || null;
+  const version = (typeof doc?.version === 'string' && doc.version) || frameVersion
+    || (typeof prev?.room?.version === 'string' && prev.room.version) || null;
+  if (!version) return null;
+  const docContent = doc?.content && typeof doc.content === 'object' && HASH64.test(doc.content.cs || '') ? doc.content : null;
+  const roomContent = prev?.room?.content && typeof prev.room.content === 'object' ? prev.room.content : null;
+  const listed = Array.isArray(prev?.versions) ? prev.versions.find((e) => e && e.id === version) : null;
+  const same = roomContent && roomContent.version === version && HASH64.test(roomContent.cs || '') ? roomContent : null;
+  const cs = docContent?.cs || same?.cs || (typeof listed?.cs === 'string' && HASH64.test(listed.cs) ? listed.cs : null);
+  if (!cs) return { version };
+  const base = same || docContent || {};
+  // vanilla:false 是「插件内容集」的形状（content.js roomCs 只认它），那种对局原样保留；版本房间要 vanilla:true，
+  // 否则 content.js 会把它当插件集加载、仍旧拿不到官方版本数据。
+  return { version, content: { ...base, cs, version, vanilla: base.vanilla === false ? false : true } };
+}
+
 /**
  * Start an in-game replay. Returns false when the document has no wire stream (old text-only demo).
  * @param {any} doc demo document (local IndexedDB or cloud download)
@@ -592,6 +620,10 @@ export function startDemoReplay(input) {
   const room = {
     ...prev.room, code: 'DEMO', inMatch: true, seats, spectators: [], mode: 'coop',
     difficulty: doc.difficulty || prev.room?.difficulty || 'NORMAL', hostId: ownerId, matchCount: 1,
+    // 回放用录制时的官方版本：DEMO 房间没有服务器的 room.state.content，少了版本标识 content.js 不加载版本集
+    // （public/js/content.js versionWanted），act3 之类非默认版本的关卡在基础数据里查不到 → 棋盘整片消失。
+    // 版本从文档（新 Demo）、m.public / m.result 帧（服务器给非默认对局写入）或上一个房间取；cs 由 welcome.versions 补。
+    ...demoVersionOf(doc, prev),
   };
   try { battleRunner?.clear?.(); } catch { /* ignore */ }
   store.set({ me, room, match: emptyMatch(), session: { ...prev.session, entered: true } });

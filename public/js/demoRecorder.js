@@ -80,6 +80,14 @@ function begin(frame) {
     rounds: 0,
     settled: false,
     mode: frame.modeId ?? null, difficulty: frame.difficulty ?? null,
+    // 回放要按录制时的官方版本取数据（见 demoReplay.js demoVersionOf）：版本房间的 content.cs + version 一并记下，
+    // 只留 mode / difficulty 的话，退出房间后在「演示」里回放规程对局会拿到基础数据，关卡查不到、棋盘整片空。
+    version: (typeof frame.version === 'string' && frame.version) || store.get().room?.version || null,
+    content: (() => {
+      const c = store.get().room?.content;
+      if (!c || typeof c !== 'object') return null;
+      return { cs: c.cs ?? null, vanilla: c.vanilla !== false, version: c.version ?? null };
+    })(),
     // team-demo grouping: the server stamps matchId into m.public; old servers / test frames leave it null
     matchId: typeof frame.matchId === 'string' && frame.matchId ? frame.matchId : null,
     matchToken: typeof frame.matchToken === 'string' && frame.matchToken ? frame.matchToken : null,
