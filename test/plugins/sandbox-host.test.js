@@ -15,7 +15,7 @@ test('sandbox gate is off by default, rejects trusted; script hosts force permis
   t.after(() => { if (old === undefined) delete process.env.SP_PLUGIN_SCRIPTS; else process.env.SP_PLUGIN_SCRIPTS = old; });
   delete process.env.SP_PLUGIN_SCRIPTS;
   const set = composition('export default function(){ while(true){} }');
-  const opts = { transport: 'worker', heartbeatMs: 50, watchdogMs: 1500,
+  const opts = { transport: 'worker', heartbeatMs: 50, watchdogMs: 1500, bootMs: 1500,
     matchModule: fileURLToPath(new URL('../../server/match/StubMatch.js', import.meta.url)) };
   const hosts = createMatchHosts({ contents: set.contents, options: opts }); t.after(() => hosts.close());
   assert.throws(() => hosts.create(set.cs, {}), e => e.code === 'PLUGIN_SANDBOX_DISABLED');

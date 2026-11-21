@@ -333,7 +333,7 @@ export function MatchInfo({ model, onBond }) {
  * @param {{ open: boolean, onClose: Function, model: MatchInfoModel|null, enemies?: any, status?: any, onBond?: (id:string)=>void }} props
  */
 export function MatchInfoDialog({ open, onClose, model, enemies = null, status = null, onBond }) {
-  return html`<${Modal} open=${open && !!model} onClose=${onClose} title=${t('本局信息')} micro="MATCH INFO" class="minfo-dlg"
+  return html`<${Modal} open=${open && !!model} onClose=${onClose} title=${t('本局信息')} micro="MATCH INFO" class="minfo-dlg" utility=${true}
     actions=${html`${status ? html`<div class="minfo-dlg__status" data-testid="match-info-status">${status}</div>` : null}
       <${Button} variant="secondary" icon="close" data-autofocus data-testid="match-info-close" onClick=${onClose}>${t('关闭')}<//>`}>
     ${open && model ? html`<div class=${cx('minfo-dlg__content', enemies && 'has-enemies')}>

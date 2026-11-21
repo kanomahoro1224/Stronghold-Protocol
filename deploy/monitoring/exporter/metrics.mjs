@@ -11,7 +11,8 @@ const messageTypes = new Set(['invalid', 'hello', 'ping', 'g.ready', 'g.rerollVo
   // The fork's additions to the protocol catalog must stay inside the bounded label set too, or their histogram
   // series never reaches Prometheus and test/monitoring-exporter.test.js cannot find every C2S type.
   'room.setSoloUnlimited', 'room.setAiTakeover', 'room.aiRequest', 'room.aiVote', 'room.proposeVersion',
-  'room.versionVote', 'room.cancelVersionVote', 'rtc.signal', 'g.unequip', 'g.offer', 'g.offerRefresh', 'g.test']);
+  'room.versionVote', 'room.cancelVersionVote', 'rtc.signal', 'g.unequip', 'g.offer', 'g.offerRefresh', 'g.test',
+  'p2p.enable', 'p2p.signal', 'p2p.ready', 'plugins.preview', 'g.bondGroup', 'g.diyBring', 'g.command', 'g.commandChoice']);
 const fields = [
   ['uptime_seconds', 'uptimeSec'],
   ...['sockets', 'sessions', 'rooms', 'matches', 'roomMatches', 'standaloneMatches', 'humans', 'bots', 'spectators', 'queued']

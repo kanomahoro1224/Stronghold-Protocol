@@ -545,7 +545,7 @@ export function SettingsModal({ open, onClose }) {
     { id: 'language', category: 'interface', render: () => html`
       <div class="set-row">
         <span class="set-row__label">${t('语言')}<${MicroLabel}>LANGUAGE<//></span>
-        <${LangToggle} class="set-lang" />
+        <${LangToggle} class="set-lang" compact=${true} />
       </div>
       ${mtNote ? html`<p class="set-hint set-lang-note" data-testid="lang-mt-note">${mtNote}</p>` : null}
     ` },
@@ -698,7 +698,7 @@ export function SettingsModal({ open, onClose }) {
       <p class="set-hint">${touchUi ? t('触屏操作：点击单位选中（撤退 / 出售）· 长按单位或卡牌查看详情 · 拖动部署后滑动选择朝向') : t('右键查看详情')}</p>
     ` },
   ];
-  return html`<${Modal} open=${open} onClose=${onClose} class="setdlg settings-modal" title=${t('设置')} micro="SETTINGS" width="min(max(10.4rem, 32px, calc(760px * var(--sp-ui, 1))), calc(100vw - 32px))"
+  return html`<${Modal} open=${open} onClose=${onClose} class="setdlg settings-modal" utility=${true} title=${t('设置')} micro="SETTINGS" width="min(max(10.4rem, 32px, calc(760px * var(--sp-ui, 1))), calc(100vw - 32px))"
                         actions=${html`<${AnnouncementButton} onClick=${onClose} /><${Button} variant="secondary" icon="book" class="set-guide" onClick=${() => openGuide(0)}>${t('玩法说明')}<//>
                         <${Button} variant="primary" icon="check" onClick=${onClose}>${t('完成')}<//>`}>
     <${SettingsBrowser} categories=${SETTINGS_CATEGORIES} entries=${entries} />

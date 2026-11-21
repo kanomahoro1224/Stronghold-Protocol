@@ -123,7 +123,9 @@ export class PlayerAcquire {
     // a new piece: this round's per-piece counters start at 0, none is carried over from the copies — a newly merged
     // elite 拉普兰德 is a new 拉普兰德 and fires +8 on its own first manual refresh this round (GitHub #169; the owner's
     // decision of 2026-10-06; pieceRoundCount). Only the sale price carries over (carrySellPrice).
-    copies += this.poolOf(baseId).take(baseId, Math.max(0, this.gd.goldenCopies - copies), { overdraw: true });
+    // Console / private grants (`fromPool:false`) keep only the copies they actually reserved: a pure console 3-in-1
+    // holds 0, two real copies plus a console grant hold 2. Only a pool-backed merge tops up to goldenCopies.
+    if (fromPool) copies += this.poolOf(baseId).take(baseId, Math.max(0, this.gd.goldenCopies - copies), { overdraw: true });
     const elite = this.newPiece('chess', goldenId, { poolCopies: copies });
     carrySellPrice(elite, consumed.map((l) => l.piece), this.gd.sellPrice(goldenId));
     // the copies are gone; a refresh dispatch that saw them still runs their 刷新时 特质 (effectsMeta.js _garrisons, #627)

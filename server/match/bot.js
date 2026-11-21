@@ -2931,10 +2931,6 @@ export function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0, polic
     // away (maybeFreeze keeps it for the next round)
     if (fillOnly && !customPolicy && pagerRefresh(m, ps)) continue;
     if (!customPolicy && pagerShowsMissing(m, ps)) return;
-    // §37.69: the 杰西卡 seat's extra refreshes before the level-up; a missing member it could not buy is not refreshed
-    // away (maybeFreeze keeps it for the next round)
-    if (fillOnly && !customPolicy && pagerRefresh(m, ps)) continue;
-    if (!customPolicy && pagerShowsMissing(m, ps)) return;
     if (canRefresh) {
       // Manual g.refresh cancels freezing and replaces its cards. §37.71: save an unaffordable explicit plan target first.
       if (ps.shop.slots.some(s => s && !s.sold && s.kind === 'chess'

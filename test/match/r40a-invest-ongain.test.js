@@ -1,6 +1,6 @@
 // Community report of 2026-10-14: three 投资人 did not multiply 获得时 effects; 耶拉 (and 缪尔赛思's 变形同构体)
 // seemed to fire once. The real purchase path already matches the bond text. What looks like one trigger:
-//   - This fork permits active bonds in FUNNY; mode bans only filter the initial operator pool.
+//   - 标准 (FUNNY) lists investShip inactive, so the multiplier stays 1 even at 3 members and 100 layers;
 //   - BOARD_AND_DECK counts distinct base ids, so copies of one investor do not light the bond;
 //   - 谢拉格不融冰 merges at 2, so 耶拉's ×2 grant is one golden card.
 // Round 39's #590 measurement (缪尔赛思 1 / 2 / 3 / 6) is the same multiplier. This file drives g.buy, not a forced bond.
@@ -67,8 +67,8 @@ function buy(h, id) {
 test('投资人 on a real purchase: ×2 while three different members are active, ×3 at 100 layers, ×1 otherwise', () => {
   assert.ok(INVESTORS.length >= 3, INVESTORS.join(' '));
   const cases = [
-    ['FUNNY', true, 0, true, 2],
-    ['FUNNY', true, 100, true, 3],
+    ['FUNNY', true, 0, false, 1],
+    ['FUNNY', true, 100, false, 1],
     ['FUNNY', false, 0, false, 1],
     ['NORMAL', false, 100, false, 1],
     ['NORMAL', true, 0, true, 2],
