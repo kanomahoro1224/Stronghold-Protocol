@@ -1077,7 +1077,7 @@ function MatchScreen() {
       setBossPlate({ kind: 'core', key: `core:${pub.round}` });
       return undefined;
     }
-    const id = setTimeout(() => setRoundPop({ round: pub.round, left: roundsToBoss(pub), sub: b?.sub || ((spectator || !alive) ? t('观战中') : null), watching: spectator || !alive, key: `round:${pub.round}` }), 600);
+    const id = setTimeout(() => setRoundPop({ round: pub.round, left: roundsToBoss(pub), sub: (spectator || !alive) ? t('观战中') : null, watching: spectator || !alive, key: `round:${pub.round}` }), 600);
     return () => clearTimeout(id);
   }, [phaseKey]);
   // 协议已失效: once, when the player goes out while the match goes on (the whole team out ends the match: the end plate)

@@ -72,7 +72,8 @@ function declaration(selector, prop) {
 test('the in-page hotkey panel keeps local units, saved bindings and an accessible rebind flow', () => {
   const source = read('public/js/ui/settings.js');
   // 快捷键 is the upstream section inside the settings dialog, not a second utility modal.
-  assert.match(source, /function HotkeySection\(\{ keys, touchUi \}\)/);
+  assert.match(source, /function HotkeySection\(\{ keys, touchUi, active = true \}\)/);
+  assert.match(source, /<\$\{HotkeySection\} active=\$\{active\} keys=\$\{s\.keys\} touchUi=\$\{touchUi\} \/>/);
   // Every rebindable action is rendered from the shared list (the Q/X retreat/sell pair included).
   assert.match(source, /<ul class="set-keys__list">\s*\$\{HOTKEY_ACTIONS\.map\(\(a\) => \{/);
   // A new key runs the shared rebind rules and lands in the settings store — the same map the HUD reads.

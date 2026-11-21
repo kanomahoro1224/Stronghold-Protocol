@@ -238,7 +238,7 @@ describe('game.js wiring', () => {
     assert.match(game, /const step = deployZoomStep\(deployZoomedRef\.current, deployZoom\);\n\s+const next = prepDeployCamera\(\{\n\s+pub, myId, deployZoom, deployFold, partial: deployPartial,/);
     assert.doesNotMatch(game, /deployZoomedRef\.current = step\.zoomed/);
     const call = game.indexOf('const next = prepDeployCamera({');
-    const effectEnd = game.indexOf('}, [view, deployFold, deployPartial, shopFolded, showPrep, pen, !!drag, !!facing, prepCamKey]);', call);
+    const effectEnd = game.indexOf('}, [view, deployZoom, deployFold, deployPartial, shopFolded, showPrep, pen, !!drag, !!facing, prepCamKey]);', call);
     assert.ok(call > 0 && effectEnd > call, 'deployFold stays in the effect deps');
     assert.equal(FOLD_CAMERA_MS < CAMERA_MS, true, `${FOLD_CAMERA_MS} ms is shorter than the ${CAMERA_MS} ms camera flight`);
     assert.equal((game.match(/ms: FOLD_CAMERA_MS/g) || []).length, 1, 'the pickup zoom and the fold / unfold restore share one flight');

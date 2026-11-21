@@ -894,12 +894,9 @@ export function createBattleRunner(deps) {
       e.sim = sim;
       e.battle = battle;
       e.meter = e.host.meter;
-      // An in-page Battle gets the meter only when 作战统计 is on (default off; a test may pin it). A Worker page holds
-      // wire state only (time, ids) — no `damaged` hook and no `heal`, so trackCombat cannot run there: its totals come
-      // in the host's packets (the branch's worker-host combat channel).
-      if (metricsEnabled()) {
-        e.combatMetrics = e.host.remote ? () => e.host.packet?.combat || { seconds: 0, owners: [], rows: [] } : trackCombat(battle);
-      }
+      // The Worker page holds wire state only (time, ids): no `damaged` hook and no `heal`, so trackCombat cannot
+      // run there. An in-page Battle gets the meter only when 作战统计 is on (default off; a test may pin it).
+      if (metricsEnabled() && !e.host.remote) e.combatMetrics = trackCombat(battle);
       e.t0 = clock() - (e.elapsed / e.speed) * 1000;
       if (lastPool) await e.host.syncPool(lastPool.hp, lastPool.acked ? lastPool.acked[e.fieldId] : undefined);
       if (e.endReason) await endBattle(e);
