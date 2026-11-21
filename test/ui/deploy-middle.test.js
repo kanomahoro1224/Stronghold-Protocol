@@ -7,9 +7,10 @@ import { hudBands } from '../../public/js/ui/fieldHost.js';
 
 const pub = { round: 2, bossRound: 14, players: [{ playerId: 'a', seat: 0 }] };
 
-test('middle deploy setting preserves old booleans, defaults and serialized preferences', () => {
+test('middle deploy setting preserves old booleans, the fork default false (no fold) and serialized preferences', () => {
   for (const value of [false, true, 'partial']) assert.equal(sanitizeSettings(JSON.parse(JSON.stringify({ prepDeployFold: value }))).prepDeployFold, value);
-  for (const value of [undefined, 'off', 'middle', 0, null]) assert.equal(sanitizeSettings({ prepDeployFold: value }).prepDeployFold, true);
+  // fork default: deployment keeps the shop open; a missing / illegal value also falls back to false
+  for (const value of [undefined, 'off', 'middle', 0, null]) assert.equal(sanitizeSettings({ prepDeployFold: value }).prepDeployFold, false);
 });
 
 test('partial camera changes live between all levels and restores while still dragging', () => {
