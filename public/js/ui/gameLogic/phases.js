@@ -70,6 +70,18 @@ export function pregameStepIndex(config, step) {
 }
 
 /**
+ * The bond strip's frozen state (「层数叠加已禁用」). 联防 is always frozen. Boss and hidden fields are frozen
+ * only when config.finalAssault.layerGainsEnabled is not true (盟约). 规程 leaves them live, like a normal battle.
+ * @param {string|null|undefined} phase
+ * @param {any} config loaded match config (`data.get('config')`)
+ */
+export function bondLayersFrozen(phase, config) {
+  if (phase === PHASE.UNITE) return true;
+  if (!isBossPhase(phase)) return false;
+  return config?.finalAssault?.layerGainsEnabled !== true;
+}
+
+/**
  * Banner shown when a phase starts: { title, sub?, tone } or null.
  * @param {string|null|undefined} phase
  * @param {any} pub m.public
@@ -102,15 +114,15 @@ export function phaseBanner(phase, pub, { alive = true, spectator = false } = {}
 /**
  * Stable identity for one eligible shared-draft turn. `draftToken` is local to the mounted match screen and changes
  * when a distinct SP_DRAFT instance opens; the pick count distinguishes sequential turns even if the same seat turns
- * up again. Solo is cued too (decision 7 of 2026-10-22, docs/history/0.3.2.md; the owner kept it on 2026-11-14 when
- * PR #946 dropped it); personal 教鞭 choices have no turn cue. `solo` stays in the options for the callers.
+ * up again. Solo simulation and personal 教鞭 choices have no turn cue (official solo recording in PR #946,
+ * issuecomment-6881541711; history §37.230).
  * @param {any} pub m.public
  * @param {any} sp normalizeSp(pub.sp)
  * @param {{ myId?: string|null, solo?: boolean, alive?: boolean, spectator?: boolean, personal?: boolean, draftToken?: string|number }} [o]
  * @returns {string|null}
  */
 export function spTurnCueKey(pub, sp, { myId = null, solo = false, alive = true, spectator = false, personal = false, draftToken = '' } = {}) {
-  if (pub?.phase !== PHASE.SP_DRAFT || !sp || !alive || spectator || personal || typeof myId !== 'string' || !myId
+  if (pub?.phase !== PHASE.SP_DRAFT || !sp || solo || !alive || spectator || personal || typeof myId !== 'string' || !myId
     || sp.turnPid !== myId || sp.pickOf?.has?.(myId)) return null;
   return JSON.stringify([draftToken, pub.round ?? null, sp.family ?? null, sp.pickedCount ?? sp.pickOf?.size ?? 0, myId]);
 }

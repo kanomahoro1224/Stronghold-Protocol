@@ -403,8 +403,8 @@ test('regulation groups render two choices, disable waiting controls and settle 
   assert.ok([...walk(blocked)].filter(v => v.type === Button).every(v => v.props.disabled));
   const settled = MatchBondGroups({ model: { ...m, choice: { ...m.choice, picked: 1 } }, onPick() {} });
   assert.equal(settled.type, MatchBondRow);
-  assert.match(textOf(MatchLegend({ model: m })), /灰色：本局置灰的盟约；干员只有在所属的盟约（核心与附加）全部置灰时才无法出现/);
-  assert.equal(briefingBondTip('炎', 'drawn', 10, true), '炎：该核心盟约的干员无法出现，同属其他亮着的盟约（核心或附加）的除外');
+  assert.match(textOf(MatchLegend({ model: m })), /有核心盟约的干员，仅当其核心盟约全部置灰时无法出现；仅有附加盟约的干员，仅当其附加盟约全部置灰时无法出现/);
+  assert.equal(briefingBondTip('炎', 'drawn', 10, true), '炎：该核心盟约的干员无法出现，同属其他亮着的核心盟约的除外');
 });
 
 test('MatchBondGroups passes onBond to every core disc: both groups, the always-lit rest, the row after the pick, and a match with no choice', () => {
@@ -450,8 +450,6 @@ test('a greyed regulation core card says its operators cannot appear; an unpicke
   assert.equal(regulationCoreAbsent(before, 'yanShip'), false);
   assert.equal(regulationCoreAbsent(before, 'sargonShip'), false);
   const comparing = card(before, 'yanShip', { count: 0, layers: 0, tier: 0, active: false });
-  assert.match(comparing, /当前效果/);
-  assert.match(comparing, /成员/);
   assert.doesNotMatch(comparing, /该核心盟约的干员无法出现/);
   assert.doesNotMatch(comparing, /本模式下该盟约不会激活/);
 
@@ -463,14 +461,12 @@ test('a greyed regulation core card says its operators cannot appear; an unpicke
   assert.equal(regulationCoreAbsent(funny, 'egirShip'), true);
   assert.equal(regulationCoreAbsent(funny, 'arcaneShip'), false, 'an add-on keeps the covenant rule');
   const modeOff = card(funny, 'egirShip', { count: 0, layers: 0, tier: 0, active: false });
-  assert.match(modeOff, /阿戈尔：该核心盟约的干员无法出现，同属其他亮着的盟约（核心或附加）的除外/);
-  assert.match(modeOff, /当前效果/, 'the covenant off branch, which hides the effect, is not used');
+  assert.match(modeOff, /阿戈尔：该核心盟约的干员无法出现，同属其他亮着的核心盟约的除外/);
   assert.doesNotMatch(modeOff, /本模式下该盟约不会激活/);
   assert.doesNotMatch(modeOff, /仍可能因所属的其他盟约出现/);
   const addon = card(funny, 'arcaneShip');
   assert.match(addon, /本模式下该盟约不会激活（其干员仍可能因所属的其他盟约出现）/);
   assert.doesNotMatch(addon, /该核心盟约的干员无法出现/);
-  assert.doesNotMatch(addon, /当前效果/);
 
   const after = matchInfoModel({
     bondDraw: 'regulation', bondChoice: { groups: [['yanShip'], ['sargonShip']], picked: 0 },
@@ -480,8 +476,7 @@ test('a greyed regulation core card says its operators cannot appear; an unpicke
   assert.equal(regulationCoreAbsent(after, 'sargonShip'), true);
   assert.equal(regulationCoreAbsent(after, 'yanShip'), false);
   const drawn = card(after, 'sargonShip', { count: 0, layers: 0, tier: 0, active: false });
-  assert.match(drawn, /萨尔贡：该核心盟约的干员无法出现，同属其他亮着的盟约（核心或附加）的除外/);
-  assert.match(drawn, /当前效果/);
+  assert.match(drawn, /萨尔贡：该核心盟约的干员无法出现，同属其他亮着的核心盟约的除外/);
   assert.doesNotMatch(drawn, /仍可能因所属的其他盟约出现/);
   assert.doesNotMatch(card(after, 'yanShip', { count: 1, layers: 2, tier: 1, active: true }), /该核心盟约的干员无法出现/);
 

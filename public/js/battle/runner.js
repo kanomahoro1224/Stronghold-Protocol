@@ -41,7 +41,8 @@
 // enemies still standing (/sim/spec.js uniteLeft; user playtest #6 item 7) as state().uniteLeft { [playerId]: n },
 // published whenever it changes (it falls as the helpers kill them), and its authority reports it as b.progress `left`.
 // Live bond layers (DESIGN §20.15): every battle simulated here keeps the bonds whose layers grew in it (IN_BATTLE gains,
-// Battle.addLayers — normal battles only) as absolute counts per player, published as state().bondLayers
+// Battle.addLayers — whenever the field's layerGainsEnabled flag is on, including a 规程 boss / hidden field) as absolute
+// counts per player, published as state().bondLayers
 // { [playerId]: { [bondId]: n } } (every battle of the round: the own one, the teammates' replicas) whenever one grows;
 // the bond strip of the player on screen — the own one, or a watched teammate's — shows them live (ui/watchBonds.js).
 //
@@ -312,7 +313,7 @@ export function createBattleRunner(deps) {
       if (!content || content.cs !== want) throw new Error(`the content set ${want.slice(0, 8)} is not loaded on this page`);
       // a gameplay plugin set runs in the plugin Worker; an official version's set (DESIGN §35.23: data only, no script)
       // runs on this page like the original content — 作战统计 included
-      return deps.loadSim || content.version ? loadSim(content) : { content, cs: want, remote: true };
+      return deps.loadSim || content.hashInput?.vanilla === true ? loadSim(content) : { content, cs: want, remote: true };
     }) : loadSim(null)).catch((err) => { if (simP === p) { simP = null; simCs = null; } throw err; });
     simP = p;
     return p;
@@ -335,7 +336,20 @@ export function createBattleRunner(deps) {
       if (!e.live) continue;
       for (const [pid, m] of Object.entries(e.live)) out[pid] = { ...(out[pid] || {}), ...m };
     }
+    // Temporary totals use this battle's permanent base, never a newer converted settlement view.
+    if (!loading && cur) {
+      for (const [pid, own] of Object.entries(cur.tempLive || {})) {
+        for (const id of Object.keys(own)) {
+          (out[pid] ||= {})[id] = Number(cur.battle.getPlayer(pid)?.bonds?.[id]?.layers) || 0;
+        }
+      }
+    }
     return out;
+  }
+
+  function tempLayerMap() {
+    if (loading || !cur || !cur.tempLive) return {};
+    return Object.fromEntries(Object.entries(cur.tempLive).map(([pid, layers]) => [pid, { ...layers }]));
   }
 
   /**
@@ -349,11 +363,11 @@ export function createBattleRunner(deps) {
 
   function state() {
     const e = cur;
-    if (!e) return loading ? { loading: true, battleId: loading.battleId, fieldId: loading.fieldId, kind: loading.kind, leaks: leakMap(), uniteLeft: uniteLeftMap(), bondLayers: layerMap() } : null;
+    if (!e) return loading ? { loading: true, battleId: loading.battleId, fieldId: loading.fieldId, kind: loading.kind, leaks: leakMap(), uniteLeft: uniteLeftMap(), bondLayers: layerMap(), bondTempLayers: tempLayerMap() } : null;
     return {
       battleId: e.battleId, fieldId: e.fieldId, kind: e.kind, authoritative: e.authoritative, watch: e.watch,
       done: e.done, own: e.own, members: e.members.slice(), loading: !!loading, speed: e.speed, paused: pausedAt != null,
-      leaks: leakMap(), uniteLeft: uniteLeftMap(), bondLayers: layerMap(),
+      leaks: leakMap(), uniteLeft: uniteLeftMap(), bondLayers: layerMap(), bondTempLayers: tempLayerMap(),
     };
   }
 
@@ -396,30 +410,43 @@ export function createBattleRunner(deps) {
   /**
    * Re-read an entry's live bond layers (DESIGN §20.15): per player of its spec, the bonds whose layers in the battle's
    * live copy (Battle.addLayers, clamped at BOND_LAYER_CAP like the client's AddBondCount) exceed the spec's start
-   * count. Nothing to do when the battle disables gains (联防, boss rounds).
+   * count. A field with gains disabled (联防, 盟约 boss / hidden) never moves the permanent copy, so it publishes nothing.
    */
   function noteLayers(e) {
     const b = e.battle;
-    if (!b || (b.flags && b.flags.layerGainsEnabled === false) || typeof b.getPlayer !== 'function') return;
+    if (!b || typeof b.getPlayer !== 'function') return;
     let sum = 0;
     let live = null;
+    const temporary = {};
+    const tempGains = e.host?.tempLayersSnapshot?.() || {};
     for (const sp of Array.isArray(e.spec.players) ? e.spec.players : []) {
-      const ps = sp && sp.playerId != null ? b.getPlayer(sp.playerId) : null;
-      if (!ps || !ps.bonds || typeof ps.bonds !== 'object') continue;
-      const start = sp.bonds && typeof sp.bonds === 'object' ? sp.bonds : {};
-      for (const id of Object.keys(ps.bonds)) {
-        const n = Number(ps.bonds[id] && ps.bonds[id].layers) || 0;
-        const from = Number(start[id] && start[id].layers) || 0;
-        if (!(n > from)) continue;
-        sum += n - from;
+      const ps = sp?.playerId != null ? b.getPlayer(sp.playerId) : null;
+      if (!ps?.bonds) continue;
+      const start = sp.bonds || {};
+
+      const ids = new Set([...Object.keys(ps.bonds), ...Object.keys(tempGains[sp.playerId] || {})]);
+      for (const id of ids) {
+        const from = Number(start[id]?.layers) || 0;
+        const permanent = Number(ps.bonds[id]?.layers) || 0;
+        const amount = Number(tempGains[sp.playerId]?.[id]);
+        const temp = Number.isFinite(amount) ? Math.max(0, amount) : 0;
+        if (temp > 0) {
+          if (!temporary[sp.playerId]) temporary[sp.playerId] = {};
+          temporary[sp.playerId][id] = temp;
+        }
+        if (!(permanent > from)) continue;
+        sum += permanent - from;
         if (!live) live = {};
         if (!live[sp.playerId]) live[sp.playerId] = {};
-        live[sp.playerId][id] = n;
+        live[sp.playerId][id] = permanent;
       }
     }
-    if (sum === e.layerSum) return;
+    const mark = JSON.stringify(temporary);
+    if (sum === e.layerSum && mark === e.tempLayerMark) return;
     e.layerSum = sum;
     e.live = live;
+    e.tempLive = temporary;
+    e.tempLayerMark = mark;
     leaksDirty = true;
   }
 
@@ -807,7 +834,7 @@ export function createBattleRunner(deps) {
       // leaker's enemies still standing (noteUniteLeft)
       leaks: 0, leakMark: '', left: null,
       // live bond layers grown in this battle { [playerId]: { [bondId]: n } } and their total gain (noteLayers)
-      live: null, layerSum: 0,
+      live: null, layerSum: 0, tempLive: null, tempLayerMark: '',
       // state-bearing events of the steps run while the tab was hidden (hold(); delivered by the next rendered frame;
       // heldAt = the game time each was drained at), and whether that backlog overflowed (the next frame re-enters the
       // view from the field meta); the event batches of the current sliced step (stepEntry)

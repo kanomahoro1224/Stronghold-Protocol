@@ -137,7 +137,8 @@ export class PlayerItems {
   }
 
   /**
-   * Attach an item. With both slots used the item `replaceUid` names (the player's pick) is replaced, else the oldest;
+   * Attach an item. With all slots used the item `replaceUid` names (the player's pick) is replaced, else the oldest;
+* Attach an item. With all slots used the item `replaceUid` names (the player's pick) is replaced, else the oldest;
    * the replaced item is destroyed.
    */
   /** The room's equip-slot policy. Official returns the shared frozen singleton, so the numbers stay today's. */

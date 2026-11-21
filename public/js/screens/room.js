@@ -538,7 +538,7 @@ export function RoomScreen() {
   useData('chess', 'assets', 'config', 'backups');
   const chess = data.get('chess');
   const backups = data.get('backups');
-  // the room version's chess records and 自选编队 pool (ui/seatArt.js cardOperators — the server's chessCharIds whitelist)
+  // the room version's chess records and 自选编队 pool (ui/seatArt.js cardOperators — the server's cardCharIds)
   const cardList = useMemo(() => cardOperators(data.list('chess'), backups), [chess, backups]);
   const cards = useMemo(() => cardContext(cardList, { pending: !backups }), [cardList, backups]);
   const myCard = useStore((s) => s.charId, Object.is, cardStore);

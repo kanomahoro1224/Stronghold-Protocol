@@ -10,7 +10,7 @@ import { boardTileOf, fieldTile } from './camera.js';
 import { deployedRecord, fieldsStandIn, standInOf } from './standIn.js';
 import { t } from '../../../../shared/i18n.js';
 import { morphSlotPolicy } from '../../../../shared/plugins/rules.js';
-import { chessIsDiy, equipmentCapacity, itemForbidsDiy } from '../../../../shared/itemRules.js';
+import { chessIsDiy, itemForbidsDiy, equipmentCapacity } from '../../../../shared/itemRules.js';
 
 
 // ---- placement (canPlace mirror) ------------------------------------------------------------------------
@@ -221,7 +221,7 @@ export function placementContext({ priv, stage, editable, field = 'normal', getC
       if (u && u.defId === 'enemy_9038_achest' && Number.isInteger(u.y) && Number.isInteger(u.x)) chestTiles.add(tileKey(u.y, u.x));
     }
   }
-  return { priv, pieces, boardAt, handAt, deploy, cap, count, field, editable: !!editable, getChess, getToken, getItem, backups, chestTiles, equipHand: config?.version?.rules?.equipHand === true, morphMode: morphMode === 'plus' ? 'plus' : 'official' };
+  return { priv, pieces, boardAt, handAt, deploy, cap, count, field, editable: !!editable, getChess, getToken, getItem, backups, chestTiles, equipPerChess: config?.economy?.equipPerChess, equipHand: config?.version?.rules?.equipHand === true, morphMode: morphMode === 'plus' ? 'plus' : 'official' };
 }
 
 /**
@@ -396,7 +396,8 @@ export function canPlace(ctx, uid, target) {
     if (out && out.has(tileKey(row, col))) return no('BAD_TILE', t('只能部署在召唤者攻击范围外'));
     if (src.area === 'board') {
       // board → board: move or swap (the occupant must be legal on the source tile — the mover's own summon excepted:
-      // a moved operator's summons go back to the hand anyway)
+      // recompute returns it when the owner's final range leaves it outside, or the tile it lands on is one it cannot
+      // stand on). This view does not move the occupant; the next server snapshot does.
       const ownSummon = occ && occ.piece.kind === 'token' && occ.piece.ownerUid === piece.uid;
       if (occ && !ownSummon && !unitAllowed(ctx, occ.piece, src.row, src.col)) return no('BAD_TILE', t('交换后的单位无法部署在原位置'));
       return { ok: true, action: occ ? 'swap' : 'move' };

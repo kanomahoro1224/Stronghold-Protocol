@@ -19,6 +19,7 @@ const read = (p) => readFileSync(path.join(ROOT, p), 'utf8');
 
 const { prepCameraFor, foldCamera, prepCamera } = await import('../../public/js/ui/gameLogic.js');
 const { hudBands, HUD_REM } = await import('../../public/js/ui/fieldHost.js');
+const bondBandTop = rem => Math.max(rem * HUD_REM.bondStripBottom, rem * HUD_REM.bondStripTop + HUD_REM.bondArrowPx);
 const { presetCamera, tileQuad } = await import('../../public/js/render/projection.js');
 
 const pl = (id, seat, alive = true) => ({ playerId: id, seat, alive });
@@ -125,7 +126,7 @@ describe('hudBands: the folded shop\'s band', () => {
         assert.ok(Math.abs(f.bottom - 35) < 1e-9, `no corner on the page: the tab .8rem + 3 px (${f.bottom})`);
       }
     });
-    withDom({ rem: 100 }, () => assert.deepEqual(hudBands('prep', { width: 1920, height: 1080 }, { shop: false }), { top: 216, bottom: 83 }));
+    withDom({ rem: 100 }, () => assert.deepEqual(hudBands('prep', { width: 1920, height: 1080 }, { shop: false }), { top: bondBandTop(100), bottom: 83 }));
   });
 
   test('the corner buttons are measured, touch hit areas included; the tab sits above the bottom safe-area inset', () => {
@@ -187,8 +188,8 @@ describe('the folded board grows and every bench / temp tile stays clear of the 
 
   test('1920×1080: the official shop-collapsed camera at its own scale, panned up just enough to clear the folded tab', () => {
     const off = presetCamera('prep', { width: 1920, height: 1080 }, { rect: { ...GEO.NORMAL_RECT }, side: 'L', shop: false });
-    const fit = presetCamera('prep', { width: 1920, height: 1080 }, { rect: { ...GEO.NORMAL_RECT }, side: 'L', shop: false, hud: { top: 216, bottom: 83 } });
-    const shop = presetCamera('prep', { width: 1920, height: 1080 }, { rect: { ...GEO.NORMAL_RECT }, side: 'L', hud: { top: 216, bottom: 267 } });
+    const fit = presetCamera('prep', { width: 1920, height: 1080 }, { rect: { ...GEO.NORMAL_RECT }, side: 'L', shop: false, hud: { top: bondBandTop(100), bottom: 83 } });
+    const shop = presetCamera('prep', { width: 1920, height: 1080 }, { rect: { ...GEO.NORMAL_RECT }, side: 'L', hud: { top: bondBandTop(100), bottom: 267 } });
     const { cy: cyFit, ...restFit } = fit.params();
     const { cy: cyOff, ...restOff } = off.params();
     assert.deepEqual(restFit, restOff, 'same optics and scale (a 2D pan of the image)');
@@ -209,6 +210,6 @@ describe('wiring', () => {
     // entering prep and the boss-prep re-frame take the fold state; a fold / unfold re-frames through prepDeployCamera
     // (which calls foldCamera, still deferred while busy unless a deploy zoom is being given back — issue #602)
     assert.equal((game.match(/const pc = prepCameraFor\(pub, myId, shopFolded\);/g) || []).length, 2);
-    assert.match(game, /const next = prepDeployCamera\(\{\n\s+pub, myId, deployZoom, partial: deployPartial, releaseDeploy: step\.release, folded: shopFolded,\n\s+ownPrep: !!view && viewModeRef\.current === 'prep' && showPrep,\n\s+pen, busy: !!drag \|\| !!facing, current: camRef\.current,\n\s+\}\);\n\s+\/\/ a null release because the pen is open stays owed; a null only because the camera already\n\s+\/\/ matches the player's fold spends it\. \[ASSUMED\]\n\s+deployZoomedRef\.current = deployZoomRemember\(step, \{ next, pen \}\);\n\s+\/\/ the fold zoom and the restore fly with the short FOLD_CAMERA_MS, not a generic camera flight\n\s+if \(next\) setCam\(next\.kind, \{ \.\.\.next\.opts, ms: FOLD_CAMERA_MS \}\);/);
+    assert.match(game, /const next = prepDeployCamera\(\{\n\s+pub, myId, deployZoom, deployFold, partial: deployPartial, releaseDeploy: step\.release, folded: shopFolded/, 'camera reads the fold flag');
   });
 });

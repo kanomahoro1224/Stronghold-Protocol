@@ -67,6 +67,7 @@ import { installDeviceSupport, useFullscreen, useScreenWakeLock } from './ui/dev
 import { isCombatPhase } from './ui/gameLogic/phases.js';
 import { LoadoutHost } from './screens/loadout.js';
 import { StatsHost, useStatsOpen } from './screens/stats.js';
+import { LobbyPluginHost } from './ui/pluginTag.js';
 import { CoveredVersionVote } from './ui/versionVote.js';
 import { installRehearsal } from './battle/rehearsal.js';
 import { recordResult, installStatsRecorder } from './ui/stats.js';
@@ -77,7 +78,7 @@ import { initLang, useLang, tickerText } from './ui/lang.js';
 import { t, N_, translateWire } from '../../shared/i18n.js';
 import { recordError, installTrafficMeter } from './diag.js';
 import { appendChat, validChatText } from '../../shared/chat.js';
-import { installContent, installContentSet } from './content.js';
+import { installContent, installContentSet, installLobbyPlugins } from './content.js';
 import { startAccounts } from './ui/accounts.js';
 import { startDemoRecorder, currentDemoId, currentDemoMatchId } from './demoRecorder.js';
 import { cosmetics } from './cosmetics.js';
@@ -420,6 +421,7 @@ function App() {
     <${ReleaseNotesHost} />
     <${LoadoutHost} />
     <${ResourceManagerHost} />
+    <${LobbyPluginHost} />
     <${StatsHost} />
     <${VoteOverOverlays} />
   </div>`;
@@ -486,6 +488,11 @@ async function boot() {
 
   wireNet();
   installStatsRecorder(store); // follows the match on screen, so a 放弃模拟 can be recorded (ui/stats.js)
+  // Register content-set sync before the pref syncs so room.contentReady is always sent before room.loadout / room.diy
+  // when entering a room whose modded/version content set is already ready from lobby preview.
+  installContent({ toast });
+  installContentSet({ toast });
+  installLobbyPlugins({ net, toast });
   // the loadout / 干员持有 / 自选 settings by operator, shown for the data on screen (DESIGN §35.23; a v1 store migrates)
   installSettingsViews();
   installLoadoutSync({ net });
@@ -497,10 +504,6 @@ async function boot() {
   // 名片干员 (PR #643 split 6): the operator and avatar on this browser's seat card (room.card, ui/playerCard.js
   // cardStore — ui/seatArt.js') — after every welcome, pick and content change, with the engine's retries
   installCardSync({ net });
-  // the room's cosmetic plugins and the player's own over the art manifest (content.js; nothing is fetched without them)
-  installContent({ toast });
-  // a room with gameplay plugins: its content set downloaded, checked and shown (content.js — DESIGN §32.6)
-  installContentSet({ toast });
   // 头像 P2P (user request 2026-10-15): offer this browser's own account (avatar / #tag) to the room's teammates over
   // a WebRTC DataChannel — the server only relays the signaling, so an avatar costs it nothing. Always on: there is no
   // setting for it (ui/settings.js), and a room that cannot connect keeps showing the namecard operator.

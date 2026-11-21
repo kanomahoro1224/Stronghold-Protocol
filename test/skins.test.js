@@ -478,6 +478,24 @@ describe('皮肤: the client resolves the appearance (assets.js)', () => {
     assert.equal(spineEntry(MANIFEST, OPERATOR, { skin: SKIN }).skel, '/s/inside_kitchen/front.skel');
   });
 
+  test('a summon draws the appearance its owner\'s outfit brings, and falls back to its own model', () => {
+    const TOKEN = 'token_10006_vodfox_doll';
+    assert.equal(spineEntry(MANIFEST, TOKEN, { skin: SKIN }).skel, '/s/doll_kitchen/front.skel');
+    assert.equal(spineEntry(MANIFEST, TOKEN, { skin: SKIN, back: true }).skel, '/s/doll_kitchen/back.skel');
+    assert.equal(hasBackSpine(MANIFEST, TOKEN, SKIN), true);
+    assert.equal(hasBackSpine(MANIFEST, TOKEN), false, 'the token\'s own model has no Back');
+    assert.equal(spineEntry(MANIFEST, TOKEN).skel, '/s/doll/front.skel');
+    assert.equal(spineEntry(MANIFEST, TOKEN, { skin: 'gone' }).skel, '/s/doll/front.skel');
+    // a picture-only appearance keeps the token's own model, as it does for an operator
+    assert.equal(spineEntry(MANIFEST, TOKEN, { skin: 'char_498_inside@art#9' }).skel, '/s/doll/front.skel');
+    assert.equal(tokenAvatarUrl(MANIFEST, TOKEN, { skin: SKIN }), '/a/doll_kitchen.png');
+    assert.equal(tokenAvatarUrl(MANIFEST, TOKEN, { skin: 'char_498_inside@art#9' }), '/a/doll_art.png');
+    assert.equal(tokenAvatarUrl(MANIFEST, TOKEN), '/a/doll.png');
+    assert.equal(unitPictureUrl(MANIFEST, TOKEN, { skin: SKIN }), '/a/doll_kitchen.png');
+    // a skin asked for on another container's id does not leak into the token lookup
+    assert.equal(spineEntry(MANIFEST, OPERATOR, { skin: SKIN }).skel, '/s/inside_kitchen/front.skel');
+  });
+
   test('avatarUrl / portraitUrl / illustUrl prefer the skin and fall back to the operator\'s art, never to a placeholder', () => {
     assert.equal(avatarUrl(MANIFEST, OPERATOR, { skin: SKIN }), '/a/inside_kitchen.png');
     assert.equal(avatarUrl(MANIFEST, OPERATOR, { skin: 'gone' }), '/a/inside.png');

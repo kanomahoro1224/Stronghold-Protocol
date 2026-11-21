@@ -210,10 +210,11 @@ export function tierChipUrl(t) {
 export function TierChip({ tier, golden = false, size = 'md', class: cls, overlay = null, style = null }) {
   const n = Math.max(1, Math.min(6, Number(tier) | 0 || 1));
   const src = tierChipUrl(n);
-  const picture = useAssetImage(src);
-  const img = !!picture.src;
-  return html`<span class=${cx('tier', `tier--${n}`, `tier--${size}`, golden && 'tier--golden', img && 'tier--img', cls)} aria-label=${t('{tier}阶', { tier: n })}>
-    ${img ? html`<img src=${picture.src} alt="" draggable=${false} onError=${picture.onError} />` : roman(n)}
+  const [bad, setBad] = useState(null);
+  const img = !!src && bad !== src;
+  return html`<span class=${cx('tier', `tier--${n}`, `tier--${size}`, golden && 'tier--golden', img && 'tier--img', cls)} style=${style} aria-label=${t('{tier}阶', { tier: n })}>
+    ${img ? html`<img src=${src} alt="" draggable=${false} onError=${() => setBad(src)} />` : roman(n)}
+    ${overlay}
   </span>`;
 }
 
@@ -226,33 +227,33 @@ export function TierChip({ tier, golden = false, size = 'md', class: cls, overla
  *   briefing's official 阵容不完整 corner, ui/matchInfo.js BondLackTag)
  */
 export function BondDisc({
-  name = '', icon, count, layers, tier = 0, maxTier = 3, active = false, disabled = false, layersDisabled = false,
+  name = '', icon, count, layers, members = 0, minCount = 0, tier = 0, maxTier = 3, active = false, disabled = false, layersDisabled = false,
   size = 'md', showName = true, onClick, class: cls, title, cross = disabled, tag = null,
 }) {
   // Remember which URL failed (a per-URL flag can't race a reset effect).
-  const picture = useAssetImage(icon);
-  const imgOk = !!picture.src;
-  const n = Math.max(1, Math.min(8, maxTier | 0 || 3));
-  const filled = Math.max(0, Math.min(n, tier | 0));
-  const R = 46;
-  const C = 2 * Math.PI * R;
-  const gap = n > 1 ? 5 : 0;
-  const seg = C / n - gap;
+  const [badSrc, setBadSrc] = useState(null);
+  const imgOk = !!icon && badSrc !== icon;
+  const progress = !active && !disabled && minCount > 0;
+  const n = Math.max(1, Math.min(4, (progress ? minCount : maxTier) | 0 || 3));
+  const filled = progress ? Math.max(0, Math.min(n, members | 0))
+    : active && !disabled ? Math.max(1, Math.min(n, tier | 0)) : 0;
+  const full = !progress && filled === n;
+  const key = `bondBoardIcon/${progress ? `${n}_${Math.max(1, filled)}` : filled ? `${n}_${filled}` : '1_0'}`;
+  const [badFrame, setBadFrame] = useState(null);
+  const frameUrl = uiUrl(data.get('assets'), key);
+  const frame = badFrame === frameUrl ? null : frameUrl;
+  const frameStyle = `--bond-frame: ${frame ? `url("${frame}")` : 'none'}; --bond-frame-size: calc(var(--disc) * ${full ? .815 / .52 : .688 / .52})`;
   const stack = layers ?? count;
   const glyph = (name || '?').trim().charAt(0) || '?';
   const Tag = onClick ? 'button' : 'div';
   return html`<${Tag} type=${onClick ? 'button' : undefined}
-      class=${cx('bond', `bond--${size}`, active && 'is-active', disabled && 'is-disabled', layersDisabled && 'is-frozen', onClick && 'is-clickable', cls)}
-      onClick=${onClick} title=${title || name}>
+      class=${cx('bond', 'is-sprite', !frame && 'is-frame-missing', full && 'is-full', progress && !filled && 'is-empty-progress', `bond--${size}`, active && 'is-active', disabled && 'is-disabled', layersDisabled && 'is-frozen', onClick && 'is-clickable', cls)}
+      style=${frameStyle} onClick=${onClick} title=${title || name}>
     <span class="bond__disc">
-      <svg class="bond__ring" viewBox="-50 -50 100 100" aria-hidden="true">
-        ${Array.from({ length: n }, (_, i) => html`<circle key=${i} r=${R}
-          class=${i < filled ? 'on' : 'off'} stroke-dasharray=${`${seg} ${C - seg}`}
-          stroke-dashoffset=${-(i * C) / n - gap / 2} transform="rotate(-90)" />`)}
-      </svg>
+      ${frame ? html`<img src=${frame} alt="" hidden onError=${() => setBadFrame(frame)} />` : null}
       <span class="bond__core">
         ${imgOk
-          ? html`<img class="bond__icon" src=${picture.src} alt="" draggable=${false} onError=${picture.onError} />`
+          ? html`<img class="bond__icon" src=${icon} alt="" draggable=${false} onError=${() => setBadSrc(icon)} />`
           : html`<span class="bond__glyph">${glyph}</span>`}
       </span>
       ${stack != null ? html`<span class="bond__count">${stack}</span>` : null}
@@ -899,11 +900,9 @@ export function PhaseBanner({ title, sub, micro, tone = 'mint', mode = 'inline',
 
 /**
  * The round's result box (the official round result dialog, shown at settlement; GitHub #235, PR #112 by @Convey123):
- * a centred plate in the look of the event's in-match popups (2026-10-13, video 8:44): a glowing tone-coloured frame,
- * the robot in brackets with corner crosses on the left (ui/pixbots.js; worried when LP was lost), the title large with
- * the line under it, chevrons as trim — it opens, holds `duration` ms and closes by itself. Purely presentational:
- * ui/gameLogic/phases.js (roundResultBox / uniteResultBox / battleResultBox) picks the words, screens/game.js the moment
- * (SETTLE). `pointer-events: none`: it never takes a click.
+ * a centred framed plate — tone-coloured frame and corner ticks, chevrons either side of the title — that opens, holds
+ * `duration` ms and closes by itself. Purely presentational: ui/gameLogic/phases.js (roundResultBox / uniteResultBox /
+ * battleResultBox) picks the words, screens/game.js the moment (SETTLE). `pointer-events: none`: it never takes a click.
  * @param {{ title: any, sub?: any, micro?: string, tone?: 'mint'|'orange'|'red', duration?: number, onDone?: Function, perfect?: boolean }} props
  *   duration (ms) > 0 auto-hides then calls onDone. Re-key to replay.
  *   `perfect` is the 全员无伤 box (tone mint). A theme may paint a different picture there; the words stay.

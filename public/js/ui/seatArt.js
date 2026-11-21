@@ -52,8 +52,8 @@ function hash32(s) {
 }
 
 /**
- * The operators a seat card can show — the server's room.card whitelist (server/lobby.js chessCharIds): one record per
- * charId of the visible, non-自选, non-hidden chess records (the elite form, for its E2 art), then the 自选编队 pool
+ * The operators a seat card can show — the server's room.card whitelist (server/lobby.js cardCharIds): one record per
+ * charId of the visible, non-自选 chess records (the elite form, for its E2 art), then the 自选编队 pool
  * (`backups.diy.ownedPool`, named and rated by `backups.diy.operators` — those operators have no chess record of their
  * own), 6★ first, then by name.
  * @param {any[]} chessList chess.json records

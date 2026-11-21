@@ -159,15 +159,12 @@ export function deployZoomRemember(step, frame) {
 }
 
 /**
- * The prep camera this frame: the deploy zoom when `deployZoom` (设置「部署时镜头缩放」, GitHub #602's camera half),
- * else the shop fold's camera (`foldCamera`). `releaseDeploy` skips the busy deferral for the one frame a deploy zoom
- * is given back, so turning the setting off mid-drag cannot leave the camera zoomed. A hand-made fold while the
- * setting is off and no deploy zoom is in effect still defers (`busy`).
- *
- * `deployZoom` is the camera preference alone: 设置「部署时收起商店」 (`deployFold`) folds the bar without asking for a
- * camera here — the bar's own fold already reads `shopFolded` (`foldCamera`), so a fold-only player keeps the camera
- * they had.
- * @param {{ pub: any, myId: string|null, deployZoom?: boolean, releaseDeploy?: boolean, folded: boolean,
+ * The prep camera this frame: the deploy zoom when `deployZoom` (设置「部署时镜头缩放」, GitHub #602's camera half;
+ * upstream also calls this switch `deployFold`) or `deployFold`, else the shop fold's camera (`foldCamera`).
+ * `releaseDeploy` skips the busy deferral for the one frame a deploy zoom is given back, so turning the setting off
+ * mid-drag cannot leave the camera zoomed. A hand-made fold while the setting is off and no deploy zoom is in effect
+ * still defers (`busy`). `partial` keeps a reduced shop at the middle deploy level (#692 [ASSUMED]).
+ * @param {{ pub: any, myId: string|null, deployZoom?: boolean, deployFold?: boolean, partial?: boolean, releaseDeploy?: boolean, folded: boolean,
  *   ownPrep: boolean, pen?: boolean, busy?: boolean,
  *   current?: { kind: string, opts?: { shop?: boolean|'partial' } }|null }|null|undefined} s
  * @returns {{ kind: 'prep'|'bossPrep', opts: object }|null}
@@ -177,7 +174,9 @@ export function prepDeployCamera(s) {
   // 上游把镜头的这一半叫 deployFold；本分支拆成 deployZoom（镜头）+ prepDeployFold（折店），两个名字都认。
   const deployZoom = s.deployZoom ?? s.deployFold;
   if (deployZoom) {
-    const want = prepCameraFor(s.pub, s.myId, true);
+    const full = prepCameraFor(s.pub, s.myId, true);
+    // [ASSUMED] #692: a middle deploy level keeps a reduced shop, only when it was open before the drag.
+    const want = { ...full, opts: { ...full.opts, shop: s.partial ? 'partial' : false } };
     const cur = s.current;
     if (cur && cur.kind === want.kind && cur.opts?.shop === want.opts.shop) return null;
     return want;

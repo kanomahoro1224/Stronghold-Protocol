@@ -89,8 +89,7 @@ export const NET_DEFAULTS = Object.freeze({
  * version — every page then downloads that version's data.
  * state.resync requests a full match recovery; it also uses the lobby's per-session resync coalescing.
  */
-export const HEAVY_TYPES = new Set(['g.watch', 'room.loadout', 'room.skins', 'room.card', 'room.ownership', 'room.diy', 'room.spectate',
-  'room.setPlugins', 'room.rerollSetup', 'room.proposeVersion', 'state.resync']);
+export const HEAVY_TYPES = new Set(['g.watch', 'room.loadout', 'room.ownership', 'room.diy', 'room.spectate', 'room.setPlugins', 'plugins.preview', 'room.skins', 'room.card', 'room.rerollSetup', 'room.proposeVersion', 'state.resync']);
 
 /**
  * 头像 P2P signaling (shared/protocol.js RTC_LIMITS): relayed verbatim to one seat of the same room, so it is cheap per
@@ -926,7 +925,7 @@ export class Network {
       // surface as an error toast in the browser)
       if (msg.t === 'b.progress' && !validRid(rid)) return;
       this.reply(conn, errorMsg(isErrCode(res.error) ? res.error : ERR.INTERNAL, rid, res.detail));
-    } else if (validRid(rid)) this.reply(conn, { t: 'ok', rid });
+    } else if (validRid(rid)) this.reply(conn, res && typeof res === 'object' && res.reply && typeof res.reply === 'object' ? { ...res.reply, t: 'ok', rid } : { t: 'ok', rid });
   }
 
   /** @param {Connection} conn @param {any} msg @param {number} now */

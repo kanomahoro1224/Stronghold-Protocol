@@ -33,8 +33,8 @@ const ARMOR_HIT = 0.7;
 const SLAM_RADIUS = 0.9;
 /** [ASSUMED] 后兽 blink distance (the skill blackboard has no distance). */
 const BLINK_DIST = 2;
-/** [ASSUMED] 并济 splash around the locked operator. */
-const PUNISH_RADIUS = 1.25;
+/** 并济 splash around the locked operator: enemy_dyjsww_punish_aoe is AOEDamage radius 1.5 (excludeTarget). */
+const PUNISH_RADIUS = 1.5;
 
 const num = (v, d) => {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -270,6 +270,11 @@ function kitMech(ab) {
   const squadN = squad ? Math.min(bb(squad, 'cnt', 4), bb(squad, 'batch_max_target', 2)) : 0;
   return [
     {
+      // Hidden 械 (enemy_9029_acfnc_2 description): 「出场时召唤冲击之械」. The base form has
+      // Armor.hp_ratio and summons only after it falls under that ratio; the hidden record has no hp_ratio.
+      spawn(b, e) {
+        if (e.defId === MECH_2) spawnArmorPair(b, e);
+      },
       tick(b, e, a) {
         if (!halfRatio || a.armed || !(e.hpRatio < halfRatio)) return;
         a.armed = true;

@@ -46,6 +46,9 @@ export const UI_THEMES = Object.freeze(['default', 'glass']);
  *  bondTimers: selected-unit timed bond readouts (#746), off by default. [ASSUMED] Convenience HUD absent from
  *  the official game; maintainer approved 2026-10-18. Stored with the other preferences in sp.pref.settings.
  *  combatMetrics: 设置「作战统计」 (PR #618), off by default: the official HUD has no such panel.
+ *  watchDuringBattle: 设置「作战中查看队友」 (PR #971), off by default: while the own battle still runs, a teammate row
+ *  may open that field (or the other boss group) — a second simulation in this page (battle/observe.js observeTarget).
+ *  After the own battle, watching needs no switch. A pure client preference (never sent).
  *  prepDeployFold: 设置「部署时收起商店」 — picking up a piece on the own prep board folds the shop
  *  (GitHub #602, PR #646). Default off (the maintainer's decision of 2026-11-02: the fold changed the shop and the
  *  camera under the player's hands, so it is opt-in). Only an explicit true turns it on. 'partial' (#692): keep the
@@ -64,7 +67,7 @@ export const UI_THEMES = Object.freeze(['default', 'glass']);
  *  uiTheme: 设置「界面主题」 (docs/THEMES.md): 'default' is the built-in 卫戍协议终端, 'glass' the 液态玻璃 skin
  *  (css/glass.css), or a theme pack id. Stored in this browser only — never sent, and it does not change a match.
  */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, prepDeployFold: false, deployZoom: false, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', themeMotion: true, fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: Object.freeze(['cn']), keys: DEFAULT_HOTKEYS });
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoEnergyCount: false, fullscreenWakeLock: false, bondTimers: false, combatMetrics: false, watchDuringBattle: false, prepDeployFold: false, deployZoom: false, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', uiTheme: 'default', themeMotion: true, fpsLimit: 0, preload: false, preloadOptional: false, preloadVoiceLang: Object.freeze(['cn']), arknightsCursor: false, keys: DEFAULT_HOTKEYS });
 const QUALITIES = ['high', 'medium', 'low'];
 /** The values of 设置「官方特效」 (render/vfx/tier.js OFFICIAL_FX). Display order in the dialog is low / medium / high. */
 export const OFFICIAL_FX_MODES = Object.freeze(['auto', 'off', 'lite', 'full']);
@@ -84,8 +87,8 @@ function ammoEnergyCountOf(r) {
  * Sanitize persisted settings. Retired keys `ammoCount`, `mysticEnergy` and `deploymentZoom` are read here and never
  * returned under the old names.
  * @param {any} raw
- * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoEnergyCount: boolean, fullscreenWakeLock: boolean, bondTimers: boolean, combatMetrics: boolean, prepDeployFold: boolean|'partial', deployZoom: boolean, quality: 'high'|'medium'|'low', fpsLimit: number, preload: boolean, preloadOptional: boolean, preloadVoiceLang: string[], officialFx: 'auto'|'off'|'lite'|'full', otherSkins: boolean,
- *   textSize: 'sm'|'md'|'lg'|'xl', uiTheme: string, themeMotion: boolean, keys: Record<'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
+ * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoEnergyCount: boolean, fullscreenWakeLock: boolean, bondTimers: boolean, combatMetrics: boolean, watchDuringBattle: boolean, prepDeployFold: boolean|'partial', deployZoom: boolean, quality: 'high'|'medium'|'low', fpsLimit: number, preload: boolean, preloadOptional: boolean, preloadVoiceLang: string[], officialFx: 'auto'|'off'|'lite'|'full', otherSkins: boolean,
+ *   arknightsCursor: boolean, textSize: 'sm'|'md'|'lg'|'xl', uiTheme: string, themeMotion: boolean, keys: Record<'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
  */
 const THEME_ID = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 
@@ -111,6 +114,7 @@ export function sanitizeSettings(raw) {
     ammoEnergyCount: ammoEnergyCountOf(r),
     bondTimers: r.bondTimers === true,
     combatMetrics: typeof r.combatMetrics === 'boolean' ? r.combatMetrics : DEFAULT_SETTINGS.combatMetrics,
+    watchDuringBattle: r.watchDuringBattle === true,
     prepDeployFold: r.prepDeployFold === 'partial' ? 'partial' : typeof r.prepDeployFold === 'boolean' ? r.prepDeployFold : false,
     // the fork's own 部署时镜头缩放: the retired `deploymentZoom` key is read here (a profile written before the merge
     // keeps its choice) and never written back under the old name.
@@ -125,6 +129,7 @@ export function sanitizeSettings(raw) {
     officialFx: OFFICIAL_FX_MODES.includes(r.officialFx) ? r.officialFx : DEFAULT_SETTINGS.officialFx,
     otherSkins: r.otherSkins !== false,
     textSize: TEXT_SIZES.includes(r.textSize) ? r.textSize : DEFAULT_SETTINGS.textSize,
+    arknightsCursor: r.arknightsCursor === true,
     uiTheme: r.uiTheme === 'default' || r.uiTheme === 'glass' || (typeof r.uiTheme === 'string' && THEME_ID.test(r.uiTheme)) ? r.uiTheme : DEFAULT_SETTINGS.uiTheme,
     // 主题动画: the official packs' looping tweens and clips (ui/prefab); off draws them still
     themeMotion: r.themeMotion !== false,

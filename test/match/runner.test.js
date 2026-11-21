@@ -231,7 +231,7 @@ test('own battle statistics stay available when viewing a teammate; owner filter
 });
 
 test('evicted observed battles keep match totals; replaying one replaces its snapshot without double counting', async () => {
-  // a seed whose round-2 board is not empty (0.3.4 #121 moved 7310's autoplay seat to 老鲤, which fields nobody in R1–R2)
+  // a seed whose round-2 board is not empty (0.4.0 #121 moved 7310's autoplay seat to 老鲤, which fields nobody in R1–R2)
   const start = realStart(7314);
   const r = rig();
   const recorded = new Map();
@@ -597,4 +597,138 @@ test('live unit stats (user playtest #4 item 7): unitStats(id) reads the battle 
   assert.equal(r.runner.unitStats(ally.id), null, 'nothing on screen after the battles were dropped');
   assert.equal(r.runner.unitIdOf(ally.uid, ally.ownerId), null);
   r.runner.dispose();
+});
+
+test('the combat meter stays off unless the setting asks, and turning it off detaches it', async () => {
+  const start = realStart(7312);
+  const off = rig({ pinMetrics: false });
+  const on = rig();
+  off.net.emit('b.start', start);
+  on.net.emit('b.start', start);
+  await off.settle();
+  await on.settle();
+  const eOff = off.runner._entries.get(start.battleId);
+  const eOn = on.runner._entries.get(start.battleId);
+  assert.equal(eOff.combatMetrics, null, 'default off does not attach');
+  assert.equal(typeof eOn.combatMetrics, 'function');
+  assert.equal(eOff.battle._hooks.damaged.length + 1, eOn.battle._hooks.damaged.length, 'no damaged hook when the meter is off');
+  assert.equal(Object.prototype.hasOwnProperty.call(eOff.battle, 'heal'), false, 'heal is not wrapped when the meter is off');
+  off.advance(1000);
+  assert.equal(off.runner.combatMetrics().rows.length, 0);
+  // turning it on does not backfill the battle already prepared
+  off.runner.setCombatMetrics(true);
+  off.advance(500);
+  assert.equal(eOff.combatMetrics, null, 'a battle prepared while the meter was off is not backfilled');
+  const next = {
+    ...start,
+    battleId: `${String(start.battleId).slice(0, 58)}-m2`,
+    fieldId: `${String(start.fieldId).slice(0, 28)}-m2`,
+  };
+  await off.runner.onStart(next);
+  const eNext = off.runner._entries.get(next.battleId);
+  assert.equal(typeof eNext.combatMetrics, 'function', 'the next battle prepared after the switch is tracked');
+  let live = 0;
+  for (let i = 0; i < 40 && live <= 0 && !eNext.battle.finished; i++) {
+    off.advance(500, 50);
+    live = (eNext.battle.allyUnits || []).reduce((n, u) => n + (u.stats?.dmg || 0), 0);
+  }
+  const seen = off.runner.combatMetrics().damage;
+  assert.ok(live > 0, `operators dealt no damage by t=${eNext.battle.time}`);
+  assert.ok(Math.abs(seen - live) < 1e-6, `meter ${seen} vs sim ${live}`);
+  const hooks = eNext.battle._hooks.damaged.length;
+  off.runner.setCombatMetrics(false);
+  assert.equal(eNext.combatMetrics, null);
+  assert.equal(eNext.battle._hooks.damaged.length, hooks - 1, 'turning the meter off removes its damaged hook');
+  assert.equal(Object.prototype.hasOwnProperty.call(eNext.battle, 'heal'), false, 'heal is restored');
+  off.advance(2000, 50);
+  assert.equal(off.runner.combatMetrics().damage, seen, 'damage stops accumulating once the meter is off');
+  for (const msg of on.net.sent) {
+    assert.equal(msg.rows, undefined);
+    assert.equal(msg.combatMetrics, undefined);
+  }
+  off.runner.dispose();
+  on.runner.dispose();
+});
+
+test('a Worker host never attaches the combat meter, even when the setting is on', async () => {
+  let hooked = 0;
+  const battle = {
+    finished: true, time: 0, tickCount: 0, leakedCount: 0, flags: {}, allyUnits: [],
+    snapshot: () => ({ t: 0 }),
+    drainEvents: () => [],
+    fieldMeta: () => ({ units: [] }),
+    getPlayer: () => null,
+    on() { hooked += 1; throw new Error('trackCombat must not attach to a Worker battle'); },
+    heal() { return 0; },
+  };
+  const host = {
+    remote: true,
+    battle,
+    meter: { lp: 0 },
+    async load() {},
+    async start() {},
+    async syncPool() {},
+    stop() {},
+    progress: () => ({ gt: 0, killed: 0, total: 0, done: true, leaks: 0 }),
+    compactResult: () => null,
+    step: () => Promise.resolve({ ticks: 0, slices: [] }),
+    forceEnd: () => Promise.resolve(),
+  };
+  const r = rig({ createHost: () => host });
+  const spec = { fieldId: 'n:worker', kind: 'normal', players: [{ playerId: 'p_0' }] };
+  r.net.emit('b.start', { battleId: 'worker-1', fieldId: 'n:worker', kind: 'normal', spec, authoritative: true, speed: 2 });
+  await r.settle();
+  const e = r.runner._entries.get('worker-1');
+  assert.ok(e && !e.failed, 'the Worker battle was prepared');
+  assert.equal(e.combatMetrics, null);
+  assert.equal(hooked, 0);
+  const prog = r.net.sent.filter((m) => m.t === 'b.progress');
+  assert.ok(prog.length >= 1, 'progress is still the battle report');
+  for (const msg of r.net.sent) {
+    assert.equal(msg.rows, undefined);
+    assert.equal(msg.combatMetrics, undefined);
+    assert.notEqual(msg.t, 'b.result', 'a null compact result is not sent');
+  }
+  r.runner.dispose();
+});
+
+test('settings expose 作战统计 off by default and the match hides the button unless it is on', () => {
+  const settings = readFileSync(new URL('../../public/js/ui/settings.js', import.meta.url), 'utf8');
+  const game = readFileSync(new URL('../../public/js/screens/game.js', import.meta.url), 'utf8');
+  const logic = readFileSync(new URL('../../public/js/ui/gameLogic/settings.js', import.meta.url), 'utf8');
+  assert.match(logic, /combatMetrics: false/);
+  assert.match(settings, /label=\$\{t\('作战统计'\)\} micro="COMBAT STATS" value=\$\{s\.combatMetrics\}/);
+  assert.match(game, /setCombatMetrics\(s\?\.combatMetrics === true\)/);
+  assert.match(game, /const showMetrics = metricsSetting && !modRoom && !spectator/);
+  assert.match(game, /data-ui-slot="hud\.right"/);
+  const state = { me: {}, room: null, match: { public: null, battle: null }, connection: { status: 'online' } };
+  const line = (s) => buildDiagnostics({ state, env: {}, settings: s }).split('\n').find((l) => l.startsWith('settings:'));
+  assert.equal(line({ quality: 'high', damageNumbers: true, combatMetrics: true }), 'settings: quality high | damage numbers | combat metrics');
+  assert.equal(line({ quality: 'high', damageNumbers: true, combatMetrics: false }), 'settings: quality high | damage numbers');
+});
+
+test('temporary bond display reads recorded gains, preserves permanent layers and keeps the completed own-battle pool', async () => {
+  const start = realStart();
+  const r = rig();
+  try {
+    await r.runner.onStart(start);
+    const e = r.runner._entries.get(start.battleId);
+    const pid = e.spec.players[0].playerId;
+    const ps = e.battle.getPlayer(pid);
+    const id = Object.keys(ps.bonds)[0] || 'display_probe';
+    ps.bonds[id] = { ...(ps.bonds[id] || {}), layers: 10 };
+    e.battle.addTempLayers(pid, id, 100);
+    e.battle.addLayers(pid, id, 2);
+    // A missing/private accessor must not affect UI reads.
+    const read = e.battle._pp;
+    e.battle._pp = () => { throw new Error('display must use public data'); };
+    r.advance(20);
+    assert.equal(r.runner.state().bondLayers[pid][id], 12);
+    assert.equal(r.runner.state().bondTempLayers[pid][id], 100);
+    assert.equal(ps.bonds[id].layers, 12);
+    e.battle._pp = read;
+    e.battle.forceEnd('timeout');
+    assert.equal(r.runner.state().bondTempLayers[pid][id], 100, 'own combat ending does not expire the round pool');
+    assert.equal(r.runner.state().bondLayers[pid][id], 12);
+  } finally { r.runner.dispose(); }
 });

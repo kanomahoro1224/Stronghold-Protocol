@@ -149,10 +149,10 @@ import { TileField } from './tiles.js';
 import { UnitView, ItemView, DeviceView, FORMS, syncView } from './units.js';
 import { FxSystem, ensureDamageFonts, projSpeed } from './fx.js';
 import { OfficialFx } from './vfx/system.js';
+import { TerrainFx } from './vfx/terrainfx.js';
 import { FxWiring } from './vfx/wiring.js';
 import { PluginFxPlayer } from './vfx/pluginPlayer.js';
 import { resolveOfficialFx } from './vfx/tier.js';
-import { boardToUnity } from './vfx/math.js';
 import { createDragController, pieceTile, dragStandTile } from './drag.js';
 import { backdropTextures, shadowTexture, refreshTierChips, refreshDownLabels, silhouetteTexture } from './textures.js';
 import { TILE_H, TIER_COLORS, COLORS } from './style.js';
@@ -161,7 +161,8 @@ import { ImpostorAtlas } from './impostor.js';
 import { stepClipBounds } from './spine.js';
 import { loadThree, loadBoardPack, loadScenePack, webgl2Available, boardArtListed } from './board3d/load.js';
 import { BoardScene } from './board3d/scene.js';
-import { layoutPen, penSignature } from './pen.js';
+import { layoutPen, penSignature, parsePenRect } from './pen.js';
+import { arenaField, arenaViewOf } from './arenaView.js';
 import { IDENTITY, bossPrepField, tilesToDisp, leaderStand } from './prepfield.js';
 import { pickOnTile, pickBattle, hitTiles } from './pick.js';
 import { promotionsOf } from './promote.js';
@@ -316,7 +317,8 @@ export async function createFieldView(host, options = {}) {
   };
 
   let mode = 'idle';          // 'idle' | 'prep' | 'battle'
-  let stageRec = null;
+  let stageData = null;       // the stage set (data/stages.json)
+  let stageRec = null;        // the stage drawn: stageData, or the piece of a 规程 arena the view shows (render/arenaView.js)
   let cam = presetCamera('prep', { width: s0.width, height: s0.height, padding: defaultPadding('prep', s0) }, { hud: hudBands('prep', s0) });
   let camFrom = null, camTo = null, camT0 = 0, camKind = 'prep', camOpts = {}, camMs = CAMERA_MS;
   let pendingView = null;     // tile band/focus to apply when the camera transition ends
@@ -418,6 +420,11 @@ export async function createFieldView(host, options = {}) {
   setupCleanup.push(() => ofx.destroy());
   layers.vfxGround.addChild(ofx.ground);
   layers.vfxOver.addChild(ofx.over);
+  const terrainOfx = new OfficialFx({ P, renderer: app.renderer, assets, cam: () => cam, heightAt });
+  const terrainFx = new TerrainFx(terrainOfx);
+  setupCleanup.push(() => { terrainFx.clear(); terrainOfx.destroy(); });
+  layers.vfxGround.addChild(terrainOfx.ground);
+  layers.vfxOver.addChild(terrainOfx.over);
   const wiring = new FxWiring(ofx, {
     speed: projSpeed,
     // the index unit of a battle unit: the drawn operator (a stand-in's, a 自选 pick's), the chess' operator, the enemy / token
@@ -441,34 +448,9 @@ export async function createFieldView(host, options = {}) {
   /** The tier the effects run at now: the setting (auto: 精简 on touch devices) while the 3D board draws. */
   function syncOfficialFx() {
     ofx.setTier(board3d ? resolveOfficialFx(settings.officialFx, ofx.available) : 'off');
+    terrainOfx.setTier(board3d ? resolveOfficialFx(settings.officialFx, terrainOfx.available) : 'off');
   }
-  ofx.init().then((ok) => { if (!destroyed && ok) { syncOfficialFx(); wiring.ready(); } }, () => {});
-  // 规程 MAP09 隐匿地块 (§37.230): the client's own tile effect mapeff_079_dikuai_01 (FX_GENERIC tile.duelGrass) loops on
-  // every concealment tile, in prep and in battle, while the 3D board and the official effects are on; the 2D board and
-  // 官方特效 off keep the tinted tile (tiles.js 'w', board3d duelGrass material). A clear (battle start / end) drops the
-  // loops: they are spawned again on the next frame.
-  const GRASS_FX = 'mapeff_079_dikuai_01';
-  let grassFx = [];
-  let grassKey = '';
-  const grassAlive = (h) => !!h && !h.cancelled && (ofx.pending.includes(h) || (!!h.effect && ofx.effects.includes(h.effect)));
-  function syncGrassFx() {
-    const cells = board3d?.board?.terrain?.duelGrass || [];
-    const on = !!board3d && ofx.active && cells.length > 0 && ofx.lib.has(GRASS_FX);
-    const key = on ? `${board3d.stageKey}|${ofx.tier}` : '';
-    // the official loop replaces our tinted frame (board3d duelGrass mesh, #939's [ASSUMED] look): one or the other
-    const overlay = board3d?.meshes?.duelGrass;
-    if (overlay) overlay.visible = !on;
-    if (key === grassKey && (!on || grassFx.every(grassAlive))) return;
-    for (const h of grassFx) h?.kill?.();
-    grassFx = [];
-    grassKey = key;
-    if (!on) return;
-    for (const [r, c] of cells) {
-      const z = heightAt(r, c) || 0;
-      const h = ofx.spawn(GRASS_FX, { pos: boardToUnity(c, r, z), groundZ: -z }, { loop: true, important: true });
-      if (h) grassFx.push(h);
-    }
-  }
+  Promise.all([ofx.init(), terrainOfx.init()]).then(([ok]) => { if (!destroyed) { syncOfficialFx(); if (ok) wiring.ready(); } }, () => {});
   // battle devices (crates / turrets as sim units): the official crate mesh in the 3D scene, else a Pixi box
   ctx.createBox = (spec) => switchableBox({ board: () => board3d, pixi: () => tiles.createBox(), spec });
   const impostors = new ImpostorAtlas(app.renderer);
@@ -635,7 +617,7 @@ export async function createFieldView(host, options = {}) {
 
   function camRect() {
     const k = viewKind(camKind, camOpts);
-    if (k === 'pen') return { r0: 14, r1: 18, c0: 7, c1: 13 };
+    if (k === 'pen') return (stageRec?.scenePiece && parsePenRect(stageRec.config?.enemy_place_rect)) || { r0: 14, r1: 18, c0: 7, c1: 13 };
     // prep lights the bench (hand row 7 / temp row 8) with the field, like the official prep view
     if (camOpts.rect) { const r = normRect(camOpts.rect); return k === 'prep' ? { ...r, r0: Math.min(r.r0, GEO.HAND_ROW) } : r; }
     // the boss round's prep lights the whole boss field: the pair partner's half is shown with its pieces (item 51)
@@ -653,6 +635,8 @@ export async function createFieldView(host, options = {}) {
     // — `shop: false` (the folded shop, public issue #5) = the official shop-collapsed camera, clear of the folded
     // shop's HUD band (re-evaluated on resize: camOpts keep the flag)
     const vk = viewKind(kind, o); // (a 'prep' camera on the boss rows = the Final Assault prep)
+    // a 规程 view's pen is beside its road (render/arenaView.js), not where the official enemy camera looks: fit it
+    if (k === 'pen' && stageRec?.scenePiece) return presetCamera(k, { width: sz.width, height: sz.height, padding: o.padding || defaultPadding(k, sz) }, { rect: camRect(), fit: true });
     return presetCamera(k, { width: sz.width, height: sz.height, padding: o.padding || defaultPadding(k, sz) }, {
       rect, side: o.side, half: !!o.half, shop: o.shop, fit: !!o.fit, config: stageRec?.config || null,
       hud: hudBands(vk, sz, { shop: o.shop ?? true }),
@@ -679,6 +663,7 @@ export async function createFieldView(host, options = {}) {
     camOpts = { ...o };
     // the field actually shown (a 'prep' camera on the boss rows is the Final Assault prep: boss field built / drawn)
     const vk = viewKind(camKind, camOpts);
+    showField(vk);
     if (vk === 'prep') setPrepField(IDENTITY);
     else if (vk === 'bossPrep') setPrepField(bossPrepField(camOpts.side === 'R' ? 'R' : 'L'));
     const target = targetCamera(camKind, camOpts);
@@ -773,6 +758,24 @@ export async function createFieldView(host, options = {}) {
 
   function setStage(st) {
     if (!st || typeof st !== 'object' || !Array.isArray(st.rows)) return false;
+    stageData = st;
+    drawStage(arenaField(st, arenaViewFor(viewKind(camKind, camOpts))));
+    return true;
+  }
+
+  /** 规程: the piece of the arena a view kind shows (render/arenaView.js); a stage without an arena stays as it is. */
+  function showField(vk) {
+    if (!stageData) return;
+    const st = arenaField(stageData, arenaViewFor(vk));
+    if (st !== stageRec) drawStage(st);
+  }
+
+  function arenaViewFor(vk) {
+    const origin = camBeforePen ? viewKind(camBeforePen.kind, camBeforePen.opts) : null;
+    return arenaViewOf(vk, origin);
+  }
+
+  function drawStage(st) {
     stageRec = st;
     tiles.setStage(st);
     tiles.setBattleRect(mode === 'battle' && battleMeta ? battleMeta.rect : null);
@@ -781,7 +784,6 @@ export async function createFieldView(host, options = {}) {
     // a pen laid out before the stage arrived (setPrep / a scouting board first) used the default zones and the old
     // tile heights: lay it out again on this stage
     if (penList) { const l = penList; clearPen(); setPenList(l); }
-    return true;
   }
 
   // ---- views ----------------------------------------------------------------------------------------------
@@ -971,6 +973,8 @@ export async function createFieldView(host, options = {}) {
       v._home = w;
       v.dimmed = false;
       if (info.kind === 'item' && v.setIcon) v.setIcon(info.icon); // an icon the manifest named late (onAssets)
+      // Reused views must restore full size when the operator leaves the hand.
+      if (v instanceof UnitView) v.bench = e.area === 'hand' && info.kind === 'op';
       if (v.setCount) v.setCount(e.piece.kind === 'token' ? e.piece.count : 0);
       if (v.setItemProgress) v.setItemProgress(pieceItemProgress(e.piece));
       if (v.setItems) v.setItems(Array.isArray(e.piece.items) ? e.piece.items.map((it) => { const r = data.item(it?.id); return assets.itemIcon ? assets.itemIcon(r ? { trapId: r.trapId, iconId: r.iconId } : it?.id) : null; }) : []);
@@ -1570,7 +1574,7 @@ export async function createFieldView(host, options = {}) {
     // own preview, bounties excluded); a real battle empties the pen (the enemies are about to spawn)
     if (battleMeta.prep) setPenList(Array.isArray(meta.nextEnemies) ? meta.nextEnemies : (ownPen || []).filter((x) => x && x.source !== 'bounty' && x.source !== 'effect'));
     else setPenList(null);
-    if (meta.stageId && (!stageRec || stageRec.id !== meta.stageId)) {
+    if (meta.stageId && (!stageData || stageData.id !== meta.stageId)) {
       const st = data.stage(meta.stageId);
       if (st) setStage(st);
     }
@@ -1680,7 +1684,7 @@ export async function createFieldView(host, options = {}) {
     if (!info || gone.has(id)) return null;
     v = info.kind === 'device' ? new DeviceView(ctx, info)
       : info.kind === 'item' ? new ItemView(ctx, scoutItemInfo(info))
-      : new UnitView(ctx, info, { prep: !!battleMeta?.prep && info.side === 'ally' });
+      : new UnitView(ctx, info, { prep: !!battleMeta?.prep && info.side === 'ally', bench: info.area === 'hand' && info.kind === 'op' });
     // a teammate's operator shows its equipped items like the own prep bench does (item pips; user playtest #2:
     // at the unit, not only in the detail card) — prep surfaces only, the battle HUD stays as it is
     if (v.setItems && battleMeta?.prep && Array.isArray(info.items) && info.items.length) {
@@ -2059,6 +2063,7 @@ export async function createFieldView(host, options = {}) {
     frameNo++;
     impSlot = 0;
     ofx.frameStats();
+    terrainOfx.frameStats();
     if (frameNo % 30 === 1) {
       impInterval = pickImpostorInterval(); clipAllowed = pickClipping();
       culledCount = 0;
@@ -2089,7 +2094,7 @@ export async function createFieldView(host, options = {}) {
       }
       tiles.project(cam);
       updateBackdrop(clock);
-      syncGrassFx();
+      terrainFx.update(board3d, dt);
       if (mode === 'battle') {
         const renderT = interp.update(now / 1000);
         if (Number.isFinite(renderT)) {
@@ -2113,8 +2118,6 @@ export async function createFieldView(host, options = {}) {
         }
         if (beamQ.length) pumpBeams(dt);
       } else if (mode === 'prep') {
-        // the concealment tiles' loops are the only official effects in prep: run them on the frame clock
-        if (ofx.active && grassFx.length) ofx.update(Math.min(0.25, dt));
         for (const [key, pd] of pending) {
           if (now - pd.t > DROP_PENDING_MS) {
             pending.delete(key);
@@ -2386,6 +2389,7 @@ export async function createFieldView(host, options = {}) {
       holdScene(false); // no scene any more: the quiet budget may free the skeletons (lobby / room / result)
       try { fx.destroy(); } catch { /* ignore */ }
       try { ofx.destroy(); } catch { /* ignore */ }
+      terrainFx.clear(); terrainOfx.destroy();
       pluginFx.destroy();
       try { tiles.destroy(); } catch { /* ignore */ }
       try { impostors.destroy(); } catch { /* ignore */ }
@@ -2402,7 +2406,7 @@ export async function createFieldView(host, options = {}) {
         fps: Math.round(fps * 10) / 10, frameMs: Math.round(frameMs * 100) / 100, cpuMs: Math.round(cpuMs * 100) / 100, renderMs: Math.round(renderMs * 100) / 100, mode, units: views.size, impostor: impInterval, impostorAtlas: { ...impostors.stats }, boardArt: !!tiles.atlas.art,
         board3d: board3d ? { on: true, ...board3d.stats(), losses: recover.count } : { on: false, error: board3dError, recovering: !!recover.timer, losses: recover.count },
         pen: penViews.size, penHidden, prepField: prepXf.kind === 'bossPrep' ? prepXf.side : null, lod: loadLevel, culled: culledCount,
-        ...fx.counts, officialFx: ofx.stats(), spine: assets.spine?.stats ? assets.spine.stats() : null, renderT: interp.renderT, rate: interp.rate,
+        ...fx.counts, officialFx: ofx.stats(), terrainFx: terrainOfx.stats(), spine: assets.spine?.stats ? assets.spine.stats() : null, renderT: interp.renderT, rate: interp.rate,
         buffered: interp.size, camera: cam.params(),
       };
     },

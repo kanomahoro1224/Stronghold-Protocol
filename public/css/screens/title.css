@@ -378,7 +378,9 @@
 }
 .title-invite .icon { width: calc(0.2 * var(--ui-unit, 1rem)); height: calc(0.2 * var(--ui-unit, 1rem)); }
 .title-invite b { font-size: calc(.2 * var(--utility-text, var(--t))); letter-spacing: .2em; color: #ffd08a; }
-.title-conn { display: flex; align-items: center; justify-content: center; gap: calc(0.1 * var(--ui-unit, 1rem)); min-height: calc(0.32 * var(--ui-unit, 1rem)); font-size: calc(.14 * var(--utility-text, var(--t))); color: var(--text-lo); }
+.title-conn { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: calc(0.1 * var(--ui-unit, 1rem)); row-gap: calc(0.06 * var(--ui-unit, 1rem)); min-height: calc(0.32 * var(--ui-unit, 1rem)); font-size: calc(.14 * var(--utility-text, var(--t))); color: var(--text-lo); }
+/* the status words stay on one line: the ping pill that appears once online squeezed 「已连接服务器」 into two (2026-11-12);
+   on a narrow screen the row wraps between its items instead */
 .title-conn > span { white-space: nowrap; }
 
 /* 统计 (the local stats page) beside the language menu in the top-right corner */
@@ -388,9 +390,9 @@
    The height is max(design, 1.4em) so the buttons still hold their text at 设置 →「文字大小」 大 / 特大 (on a phone
    1rem is clamped at 40 px and .3rem is only 12 px, less than the enlarged label). */
 .title-lang { display: inline-flex; margin-bottom: calc(0.1 * var(--ui-unit, 1rem)); }
-.title-lang button { min-width: calc(0.74 * var(--ui-unit, 1rem)); height: max(calc(0.3 * var(--ui-unit, 1rem)), 1.4em); font-size: calc(.14 * var(--utility-text, var(--t))); cursor: pointer; }
-.lang-select select { height: max(calc(0.38 * var(--ui-unit, 1rem)), 1.4em); min-width: calc(1.6 * var(--ui-unit, 1rem)); padding: 0 calc(0.12 * var(--ui-unit, 1rem)); background: #0a0d0c; border: 0; color: var(--text-hi); font-size: calc(.16 * var(--utility-text, var(--t))); cursor: pointer; }
-.title-lang.lang-select select { height: max(calc(0.3 * var(--ui-unit, 1rem)), 1.4em); font-size: calc(.14 * var(--utility-text, var(--t))); }
+.title-lang button { min-width: calc(0.74 * var(--ui-unit, 1rem)); height: max(calc(0.3 * var(--ui-unit, 1rem)), 1.4em); font-size: calc(.14 * var(--utility-text, var(--t))); cursor: var(--sp-cursor-pointer, pointer); }
+.lang-select select, .lang-select .combo__btn { height: max(calc(0.38 * var(--ui-unit, 1rem)), 1.4em); min-height: max(calc(0.38 * var(--ui-unit, 1rem)), 1.4em); min-width: calc(1.6 * var(--ui-unit, 1rem)); width: auto; padding: 0 calc(0.12 * var(--ui-unit, 1rem)); background: #0a0d0c; border: 0; color: var(--text-hi); font-size: calc(.16 * var(--utility-text, var(--t))); cursor: var(--sp-cursor-pointer, pointer); }
+.title-lang.lang-select select, .title-lang.lang-select .combo__btn { height: max(calc(0.3 * var(--ui-unit, 1rem)), 1.4em); min-height: max(calc(0.3 * var(--ui-unit, 1rem)), 1.4em); font-size: calc(.14 * var(--utility-text, var(--t))); }
 .lang-select .combo { display: inline-flex; }
 
 html[data-script="alphabetic"] .title-login .btn--xl { letter-spacing: .3em; }
@@ -483,7 +485,7 @@ html[data-script="alphabetic"] .title-login .btn--xl { letter-spacing: .3em; }
 .notice-entry {
   display: inline-flex; align-items: center; gap: calc(0.06 * var(--ui-unit, 1rem)); padding: calc(0.03 * var(--ui-unit, 1rem)) calc(0.1 * var(--ui-unit, 1rem));
   border: 1px solid rgba(246, 163, 41, .55); color: #f6a329; background: rgba(246, 163, 41, .1);
-  font-size: calc(.15 * var(--utility-text, var(--t))); cursor: pointer;
+  font-size: calc(.15 * var(--utility-text, var(--t))); cursor: var(--sp-cursor-pointer, pointer);
 }
 .notice-entry__dot {
   width: calc(0.08 * var(--ui-unit, 1rem)); height: calc(0.08 * var(--ui-unit, 1rem)); border-radius: 50%;
@@ -506,19 +508,19 @@ html[data-script="alphabetic"] .title-login .btn--xl { letter-spacing: .3em; }
 .voice-library__table th, .voice-library__table td { padding: .08rem .1rem; border-bottom: 1px solid var(--line-2); text-align: center; }
 .voice-library__table thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-2); }
 .voice-library__table th:first-child { text-align: left; }
-.voice-library__choice { display: inline-flex; align-items: center; gap: .06rem; min-height: 32px; cursor: pointer; }
+.voice-library__choice { display: inline-flex; align-items: center; gap: .06rem; min-height: 32px; cursor: var(--sp-cursor-pointer, pointer); }
 .voice-library__choice input {
   appearance: none; flex: none; width: 20px; height: 20px; margin: 0; border: 1px solid var(--line-3);
-  border-radius: 2px; background: var(--bg-0); cursor: pointer;
+  border-radius: 2px; background: var(--bg-0); cursor: var(--sp-cursor-pointer, pointer);
 }
 .voice-library__choice input:checked { background: var(--mint-500); border-color: var(--mint-500); }
 .voice-library__choice input:checked::after { content: '✓'; display: block; color: var(--text-on-mint); font: bold 16px/18px sans-serif; text-align: center; }
 .voice-library__choice input:focus-visible { outline: 2px solid var(--mint-400); outline-offset: 3px; }
-.voice-library__choice input:disabled { opacity: .35; cursor: default; }
+.voice-library__choice input:disabled { opacity: .35; cursor: var(--sp-cursor-default, default); }
 .voice-library__table button { min-height: 32px; padding: .06rem .12rem; font: inherit; color: var(--mint-400); background: transparent; border: 1px solid var(--line-2); }
 .voice-library__choice input:indeterminate { background: var(--mint-500); border-color: var(--mint-500); }
 .voice-library__choice input:indeterminate::after { content: '−'; display: block; color: var(--text-on-mint); font: bold 16px/18px sans-serif; text-align: center; }
-.voice-library__table button:disabled { opacity: .35; cursor: default; }
+.voice-library__table button:disabled { opacity: .35; cursor: var(--sp-cursor-default, default); }
 .resource-check p { margin: .12rem 0; line-height: 1.6; }
 .resource-check details { margin-top: .12rem; }
 .resource-check ul { max-height: 28vh; overflow: auto; padding-left: .24rem; }
@@ -555,4 +557,4 @@ html[data-script="alphabetic"] .title-login .btn--xl { letter-spacing: .3em; }
   animation: hub-reg-rays 120s linear infinite;
   pointer-events: none;
 }
-
+@media (prefers-reduced-motion: reduce) { .rf [data-n="effect_season_on"]::before { animation: none; } }

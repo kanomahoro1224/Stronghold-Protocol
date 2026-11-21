@@ -17,12 +17,10 @@
 // no countdown and say so. When the pick order comes round to the player, 轮到你选 drops in over the cards (the event's
 // video 10:08, ui/matchPlates.js TurnPopup); the selected card's frame and 确认选择 strip are white, as in the video.
 
-import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
+import { useEffect, useState } from '../../vendor/hooks.module.js';
 import { useSettings } from './settings.js';
 import { usePrefabPack } from './prefab/view.js';
-import { RegYourTurn, packBanners } from './prefab/banners.js';
 import { RegDeadlineCountdown } from './prefab/hud.js';
-import { themePack } from '../uiTheme.js';
 import { html, Icon, TierChip, Countdown, Button } from './components.js';
 import { Img, RichText, PlayerAvatar, GIcon } from './gameComponents.js';
 import { itemIconUrl, enemyIconUrl, uiUrl } from './assetUrls.js';
@@ -152,29 +150,20 @@ export function ChoiceOverlay(props) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [armed]);
-  // 乌萨斯齐心团 / 可露希尔 (every version since §37.206): the pack's 轮到你选 banner (effect_choose_self_select) once each time
-  // the team pick reaches this seat (ui/prefab/banners.js)
+  // The pack also draws its official 机变 countdown. The shared your-turn cue is owned by screens/game.js so a theme
+  // banner and its sound are emitted once from the same place.
   const settings = useSettings();
   const pack = usePrefabPack(data.get('local')?.groups, settings?.uiTheme);
-  const turnMine = !!sp && !solo && !props.personal && sp.turnPid === myId && !sp.pickOf?.has?.(myId);
-  const [turnPop, setTurnPop] = useState(0);
-  const wasMine = useRef(false);
-  useEffect(() => {
-    if (turnMine && !wasMine.current && packBanners(pack).yourTurn) setTurnPop((n) => n + 1);
-    wasMine.current = turnMine;
-  }, [turnMine, pack]);
-  const banner = turnPop ? html`<${RegYourTurn} key=${turnPop} pack=${pack} still=${settings?.themeMotion === false}
-    spine=${themePack(settings?.uiTheme)?.character || null} onDone=${() => setTurnPop(0)} />` : null;
-  if (!sp) return banner;
+  if (!sp) return null;
   const tap = (idx) => {
     const card = sp.cards.find((c) => c && c.idx === idx);
     const r = spTap(armed, idx, cardPickable(sp, card, { myId, solo, busyIdx }));
     setSel(r.armed);
     if (r.pick != null) onPick(r.pick);
   };
-  if (collapsed) return html`<${ChoicePill} sp=${sp} myId=${myId} solo=${solo} onExpand=${() => setCollapsed(false)} />${banner}`;
+  if (collapsed) return html`<${ChoicePill} sp=${sp} myId=${myId} solo=${solo} onExpand=${() => setCollapsed(false)} />`;
   return html`<${ChoiceView} ...${props} armed=${armed} onTap=${tap} pfPack=${pack} pfStill=${settings?.themeMotion === false}
-    onConfirm=${() => { if (armed != null) tap(armed); }} onDisarm=${() => setSel(null)} onCollapse=${() => { setSel(null); setCollapsed(true); }} />${banner}`;
+    onConfirm=${() => { if (armed != null) tap(armed); }} onDisarm=${() => setSel(null)} onCollapse=${() => { setSel(null); setCollapsed(true); }} />`;
 }
 
 /**
@@ -261,7 +250,7 @@ export function ChoiceView({ pub, sp, myId, solo, personal = false, busyIdx = nu
       </header>
       ${onCollapse ? html`<button type="button" class="spov__collapse" data-testid="sp-collapse" onClick=${onCollapse} title=${t('收起，查看战场')}>
         <${Icon} name="collapse" /><span>${t('收起')}</span></button>` : null}
-      <div class=${cx('spov__grid', sp.cards.length <= 3 && 'spov__grid--3')}>
+      <div class=${cx('spov__grid', sp.cards.length <= 3 && 'spov__grid--3', onCollapse && 'spov__grid--collapse')}>
         ${sp.cards.map((card) => {
           const r = resolveSpCard(card, sp.family);
           const taker = card.takenBy ? players.get(card.takenBy) : null;

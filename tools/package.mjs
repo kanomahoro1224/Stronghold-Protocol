@@ -7,7 +7,15 @@
 //   node tools/package.mjs --update --from <base>[,<base>…]
 //                          → Stronghold-Protocol-v<version>-update.zip  only the files that differ from the earlier full
 //                            zips given as bases, to extract over an install of one of them (server/update.js)
-//   node tools/package.mjs [--lite | --update --from <bases>] [--dry-run [--list]] [--out <dir>] [--force]
+//   node tools/package.mjs --assets
+//                          → Stronghold-Protocol-v<version>-assets.zip  the example asset pack for the title screen's
+//                            导入素材包: only the art that import accepts from a host of this version, and a README.txt.
+//                            Not a release asset (the maintainer offers it for download elsewhere) — see below
+//   node tools/package.mjs --theme-packs
+//                          → Stronghold-Protocol-v<version>-theme-<id>.zip  each official theme the packages hold back
+//                            (HELD_THEME_GROUPS: 可露希尔, §37.232) as a pack for 设置 → 界面主题 → 导入主题包. Not a
+//                            release asset either
+//   node tools/package.mjs [--lite | --update --from <bases> | --assets | --theme-packs] [--dry-run [--list]] [--out <dir>] [--force]
 //                          [--keep-stage] [--no-install] [--allow-dirty] [--allow-dev] [--root <dir>]
 //
 // Both zips hold one folder, Stronghold-Protocol/, with only what a player runs — an allowlist over `git ls-files`, so
@@ -82,8 +90,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { findSpecifiers } from './check-imports.mjs';
+import { rewriteManifest } from '../server/http/assetViews.js';
+import { mergeLocalManifests, planFromManifests } from '../public/js/assetPack.js';
 import { writePackIndex } from './packs.mjs';
-
+import { OFFICIAL_PACK_EXT, OFFICIAL_PACK_LIMITS, THEME_LIMITS, officialThemeById } from '../shared/uiTheme.js';
 import { compareVersions, diffBases, manifestText, readBase, updateText } from './package-update.mjs';
 import {
   APPLIED_FILE, MANIFEST_FILE, UPDATE_FILE, affectsRuntime, digestFile, inManifest, isSetupArt, listedArtFiles,
@@ -117,7 +127,8 @@ export const RUNTIME_RESEARCH = ['docs/research/03-operators.json', 'docs/resear
 export const PLAYER_SCRIPTS = ['scripts/install-service-windows.ps1', 'scripts/launch.mjs', 'scripts/open-browser.mjs',
   'scripts/run-server.cmd', 'scripts/start-windows-sandbox.bat', 'scripts/start-windows.bat', 'scripts/start-windows.ps1', 'scripts/start.sh'];
 /** The tools a player runs (npm run setup / doctor / assets, the postinstall) and the ones setup starts. */
-export const PLAYER_TOOLS = ['tools/crop-board-atlas.mjs', 'tools/doctor.mjs', 'tools/fetch-assets.mjs', 'tools/setup.mjs', 'tools/vendor.mjs', 'tools/plugin.mjs', 'tools/theme-template.mjs'];
+export const PLAYER_TOOLS = ['tools/crop-board-atlas.mjs', 'tools/doctor.mjs', 'tools/fetch-assets.mjs', 'tools/fetch-stats-assets.mjs', 'tools/setup.mjs', 'tools/vendor.mjs', 'tools/plugin.mjs',
+  'tools/theme-template.mjs'];
 /** Whole tool directories: fetch-assets' modules, the local-client extraction setup runs. */
 export const PLAYER_TOOL_DIRS = ['tools/assets/', 'tools/local-extract/'];
 /** Whole runtime directories (their tracked files). */
@@ -913,6 +924,348 @@ export function build(root, p, { out, install = true, force = false, keepStage =
   return { zipPath, zipBytes: fileBytes(zipPath), files: staged.length, stage: keepStage ? stage : null };
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// The asset pack (--assets)
+
+/** The example asset pack's folder inside its zip, and the zip's name without `.zip`. @param {string} version */
+export const assetPackName = (version) => `${FOLDER}-v${version}-assets`;
+/** The bilingual text at the root of the asset pack's folder (the one entry the importer skips). */
+export const ASSET_PACK_README = 'README.txt';
+/** The served manifests whose art the title screen's import checks (public/js/assetPack.js reads the host's copies). */
+export const IMPORT_MANIFESTS = Object.freeze(['data/assets.json', 'data/local-assets.json', 'data/local-fx.json']);
+
+const STAND_IN_HASH = '0'.repeat(16);
+/** An asset index that has a hash for every file: the served manifests of a host with every listed file on disk. */
+const EVERY_FILE_HASHED = Object.freeze({ hashOf: () => STAND_IN_HASH, modelHash: () => STAND_IN_HASH });
+
+/**
+ * The art files of the three manifests that the title screen's import checks, as public/… paths (sorted): the
+ * importer's own plan (assetPack.js planFromManifests, mergeLocalManifests) of the manifests as a host serves them
+ * (server/http/assetViews.js rewriteManifest — here every URL with a stand-in hash, as on a host that has every listed
+ * file). Standalone files and whole Spine models (with the default `<skel>.png` page when a model lists no textures);
+ * left out like the importer leaves them out: a URL the server never hashes (a query, an empty or `..` segment) and
+ * art of local-assets.json outside its `groups`.
+ * @param {object | null} assets data/assets.json
+ * @param {object | null} local data/local-assets.json
+ * @param {object | null} fx data/local-fx.json
+ * @returns {string[]}
+ */
+export function importableArt(assets, local, fx) {
+  const view = (doc, name) => (doc && typeof doc === 'object' ? rewriteManifest(doc, name, EVERY_FILE_HASHED).doc : null);
+  const plan = planFromManifests(view(assets, 'assets.json'), mergeLocalManifests(view(local, 'local-assets.json'), view(fx, 'local-fx.json')));
+  return [...plan.rels].map((rel) => `public/${rel}`).sort();
+}
+
+/**
+ * Everything the asset pack would hold, with every check (no copying). `files`: importableArt of this checkout's
+ * manifests, with the full zip's switches — `jpVoice` / `optionalVoice` (FULL_ZIP_JP_VOICE / FULL_ZIP_OPTIONAL_VOICE)
+ * hold voice files back (`held`), `fx` (FULL_ZIP_FX) off or no data/local-fx.json leaves the effects out; `missing`:
+ * listed, not on disk; `notListed`: what the full zip ships from public/ and the import would skip (no manifest lists
+ * it: local-client leftovers, an unlisted font), left out. `scan: false` skips the personal-info scan (tests).
+ * @param {string} root
+ * @param {{ allowDirty?: boolean, env?: object, scan?: boolean, jpVoice?: boolean, optionalVoice?: boolean, fx?: boolean }} [opts]
+ */
+export function assetPackPlan(root, opts = {}) {
+  const jpVoice = opts.jpVoice ?? FULL_ZIP_JP_VOICE;
+  const optionalVoice = opts.optionalVoice ?? FULL_ZIP_OPTIONAL_VOICE;
+  const fx = opts.fx ?? FULL_ZIP_FX;
+  const pkg = readJson(path.join(root, 'package.json')) || {};
+  const version = pkg.version || '0.0.0';
+  const assets = readJson(path.join(root, 'data', 'assets.json'));
+  // as the full zip: the held theme groups are offered as importable packs, not as importable art (§37.232)
+  const local = withoutHeldThemes(readJson(path.join(root, 'data', 'local-assets.json')));
+  const fxDoc = fx ? readJson(path.join(root, 'data', 'local-fx.json')) : null;
+  const files = [];
+  const missing = [];
+  const held = [];
+  for (const f of importableArt(assets, local, fxDoc)) {
+    if ((!jpVoice && f.startsWith(JP_VOICE_DIR)) || (!optionalVoice && OPTIONAL_VOICE_DIRS.some((d) => f.startsWith(d)))) held.push(f);
+    else if (isFile(path.join(root, f))) files.push(f);
+    else missing.push(f);
+  }
+  const problems = [];
+  if (!assets) problems.push('data/assets.json is missing or not JSON: run npm run setup first');
+  for (const f of missing) problems.push(`missing art: ${f} (a manifest lists it; run npm run setup)`);
+  if (assets && !files.some((f) => f.startsWith('public/assets/'))) problems.push('no art under public/assets: run npm run setup first');
+  const byCase = new Map();
+  for (const f of files) {
+    const k = f.toLowerCase();
+    if (byCase.has(k)) problems.push(`paths differ only in case (one file on Windows / macOS): ${byCase.get(k)} / ${f}`);
+    else byCase.set(k, f);
+  }
+  // the importer strips each path up to its last `public/` (detectAssetPrefix): a second one would move the file
+  for (const f of files) if (f.slice('public/'.length).includes('public/')) problems.push(`${f}: a public/ folder inside an art path misleads the import's prefix`);
+  if (!opts.allowDirty) for (const f of dirtyFiles(root, ['data/assets.json'])) problems.push(`uncommitted change: ${f} (the pack must match the released manifest: commit it, or --allow-dirty)`);
+  const names = scanNames(opts.env || process.env);
+  let scanned = 0;
+  if (opts.scan !== false) {
+    for (const h of scanFiles(root, files, { home: true, names })) problems.push(`personal info: ${h}`);
+    scanned = files.length;
+  }
+  const inPack = new Set([...files, ...held]);
+  const notListed = artPlan(root, { jpVoice, optionalVoice, fx }).files.filter((f) => f.startsWith('public/') && !inPack.has(f));
+  return {
+    version, name: assetPackName(version), files, missing, held, notListed, fx: !!fxDoc, local: !!local, problems,
+    names: names.length, scanned, bytes: { art: sumBytes(root, files), notListed: sumBytes(root, notListed) },
+  };
+}
+
+export function formatAssetSummary(p) {
+  const lists = ['data/assets.json', p.local ? 'data/local-assets.json' : null, p.fx ? 'data/local-fx.json' : null].filter(Boolean);
+  const lines = [
+    `asset pack: ${p.name}.zip · version ${p.version} (for the title screen's 导入素材包; not a release asset)`,
+    `art: ${p.files.length} files, ${MB(p.bytes.art)} — what the import accepts from a host of this version: the files ${lists.join(', ')} list`,
+  ];
+  if (!p.local) lines.push('local-client art: none (no data/local-assets.json here)');
+  if (!p.fx) lines.push('official effects: none (no data/local-fx.json here, or FULL_ZIP_FX off)');
+  if (p.held.length) lines.push(`held back: ${p.held.length} voice files (FULL_ZIP_JP_VOICE / FULL_ZIP_OPTIONAL_VOICE off, as in the full zip)`);
+  if (p.notListed.length) lines.push(`left out: ${p.notListed.length} files the full zip ships from public/ that no manifest lists (${MB(p.bytes.notListed)}): the import would skip them`);
+  lines.push(`personal-info scan: ${p.scanned} files, ${p.names ? `home paths + ${p.names} account name(s)` : 'home paths only (no account name to refuse)'}`);
+  lines.push(p.problems.length ? `PROBLEMS (${p.problems.length}):\n${p.problems.map((x) => `  ${x}`).join('\n')}` : 'checks: ok');
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * README.txt of the asset pack (Chinese, then English; UTF-8 with a BOM so every text editor reads it as UTF-8).
+ * @param {{ version: string, files: string[], bytes: { art: number }, local: boolean, fx: boolean }} p
+ */
+export function assetPackReadme(p) {
+  const v = `v${p.version}`;
+  const lists = ['data/assets.json', p.local ? 'data/local-assets.json' : null, p.fx ? 'data/local-fx.json' : null].filter(Boolean);
+  const notice = `${GITHUB_REPO}/blob/${releaseTag(p.version)}/NOTICE.md`;
+  const size = MB(p.bytes.art);
+  const zh = [
+    `卫戍协议：盟约 ${v} 素材包`,
+    `Stronghold Protocol: Alliance ${v} asset pack`,
+    '',
+    '【这是什么】',
+    `游戏的美术、Spine 模型、音频和字体，共 ${p.files.length} 个文件（${size}），给游戏标题画面的「导入素材包」使用：`,
+    '导入以后，这些文件直接从你的浏览器读取，不再从开服的电脑下载，省下服务器的流量。',
+    '它不是安装包，不能用来开服；开服请用 Releases 里的完整包或精简包。',
+    '',
+    '【对应的版本】',
+    `这些文件和 ${v} 的素材清单一致：`,
+    `  ${lists.join('、')}`,
+    '导入时浏览器把每个文件的 SHA-256 和服务器的清单比对，只收下一致的文件。服务器是其他版本时，内容变了的',
+    '文件「校验不符」，那个版本不再列出的文件被「跳过」，都不会收下，游戏照常从服务器加载它们。',
+    '',
+    '【怎么导入】',
+    '1. 用 HTTPS 地址或本机的 http://localhost 打开游戏（http://局域网IP 不能导入，浏览器不允许）。',
+    '2. 在标题画面点「导入素材包」，再点「选择 zip」选这个文件，或把它拖进窗口；',
+    '   解压以后也可以点「选择文件夹」，选解压出来的文件夹。',
+    '3. 等进度走完。结果里「跳过 1 个」是这份说明本身。',
+    '导入的素材存在这个浏览器里，按网址分开：换了域名或端口要重新导入。「清除已导入的素材」只删除浏览器里的副本。',
+    '',
+    '【版权】',
+    '素材的版权归上海鹰角网络科技有限公司及其授权方（Yostar 等）所有，不适用本项目的 GPL-3.0 许可证。',
+    '仅限非商业用途，不得出售或付费分发。完整声明见 NOTICE.md：',
+    notice,
+  ];
+  const en = [
+    '[What this is]',
+    `The game's art, Spine models, audio and fonts: ${p.files.length} files (${size}) for "Import asset pack" on the game's`,
+    'title screen. Once imported, your browser reads these files itself instead of downloading them from the host, which',
+    'saves the host\'s bandwidth. It is not an installation package and cannot run a server: hosts use the full or lite',
+    'package from the Releases page.',
+    '',
+    '[Version]',
+    `The files match the ${v} asset lists:`,
+    `  ${lists.join(', ')}`,
+    'The browser compares each file\'s SHA-256 with the server\'s lists and keeps only the files that match. On a server of',
+    'another version, changed files fail the check ("hash mismatch") and files that version does not list are skipped;',
+    'the game loads those from the server as usual.',
+    '',
+    '[How to import]',
+    '1. Open the game over HTTPS, or at http://localhost on the computer that runs the server (a plain http:// LAN address',
+    '   cannot import: the browser does not allow it).',
+    '2. On the title screen press "Import asset pack", then "Choose zip" and pick this file, or drop it on the dialog.',
+    '   After unzipping, "Choose folder" takes the unzipped folder too.',
+    '3. Wait for the progress bar. The one skipped file in the result is this text.',
+    'Imported files stay in this browser, per address: a new host name or port needs a new import. "Clear imported',
+    'assets" deletes only the browser\'s copy.',
+    '',
+    '[Copyright]',
+    'The assets are (c) Hypergryph and its licensors (Yostar and others) and are not covered by this project\'s GPL-3.0',
+    'licence. Non-commercial use only: do not sell or charge for them. The full notice is NOTICE.md:',
+    notice,
+  ];
+  return `\ufeff${[...zh, '', '----------------------------------------------------------------', '', ...en].join('\n')}\n`;
+}
+
+/**
+ * Copy the asset pack's files into <out>/<name>/<name>, write README.txt, check the stage (exactly the plan and the
+ * README, the refusal list, the personal-info scan) and zip it as <out>/<name>.zip (<name> = assetPackName).
+ */
+export function buildAssetPack(root, p, { out, force = false, keepStage = false, env = process.env, log = console.log } = {}) {
+  if (p.problems.length) throw new Error('refusing to build: the plan has problems (see the summary)');
+  const dest = path.resolve(out);
+  if (packageOutIsUnsafe(dest, root)) throw new Error(`refusing to write into the repository or a parent of it: ${dest}`);
+  const work = path.join(dest, p.name);
+  const stage = path.join(work, p.name);
+  const zipPath = path.join(dest, `${p.name}.zip`);
+  freshTargets([work, zipPath], force);
+  log(`copying ${p.files.length} files → ${stage}`);
+  for (const rel of p.files) copyInto(root, stage, rel);
+  fs.writeFileSync(path.join(stage, ASSET_PACK_README), assetPackReadme(p));
+  const { staged, problems } = stageProblems(stage, new Set([...p.files, ASSET_PACK_README]), { env });
+  if (problems.length) throw new Error(`refusing to zip ${stage}:\n${problems.map((x) => `  ${x}`).join('\n')}`);
+  log(`zipping ${staged.length} files (${MB(sumBytes(stage, staged))}) → ${zipPath}`);
+  zipFolder(work, zipPath, p.name);
+  if (!keepStage) fs.rmSync(work, { recursive: true, force: true });
+  return { zipPath, zipBytes: fileBytes(zipPath), files: staged.length, stage: keepStage ? stage : null };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The importable official theme packs (§37.232)
+
+/** The zip and folder name of a held theme group's importable pack. @param {string} version @param {string} group */
+export const themePackName = (version, group) => `${FOLDER}-v${version}-theme-${String(group).split('/').pop()}`;
+export const THEME_PACK_README = 'README.txt';
+/** Files of an extracted group the client never reads (layout.json: the extractor's layout dump, for the maintainer). */
+const THEME_PACK_SKIP = new Set(['layout.json']);
+const PACK_IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp']);
+const PACK_AUDIO_EXT = new Set(['ogg', 'mp3']);
+
+/**
+ * The importable pack of each held theme group (HELD_THEME_GROUPS): the group's files as data/local-assets.json lists
+ * them — every type the importer keeps (OFFICIAL_PACK_EXT), layout.json left out — under one folder, with README.txt.
+ * Checks: the group extracted here, theme.json among its files, every listed file on disk, the importer's limits
+ * (OFFICIAL_PACK_LIMITS, THEME_LIMITS.image / .audio), no case clash, the personal-info scan (`scan: false` skips it).
+ * @param {string} root
+ * @param {{ groups?: readonly string[], env?: object, scan?: boolean }} [opts]
+ */
+export function themePackPlans(root, opts = {}) {
+  const pkg = readJson(path.join(root, 'package.json')) || {};
+  const version = pkg.version || '0.0.0';
+  const local = readJson(path.join(root, 'data', 'local-assets.json'));
+  const names = scanNames(opts.env || process.env);
+  return (opts.groups || HELD_THEME_GROUPS).map((group) => {
+    const dir = themeGroupDir(group);
+    const entries = local?.groups?.[group];
+    /** @type {string[]} pack-relative */
+    const files = [];
+    const problems = [];
+    let bytes = 0;
+    if (!entries || typeof entries !== 'object') problems.push(`${group}: not extracted here (data/local-assets.json has no such group)`);
+    else {
+      for (const rel of Object.keys(entries).sort()) {
+        if (THEME_PACK_SKIP.has(rel)) continue;
+        const ext = rel.slice(rel.lastIndexOf('.') + 1).toLowerCase();
+        if (!OFFICIAL_PACK_EXT.includes(ext)) continue;
+        const file = path.join(root, dir, rel);
+        if (!isFile(file)) { problems.push(`missing: ${dir}${rel} (data/local-assets.json lists it)`); continue; }
+        const size = fileBytes(file);
+        const cap = PACK_IMAGE_EXT.has(ext) ? THEME_LIMITS.image : PACK_AUDIO_EXT.has(ext) ? THEME_LIMITS.audio : OFFICIAL_PACK_LIMITS.data;
+        if (size > cap) problems.push(`${dir}${rel}: ${MB(size)}, over the importer's ${MB(cap)} for one file`);
+        files.push(rel);
+        bytes += size;
+      }
+      if (!files.includes('theme.json')) problems.push(`${group}: no theme.json`);
+      if (files.length + 1 > OFFICIAL_PACK_LIMITS.files) problems.push(`${files.length} files: over the importer's ${OFFICIAL_PACK_LIMITS.files}`);
+      if (bytes > OFFICIAL_PACK_LIMITS.pack) problems.push(`${MB(bytes)}: over the importer's ${MB(OFFICIAL_PACK_LIMITS.pack)}`);
+      const byCase = new Map();
+      for (const f of files) {
+        const k = f.toLowerCase();
+        if (byCase.has(k)) problems.push(`paths differ only in case (one file on Windows / macOS): ${byCase.get(k)} / ${f}`);
+        else byCase.set(k, f);
+      }
+      if (opts.scan !== false) for (const h of scanFiles(root, files.map((f) => `${dir}${f}`), { home: true, names })) problems.push(`personal info: ${h}`);
+    }
+    return { group, id: group.split('/').pop(), version, name: themePackName(version, group), dir, files, bytes, problems };
+  });
+}
+
+/** The summary of one theme pack plan. @param {ReturnType<typeof themePackPlans>[number]} p */
+export function formatThemePackSummary(p) {
+  const lines = [`theme pack ${p.name}.zip (${p.group}): ${p.files.length} files, ${MB(p.bytes)} from ${p.dir} (+ ${THEME_PACK_README})`];
+  lines.push(p.problems.length ? `PROBLEMS (${p.problems.length}):\n${p.problems.map((x) => `  ${x}`).join('\n')}` : 'checks: ok');
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * README.txt of a theme pack (Chinese, then English; UTF-8 with a BOM).
+ * @param {{ version: string, id: string, files: string[], bytes: number }} p
+ */
+export function themePackReadme(p) {
+  const v = `v${p.version}`;
+  const title = officialThemeById(p.id)?.name || p.id;
+  const notice = `${GITHUB_REPO}/blob/${releaseTag(p.version)}/NOTICE.md`;
+  const line = `${String(p.version).split('.').slice(0, 2).join('.')}.x`;
+  const zh = [
+    `卫戍协议：盟约 ${v} 界面主题包「${title}」`,
+    `Stronghold Protocol: Alliance ${v} interface theme pack "${p.id}"`,
+    '',
+    '【这是什么】',
+    `官方界面主题「${title}」的贴图、界面预制体、Spine 角色和主题语音，共 ${p.files.length} 个文件（${MB(p.bytes)}）。`,
+    '游戏的完整包、更新包和素材包都不带这个主题，需要的玩家自己导入。',
+    '',
+    '【怎么导入】',
+    '1. 打开游戏，在标题画面、大厅或对局里点「设置」，找到「界面主题」。',
+    '2. 点「导入主题包」，选这个 zip；解压以后也可以点「导入文件夹」，选解压出来的文件夹。',
+    `3. 列表里出现「${title}」并自动选用；以后可以在同一页切换或「删除」。`,
+    '主题只保存在这个浏览器里，不会上传，其他玩家看不到，也不改变对局。它按网址分开保存：换了地址或端口要重新导入。',
+    '服务器本身带有这个主题时（例如从自己的客户端提取过），不用导入，直接在列表里选用。',
+    '',
+    '【对应的版本】',
+    `和 ${v} 一起制作，用于 ${line} 版本。`,
+    '',
+    '【版权】',
+    '素材的版权归上海鹰角网络科技有限公司及其授权方（Yostar 等）所有，不适用本项目的 GPL-3.0 许可证。',
+    '仅限非商业用途，不得出售或付费分发。完整声明见 NOTICE.md：',
+    notice,
+  ];
+  const en = [
+    '[What this is]',
+    `The official interface theme "${p.id}": its pictures, interface prefabs, Spine character and theme voice lines,`,
+    `${p.files.length} files (${MB(p.bytes)}). The full, update and asset packages do not include it; players who want it import it.`,
+    '',
+    '[How to import]',
+    '1. In the game press Settings (on the title screen, in the lobby or in a match) and open "Interface theme".',
+    '2. Press "Import theme pack" and pick this zip; after unzipping, "Import folder" takes the unzipped folder too.',
+    '3. The theme appears in the list and is selected; switch or delete it on the same page later.',
+    'The theme stays in this browser only: nothing is uploaded, other players do not see it, matches do not change. It is',
+    'kept per address: a new address or port needs a new import. When the server has the theme itself (extracted from',
+    'its own client), pick it in the list without importing.',
+    '',
+    '[Version]',
+    `Made with ${v}, for the ${line} versions.`,
+    '',
+    '[Copyright]',
+    'The assets are (c) Hypergryph and its licensors (Yostar and others) and are not covered by this project\'s GPL-3.0',
+    'licence. Non-commercial use only: do not sell or charge for them. The full notice is NOTICE.md:',
+    notice,
+  ];
+  return `\ufeff${[...zh, '', '----------------------------------------------------------------', '', ...en].join('\n')}\n`;
+}
+
+/**
+ * Copy one theme pack's files into <out>/<name>/<name>, write README.txt, check the stage (exactly the plan and the
+ * README, the refusal list, the personal-info scan) and zip it as <out>/<name>.zip.
+ */
+export function buildThemePack(root, p, { out, force = false, keepStage = false, env = process.env, log = console.log } = {}) {
+  if (p.problems.length) throw new Error(`refusing to build ${p.name}: the plan has problems (see the summary)`);
+  const dest = path.resolve(out);
+  if (packageOutIsUnsafe(dest, root)) throw new Error(`refusing to write into the repository or a parent of it: ${dest}`);
+  const work = path.join(dest, p.name);
+  const stage = path.join(work, p.name);
+  const zipPath = path.join(dest, `${p.name}.zip`);
+  freshTargets([work, zipPath], force);
+  log(`copying ${p.files.length} files → ${stage}`);
+  for (const rel of p.files) {
+    const dst = path.join(stage, rel);
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.copyFileSync(path.join(root, p.dir, rel), dst, fs.constants.COPYFILE_FICLONE);
+  }
+  fs.writeFileSync(path.join(stage, THEME_PACK_README), themePackReadme(p));
+  const { staged, problems } = stageProblems(stage, new Set([...p.files, THEME_PACK_README]), { env });
+  if (problems.length) throw new Error(`refusing to zip ${stage}:\n${problems.map((x) => `  ${x}`).join('\n')}`);
+  log(`zipping ${staged.length} files (${MB(sumBytes(stage, staged))}) → ${zipPath}`);
+  zipFolder(work, zipPath, p.name);
+  if (!keepStage) fs.rmSync(work, { recursive: true, force: true });
+  return { zipPath, zipBytes: fileBytes(zipPath), files: staged.length, stage: keepStage ? stage : null };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // The update zip
 
 /** OS clutter a folder can gather (a release zip has none; the extension rules of isJunk would hit node_modules files). */
@@ -1027,17 +1380,19 @@ export function formatUpdate(r, version) {
   return lines.join('\n') + '\n';
 }
 
-const USAGE = 'usage: node tools/package.mjs [--lite | --update --from <base zip or folder>[,<…>]] [--dry-run [--list]] [--out <dir>] [--force] [--keep-stage] [--no-install] [--allow-dirty] [--allow-dev] [--root <dir>]';
+const USAGE = 'usage: node tools/package.mjs [--lite | --update --from <base zip or folder>[,<…>] | --assets | --theme-packs] [--dry-run [--list]] [--out <dir>] [--force] [--keep-stage] [--no-install] [--allow-dirty] [--allow-dev] [--root <dir>]';
 
 /** Whether `version` is a development (pre-release) version, e.g. 0.2.0-dev. */
 export const isDevVersion = (version) => /-/.test(String(version || ''));
 
 export function parseArgs(argv) {
-  const o = { lite: false, update: false, from: [], dryRun: false, list: false, out: '', force: false, keepStage: false, install: true, allowDirty: false, allowDev: false, root: REPO, help: false };
+  const o = { lite: false, update: false, assets: false, themePacks: false, from: [], dryRun: false, list: false, out: '', force: false, keepStage: false, install: true, allowDirty: false, allowDev: false, root: REPO, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--lite') o.lite = true;
     else if (a === '--update') o.update = true;
+    else if (a === '--assets') o.assets = true;
+    else if (a === '--theme-packs') o.themePacks = true;
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--list') o.list = true;
     else if (a === '--force') o.force = true;
@@ -1060,6 +1415,8 @@ export function parseArgs(argv) {
     if (o.from.length && !o.update) throw new Error(`--from goes with --update\n${USAGE}`);
     if (o.update && !o.from.length) throw new Error(`--update needs --from <earlier full zip or folder>[,<…>]\n${USAGE}`);
     if (o.update && o.lite) throw new Error(`--update is compared from the full stage: no --lite\n${USAGE}`);
+    if (o.assets && (o.lite || o.update)) throw new Error(`--assets builds the asset pack alone: no --lite or --update\n${USAGE}`);
+    if (o.themePacks && (o.lite || o.update || o.assets)) throw new Error(`--theme-packs builds the theme packs alone: no --lite, --update or --assets\n${USAGE}`);
   }
   return o;
 }
@@ -1068,6 +1425,8 @@ async function main(argv) {
   let o;
   try { o = parseArgs(argv); } catch (e) { console.error(`package: ${e.message}`); return 2; }
   if (o.help) { console.log(USAGE); return 0; }
+  if (o.assets) return mainAssets(o);
+  if (o.themePacks) return mainThemePacks(o);
   let p;
   try { p = plan(o.root, { lite: o.lite, allowDirty: o.allowDirty }); } catch (e) { console.error(`package: ${e.message}`); return 1; }
   process.stdout.write(formatSummary(p));
@@ -1102,6 +1461,60 @@ async function main(argv) {
     const r = build(o.root, p, opts);
     await smokePackage(r.zipPath, { version: p.version });
     console.log(`zip: ${r.zipPath} (${MB(r.zipBytes)}, ${r.files} files)${r.stage ? ` · stage kept: ${r.stage}` : ''}`);
+    return 0;
+  } catch (e) {
+    console.error(`package: ${e.message}`);
+    return 1;
+  }
+}
+
+/** --assets: the asset pack's plan, its summary, and (without --dry-run) the zip. */
+function mainAssets(o) {
+  let p;
+  try { p = assetPackPlan(o.root, { allowDirty: o.allowDirty }); } catch (e) { console.error(`package: ${e.message}`); return 1; }
+  process.stdout.write(formatAssetSummary(p));
+  if (o.dryRun) {
+    if (o.list) for (const f of [...p.files, ASSET_PACK_README]) process.stdout.write(`file ${f}\n`);
+    return p.problems.length ? 1 : 0;
+  }
+  if (p.problems.length) return 1;
+  if (isDevVersion(p.version) && !o.allowDev) {
+    console.error(`package: v${p.version} is a development version — the asset pack names the version whose manifests it matches; --allow-dev builds a test pack named after it`);
+    return 1;
+  }
+  try {
+    const r = buildAssetPack(o.root, p, { out: o.out || path.join(os.tmpdir(), 'stronghold-protocol-release'), force: o.force, keepStage: o.keepStage });
+    console.log(`zip: ${r.zipPath} (${MB(r.zipBytes)}, ${r.files} files)${r.stage ? ` · stage kept: ${r.stage}` : ''}`);
+    console.log('not a release asset: offer it for download elsewhere (docs/DEPLOY.md §7)');
+    return 0;
+  } catch (e) {
+    console.error(`package: ${e.message}`);
+    return 1;
+  }
+}
+
+/** --theme-packs: each held theme group's importable pack (§37.232), its summary, and (without --dry-run) the zip. */
+function mainThemePacks(o) {
+  let plans;
+  try { plans = themePackPlans(o.root); } catch (e) { console.error(`package: ${e.message}`); return 1; }
+  for (const p of plans) process.stdout.write(formatThemePackSummary(p));
+  const bad = plans.some((p) => p.problems.length);
+  if (o.dryRun) {
+    if (o.list) for (const p of plans) for (const f of [...p.files, THEME_PACK_README]) process.stdout.write(`file ${p.name}/${f}\n`);
+    return bad ? 1 : 0;
+  }
+  if (bad) return 1;
+  const version = plans[0]?.version || '0.0.0';
+  if (isDevVersion(version) && !o.allowDev) {
+    console.error(`package: v${version} is a development version — a theme pack names the version it was made with; --allow-dev builds a test pack named after it`);
+    return 1;
+  }
+  try {
+    for (const p of plans) {
+      const r = buildThemePack(o.root, p, { out: o.out || path.join(os.tmpdir(), 'stronghold-protocol-release'), force: o.force, keepStage: o.keepStage });
+      console.log(`zip: ${r.zipPath} (${MB(r.zipBytes)}, ${r.files} files)${r.stage ? ` · stage kept: ${r.stage}` : ''}`);
+    }
+    console.log('not a release asset: offer it for download beside the asset pack (docs/DEPLOY.md §7)');
     return 0;
   } catch (e) {
     console.error(`package: ${e.message}`);

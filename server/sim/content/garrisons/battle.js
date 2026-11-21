@@ -9,8 +9,8 @@
 //                       its data cap like a native one: 华法琳's garrison_95 stops at 7 / 14 layers per battle (PRTS 下半
 //                       3月27日更新#2: 「从 初始12/精锐24 降低至 初始7/精锐14」; GitHub #175, PR #192 by @kukiC).
 //   layer events        act1autochess_gar_event_useskill (skillStart) · _selfkillenemy (kill, every check_cnt) ·
-//                       _selfdead (death 'killed'; texts with 替身 also on every substitute ⇄ body swap, read from the
-//                       dollkeeper flag unit.trait.doll) · _consume_ammo (ammoUsed; range_id 0-1 self, 1-1 front tile,
+//                       _selfdead (death 'killed'; texts with 替身 or 傀儡 also on every substitute ⇄ body swap, read
+//                       from the dollkeeper flag unit.trait.doll) · _consume_ammo (ammoUsed; range_id 0-1 self, 1-1 front tile,
 //                       x-5 self + 4 adjacent, pooled counter) · _enemy_abflag_inrange (an enemy in range ENTERS
 //                       'freeze', × prob) · act2autochess_gar_event_onstart (every deploy) ·
 //                       act2autochess_gar_event_allyenemy_sleepstun_inrange (an enemy or operator in range ENTERS
@@ -49,8 +49,8 @@ import { REGULATION_INSTALLERS, runChild, inGarrisonRange, grantBondRange } from
 
 const ids = (s) => String(s ?? '').split(',').map((x) => x.trim()).filter(Boolean);
 const EMPTY = Object.freeze([]);
-/** Status keys for check_ab_flag values used by the data (16 = 冻结). */
-const AB_FLAG_STATUS = Object.freeze({ 16: 'freeze' });
+/** Status keys for check_ab_flag values used by the data (16 = 冻结, 33 = 恐惧). */
+const AB_FLAG_STATUS = Object.freeze({ 16: 'freeze', 33: 'fear' });
 
 function garrisonIdsOf(u) {
   const list = u?.def?.raw?.garrisonIds ?? u?.def?.garrisonIds;
@@ -381,7 +381,9 @@ const INSTALLERS = {
       const arr = m.get(unit);
       if (arr) for (const it of arr) fireGain(battle, it);
     });
-    const swaps = list.filter((it) => /替身/.test(it.g.desc || ''));
+    // 归溟幽灵鲨 says 替身; 风丸 (garrison_124) says 傀儡. The official template keys the swap off
+    // subprofession dollkeeper, and these are the published words. 历阵锐枪芬 names neither.
+    const swaps = list.filter((it) => /替身|傀儡/.test(it.g.desc || ''));
     if (!swaps.length) return;
     for (const it of swaps) it.doll = false;
     battle.on('tick', () => {
@@ -410,7 +412,7 @@ const INSTALLERS = {
 
   act1autochess_gar_event_enemy_abflag_inrange(battle, list) {
     const watched = new Set(list.map((it) => AB_FLAG_STATUS[S.num(it.bb.check_ab_flag, 16)] ?? 'freeze'));
-    // "进入冻结时": only a new entry (engine ctx.entered — a refresh of a running freeze is not one)
+    // Entering the configured status: only a new entry (ctx.entered), never a refresh.
     battle.on('statusApplied', ({ target, status, entered }) => {
       if (!target || !watched.has(status) || !entered || target.side !== 'enemy') return;
       for (const it of list) {
@@ -558,11 +560,12 @@ function installReaders(battle, by) {
   const recompute = () => { for (const it of list) applyReader(battle, it); };
   recompute();
   let pending = false;
-  battle.on('layerGain', () => {
+  const refresh = () => {
     if (pending) return;
     pending = true;
     battle.after(0, () => { pending = false; recompute(); });
-  });
+  };
+  battle.on('bondLayersChanged', refresh);
   const onstart = by.get('act2autochess_gar_eff_attrByBond_add_onstart');
   if (onstart) {
     const m = byUnit(onstart);
