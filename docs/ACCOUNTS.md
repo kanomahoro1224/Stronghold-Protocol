@@ -9,7 +9,7 @@
 | `db.js` | PostgreSQL 连接池 + 幂等建表（`accounts` / `email_codes` / `sessions` / `profiles` / `match_records` / `demos` / `player_links`）。连不上时降级为 disabled，不阻塞启动。 |
 | `mail.js` | 验证码邮件。配置 `SP_SMTP_*` 时用 nodemailer 直连 SMTP；未配置时只打日志，且仅在 `SP_ACCOUNTS_DEV=1` 时把验证码回显给客户端。 |
 | `turnstile.js` | Cloudflare Turnstile siteverify。未配置 secret 时使用官方 always-pass 测试密钥（site `1x00000000000000000000AA`）。 |
-| `auth.js` | 6 位验证码（10 分钟、单次、5 次尝试上限、sha256(email\|code\|pepper) 存储）、内存限流（邮箱 60s 间隔 / 5 次每小时，IP 20 次每小时）、账号 upsert、30 天会话（HttpOnly `sp_sid` cookie，DB 只存 token 的 sha256）。 |
+| `auth.js` | 6 位验证码（10 分钟、单次、5 次尝试上限、sha256(email\|code\|pepper) 存储，`purpose` 区分 login/reset）、内存限流（邮箱 60s 间隔 / 5 次每小时，IP 20 次每小时）、密码登录 / 重置、账号 upsert、30 天会话（HttpOnly `sp_sid` cookie，DB 只存 token 的 sha256）。 |
 | `store.js` | 云存档（`profiles` 四列 jsonb：loadouts / settings / stats / extras，单次 ≤384 KB，分块上限 stats 192 KB、extras 96 KB、loadouts+settings 96 KB）、战绩分页、Demo 文档、`player_links` 绑定 WS playerId ↔ 账号。 |
 | `recorder.js` | 可选的服务端 Demo 录制（默认关闭，`SP_ACCOUNTS_SERVER_DEMO=1`）：一局内人类 `g.*` 动作 + 棋盘帧；并为已绑定账号的参与者写 `match_records`（战绩同步）。 |
 | `api.js` | REST 路由（见下），POST/PUT 做同源 Origin 校验，普通请求体上限 64 KB；云存档 PUT 放宽到 448 KB 以容纳四块 JSON。 |
@@ -54,9 +54,10 @@ SP_ACCOUNTS_DEV=1 npm start
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/config` | 公开：`{ accounts, mail, dev, requireAccount, turnstileConfigured, turnstileSiteKey }` |
-| POST | `/api/auth/code` | `{ email, turnstileToken, mode? }` → 发验证码（60s/5 次每小时限流）；dev 未配邮件时含 `devCode`。`mode=register` 拒绝已注册邮箱（`ACCOUNT_EXISTS`），`mode=login` 拒绝没注册的邮箱（`ACCOUNT_NOT_FOUND`） |
-| POST | `/api/auth/verify` | `{ email, code, password?, name?, tag? }` → 200 + `Set-Cookie: sp_sid=...`（30 天）；错误码 `CODE_WRONG/CODE_EXPIRED/CODE_USED/CODE_LOCKED/PASSWORD_WEAK/TAG_INVALID/TAG_TAKEN` |
+| POST | `/api/auth/code` | `{ email, turnstileToken, mode? }` → 发验证码（60s/5 次每小时限流）；dev 未配邮件时含 `devCode`。`mode=register` 拒绝已注册邮箱（`ACCOUNT_EXISTS`），`mode=login` / `mode=reset` 拒绝没注册的邮箱（`ACCOUNT_NOT_FOUND`）；`mode=reset` 写 `purpose='reset'` 的重置码 |
+| POST | `/api/auth/verify` | `{ email, code, password?, name?, tag? }` → 200 + `Set-Cookie: sp_sid=...`（30 天）；只消费 `purpose='login'` 的验证码；错误码 `CODE_WRONG/CODE_EXPIRED/CODE_USED/CODE_LOCKED/PASSWORD_WEAK/TAG_INVALID/TAG_TAKEN` |
 | POST | `/api/auth/password` | `{ email, password }` → 200 + cookie；密码错 / 无此账号一律 401 `BAD_CREDENTIALS`（10 次每小时每邮箱限流） |
+| POST | `/api/auth/reset-password` | `{ email, code, password }` → `{ ok: true }`；只消费 `purpose='reset'` 的验证码，覆盖 `password_hash`，不建会话、不下发 cookie；错误码同 verify 的验证码分支 + `PASSWORD_WEAK` |
 | POST | `/api/auth/logout` | 删除会话，清 cookie |
 | GET | `/api/auth/me` | 当前账号或 401 |
 | PUT | `/api/profile` | `{ name?, tag? }` → 保存博士代号 / `#xxxx` 识别号，**只补空位**，已被占用回 409 `TAG_TAKEN` |
@@ -71,11 +72,19 @@ SP_ACCOUNTS_DEV=1 npm start
 无数据库时除 `/api/config` 外全部 503 `ACCOUNTS_OFF`。账号相关接口的错误体是 `{ ok:false, status, code }`（其它接口是
 `error`），客户端 `public/js/ui/cloud.js` 的 `api()` 把 `code` 归一化成 `error` 再判断。
 
-## 密码与 `#识别号`（2026-11-15 用户要求）
+## 密码登录与重置 / `#识别号`（2026-11-15 / 2026-11-22 用户要求）
 
-- **密码**：注册时可选（≥ 6 位，`scrypt` N=16384/r=8/p=1 + 每条独立盐，存 `scrypt$N$r$p$salt$hash`）；设过就能在登录页用
-  邮箱 + 密码直接进，没设的老账号仍走验证码。密码错与「账号不存在」都只回 `BAD_CREDENTIALS`，不给枚举。
-  `verify` 里 `password_hash = COALESCE(accounts.password_hash, EXCLUDED.password_hash)`，登录时补设也不会覆盖已有密码。
+- **登录**：标题页只走邮箱 + 密码（`POST /api/auth/password`，密码必填 ≥ 6 位）。设过密码的账号直接进；
+  没设过密码的老账号走「忘记密码？」设置一个，再用新密码登录。密码错与「账号不存在」都只回
+  `BAD_CREDENTIALS`，不给枚举。
+- **忘记密码**：`POST /api/auth/code` 带 `mode:'reset'`，Turnstile 通过后先查账号；未注册邮箱不发信，与登录入口
+  一样回 `ACCOUNT_NOT_FOUND`。验证码写 `purpose='reset'`，邮件用重置密码用语。`POST /api/auth/reset-password`
+  只消费 reset 码并覆盖 `accounts.password_hash`；成功不建 session、不下发 cookie，也不调用客户端的登录收尾。
+  账号不存在时在验证码哈希通过后才按 `CODE_WRONG` 返回，且不消费验证码，避免给未登录调用方一个提前枚举邮箱的接口。
+- **验证码用途隔离**：注册 / 弹窗登录仍用 `purpose='login'` 的验证码，`verify()` 只查这个 purpose；
+  reset 接口只查 `purpose='reset'`。发码限流仍按同一邮箱 60 秒间隔 / 每小时 5 次、每 IP 每小时 20 次，不另开重置额度。
+- **注册**：验证码 + 可选密码；`verify` 里 `password_hash = COALESCE(accounts.password_hash, EXCLUDED.password_hash)`，
+  注册 / 登录补设不会覆盖已有密码。弹窗形态的 `LoginForm`（不传 `mode`）仍是验证码即注册即登录，尚未改成密码登录。
 - **识别号**：标题页博士代号右边的小输入框（`public/js/screens/title.js`，类名 `title-idtag`），4 位数字，
   `#0427` 样式，存在 `accounts.tag`，全局唯一（`accounts_tag_unique` 部分索引，`WHERE tag IS NOT NULL`）。注册 / 登录时
   一起提交，登录后 `GET /api/auth/me` 带回自动填入；已有值时输入框置灰不可改（跟着账号走）。老账号允许先空着，

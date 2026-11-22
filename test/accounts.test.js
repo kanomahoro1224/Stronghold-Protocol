@@ -6,7 +6,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createDb } from '../server/accounts/db.js';
-import { createAuth, readCookie, sessionCookie } from '../server/accounts/auth.js';
+import { createAuth, readCookie, sessionCookie, hashPassword } from '../server/accounts/auth.js';
 import { createTurnstile } from '../server/accounts/turnstile.js';
 import { getProfile, putProfile, linkPlayer, listMatches, getDemo, canWatchDemo, putAccountDemo, listAccountDemos, getAccountDemo } from '../server/accounts/store.js';
 import { createDemoRecorder } from '../server/accounts/recorder.js';
@@ -116,6 +116,98 @@ test('accounts: password login and the #tag that follows the account', { skip: !
   const filled = await auth.setProfile({ account: old.account, tag: '0044', name: '博士 C' });
   assert.equal(filled.account.tag, '0044');
   assert.equal(filled.account.name, '博士 C');
+});
+
+test('accounts: password reset uses reset-purpose codes only', { skip: !CONN }, async () => {
+  const sent = [];
+  const mailer = {
+    ready: false, dev: true,
+    async sendCode({ to, code, purpose }) {
+      sent.push({ to, code, purpose });
+      return { sent: false, dev: true };
+    },
+  };
+  const turnstile = createTurnstile({ secret: '', log: {} });
+  const makeAuth = () => createAuth({ db, mailer, turnstile, pepper: 'test-pepper' });
+
+  // Direct accounts with a known password: no old login codes left behind, so a failed verify is unambiguously
+  // because reset-purpose rows are filtered out rather than because a consumed login row was selected first.
+  for (const [email, password] of [['reset-main@x.co', 'oldpass1'], ['login-only@x.co', 'oldpass2'], ['rate-reset@x.co', 'oldpass3'], ['interleave@x.co', 'oldpass4']]) {
+    await db.query(`INSERT INTO accounts (email, password_hash) VALUES ($1, $2)`, [email, await hashPassword(password)]);
+  }
+
+  const resetAuth = makeAuth();
+  const resetCode = await resetAuth.requestCode({ email: 'reset-main@x.co', turnstileToken: 't', mode: 'reset' });
+  assert.equal(resetCode.ok, true);
+  assert.equal(sent.at(-1).purpose, 'reset'); // mail.js gets the purpose and uses the reset subject/body
+
+  const purposeRow = (await db.query(
+    `SELECT purpose FROM email_codes WHERE email = 'reset-main@x.co' ORDER BY id DESC LIMIT 1`)).rows[0];
+  assert.equal(purposeRow.purpose, 'reset');
+
+  // A reset code cannot be exchanged for a session by the normal verify endpoint.
+  const viaVerify = await resetAuth.verify({ email: 'reset-main@x.co', code: resetCode.devCode });
+  assert.equal(viaVerify.ok, false);
+  assert.equal(viaVerify.code, 'CODE_EXPIRED');
+  assert.equal(viaVerify.token, undefined);
+
+  // A weak new password fails before the code is read or consumed; the old password still works.
+  const weak = await resetAuth.resetPassword({ email: 'reset-main@x.co', code: resetCode.devCode, password: '123' });
+  assert.equal(weak.code, 'PASSWORD_WEAK');
+  const untouched = (await db.query(
+    `SELECT consumed_at FROM email_codes WHERE email = 'reset-main@x.co' AND purpose = 'reset' ORDER BY id DESC LIMIT 1`)).rows[0];
+  assert.equal(untouched.consumed_at, null);
+  assert.equal((await resetAuth.loginWithPassword({ email: 'reset-main@x.co', password: 'oldpass1' })).ok, true);
+
+  const ok = await resetAuth.resetPassword({ email: 'reset-main@x.co', code: resetCode.devCode, password: 'newpass1' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.token, undefined);
+  assert.equal(ok.account, undefined);
+  assert.equal((await resetAuth.loginWithPassword({ email: 'reset-main@x.co', password: 'oldpass1' })).code, 'BAD_CREDENTIALS');
+  assert.equal((await resetAuth.loginWithPassword({ email: 'reset-main@x.co', password: 'newpass1' })).ok, true);
+
+  // Single use: the reset code cannot overwrite the password a second time.
+  assert.equal((await resetAuth.resetPassword({ email: 'reset-main@x.co', code: resetCode.devCode, password: 'thirdpass1' })).code, 'CODE_USED');
+
+  // A login-purpose code cannot be spent by reset-password, and the old password stays intact.
+  const loginAuth = makeAuth();
+  const loginCode = await loginAuth.requestCode({ email: 'login-only@x.co', turnstileToken: 't', mode: 'login' });
+  assert.equal(loginCode.ok, true);
+  assert.equal(sent.at(-1).purpose, 'login');
+  assert.equal((await loginAuth.resetPassword({ email: 'login-only@x.co', code: loginCode.devCode, password: 'newpass2' })).code, 'CODE_EXPIRED');
+  assert.equal((await loginAuth.loginWithPassword({ email: 'login-only@x.co', password: 'oldpass2' })).ok, true);
+
+  // Purpose filters also keep a newer reset code from shadowing a login code, and vice versa.
+  const interleaveEmail = 'interleave@x.co';
+  const loginSend = makeAuth();
+  const resetSend = makeAuth();
+  const olderLogin = await loginSend.requestCode({ email: interleaveEmail, turnstileToken: 't', mode: 'login' });
+  const newerReset = await resetSend.requestCode({ email: interleaveEmail, turnstileToken: 't', mode: 'reset' });
+  assert.equal(olderLogin.ok, true);
+  assert.equal(newerReset.ok, true);
+  assert.equal((await loginSend.verify({ email: interleaveEmail, code: olderLogin.devCode })).ok, true);
+  assert.equal((await resetSend.resetPassword({ email: interleaveEmail, code: newerReset.devCode, password: 'newpass4' })).ok, true);
+
+  // Reset mode still refuses an unregistered address after Turnstile, and sends no mail.
+  const before = sent.length;
+  const missing = await resetAuth.requestCode({ email: 'missing-reset@x.co', turnstileToken: 't', mode: 'reset' });
+  assert.equal(missing.code, 'ACCOUNT_NOT_FOUND');
+  assert.equal(sent.length, before);
+  assert.equal((await db.query(`SELECT count(*)::int AS n FROM accounts WHERE email = 'missing-reset@x.co'`)).rows[0].n, 0);
+
+  // A valid reset code whose account vanished still must not create one; it looks like a wrong code and stays unconsumed.
+  await db.query(`INSERT INTO accounts (email) VALUES ('gone-reset@x.co')`);
+  const goneAuth = makeAuth();
+  const goneCode = await goneAuth.requestCode({ email: 'gone-reset@x.co', turnstileToken: 't', mode: 'reset' });
+  await db.query(`DELETE FROM accounts WHERE email = 'gone-reset@x.co'`);
+  assert.equal((await goneAuth.resetPassword({ email: 'gone-reset@x.co', code: goneCode.devCode, password: 'gonepass1' })).code, 'CODE_WRONG');
+  assert.equal((await db.query(`SELECT count(*)::int AS n FROM accounts WHERE email = 'gone-reset@x.co'`)).rows[0].n, 0);
+  assert.equal((await db.query(`SELECT consumed_at FROM email_codes WHERE email = 'gone-reset@x.co' ORDER BY id DESC LIMIT 1`)).rows[0].consumed_at, null);
+
+  // The existing e-mail rate limit applies to reset codes too: the second send within 60 s is refused.
+  const rateAuth = makeAuth();
+  assert.equal((await rateAuth.requestCode({ email: 'rate-reset@x.co', turnstileToken: 't', mode: 'reset' })).ok, true);
+  assert.equal((await rateAuth.requestCode({ email: 'rate-reset@x.co', turnstileToken: 't', mode: 'reset' })).code, 'RATE_LIMITED');
 });
 
 test('accounts: cloud save, history, demo access', { skip: !CONN }, async () => {
@@ -329,6 +421,63 @@ test('accounts: REST surface (config, code, verify, cloud, rejection)', { skip: 
     assert.equal(docRes.demo.id, 'd_rest_1');
     assert.equal(docRes.demo.events.length, 1);
     assert.equal(docRes.demo.snapshots.length, 1);
+  } finally {
+    await new Promise((resolve) => server.close(() => resolve(undefined)));
+  }
+});
+
+test('accounts: REST reset-password replaces the hash without a session', { skip: !CONN }, async () => {
+  const email = 'rest-reset@x.co';
+  await db.query(`INSERT INTO accounts (email, password_hash) VALUES ($1, $2)`, [email, await hashPassword('rest-old1')]);
+  const sentCodes = [];
+  const mailer = {
+    ready: false, dev: true,
+    async sendCode({ to, code, purpose }) { sentCodes.push({ to, code, purpose }); return { sent: false, dev: true }; },
+  };
+  const turnstile = createTurnstile({ secret: '', log: {} });
+  const auth = createAuth({ db, mailer, turnstile, pepper: 'test-pepper' });
+  const api = createAccountApi({ db, auth, turnstile, mailer, registry: {}, log: {}, dev: true });
+  const server = createServer((req, res) => { api(req, res, new URL(req.url, 'http://x').pathname); });
+  let base = '';
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', () => { base = `http://127.0.0.1:${server.address().port}`; resolve(undefined); }));
+  try {
+    const codeRes = await fetch(`${base}/api/auth/code`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, turnstileToken: 't', mode: 'reset' }) });
+    assert.equal(codeRes.status, 200);
+    const resetCode = sentCodes.at(-1);
+    assert.equal(resetCode.purpose, 'reset');
+
+    // Missing / short password: 400 before the code is consumed, and the old password still logs in.
+    const weakRes = await fetch(`${base}/api/auth/reset-password`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, code: resetCode.code, password: '123' }) });
+    assert.equal(weakRes.status, 400);
+    assert.equal((await weakRes.json()).code, 'PASSWORD_WEAK');
+    const untouched = (await db.query(
+      `SELECT consumed_at FROM email_codes WHERE email = $1 AND purpose = 'reset' ORDER BY id DESC LIMIT 1`, [email])).rows[0];
+    assert.equal(untouched.consumed_at, null);
+    const oldLogin = await fetch(`${base}/api/auth/password`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: 'rest-old1' }) });
+    assert.equal(oldLogin.status, 200);
+
+    // The successful reset itself must not set a session cookie or return a token/account.
+    const resetRes = await fetch(`${base}/api/auth/reset-password`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, code: resetCode.code, password: 'rest-new1' }) });
+    assert.equal(resetRes.status, 200);
+    assert.equal(resetRes.headers.get('set-cookie'), null);
+    const resetBody = await resetRes.json();
+    assert.deepEqual(resetBody, { ok: true });
+    assert.equal(resetBody.token, undefined);
+    assert.equal(resetBody.account, undefined);
+
+    // No cookie was handed out: the caller is still anonymous.
+    assert.equal((await fetch(`${base}/api/auth/me`)).status, 401);
+
+    const oldAfter = await fetch(`${base}/api/auth/password`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: 'rest-old1' }) });
+    assert.equal(oldAfter.status, 401);
+    const newAfter = await fetch(`${base}/api/auth/password`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: 'rest-new1' }) });
+    assert.equal(newAfter.status, 200);
   } finally {
     await new Promise((resolve) => server.close(() => resolve(undefined)));
   }

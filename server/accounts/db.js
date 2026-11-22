@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   email        text NOT NULL UNIQUE,
   created_at   timestamptz NOT NULL DEFAULT now(),
   last_login_at timestamptz,
-  -- password login (2026-11-15): scrypt hash; NULL for an older e-mail-code-only account, which may set one later
+  -- password login (2026-11-15): scrypt hash; NULL for an older email-code-only account that can set one through password reset
   password_hash text,
   -- doctor callsign and the #xxxx tag that follows the account (tag is globally unique)
   display_name text,

@@ -384,11 +384,11 @@ async function reconnectSocket() {
 }
 
 /**
- * 邮箱验证码 / 密码登录表单（注册与登录同一个入口）。弹窗（LoginPanel）和标题页右侧的账号面板共用。
+ * 邮箱验证码 / 密码表单（注册、登录与忘记密码共用一个入口）。弹窗（LoginPanel）和标题页右侧的账号面板共用。
  * `mode` 只在标题页的两个按钮里给：'login' / 'register' 让服务端拒绝「没注册过的邮箱」/「已注册的邮箱」，
  * 并决定是否显示密码输入：
  *   - register：验证码 + 可选密码（设了以后能直接密码登录）
- *   - login：邮箱 + 密码直接登录，也可以改用验证码
+ *   - login：邮箱 + 密码直接登录；「忘记密码？」另发 reset 验证码并覆盖密码，不建立会话
  * 不传 mode 时（弹窗）保持旧语义——验证码即注册即登录，没有密码。
  * @param {{ onDone?: (account: any, linked?: boolean) => void, mode?: '' | 'login' | 'register',
  *           profile?: () => { name?: string, tag?: string } | null }} props
@@ -493,6 +493,29 @@ export function LoginForm({ onDone, mode = '', profile = null }) {
       : r.data.sent ? t('验证码已发送，请查收邮件') : t('邮件未配置，验证码已写入服务器日志'));
   };
 
+  /** 忘记密码：只发 reset 验证码，不登录；进入重置步骤，把上次的密码/验证码清空。 */
+  const sendReset = async () => {
+    setBusy(true); setNote('');
+    const r = await api('/api/auth/code', { method: 'POST', body: {
+      email, turnstileToken: token || (testKeys ? 'test' : widgetFailed && dev ? 'dev' : ''), mode: 'reset',
+    } });
+    setBusy(false);
+    if (!r.ok) { setNote(noteForError(r.data.error)); return; }
+    setStep('reset'); setCode(''); setPassword('');
+    setNote(r.data.devCode ? t('开发模式验证码：{code}', { code: r.data.devCode })
+      : r.data.sent ? '' : t('邮件未配置，验证码已写入服务器日志'));
+  };
+
+  /** 覆盖密码，但不调用 finish()：服务端不建会话，成功后回到密码登录第一步。 */
+  const resetPassword = async () => {
+    setBusy(true); setNote('');
+    const r = await api('/api/auth/reset-password', { method: 'POST', body: { email, code, password } });
+    setBusy(false);
+    if (!r.ok) { setNote(noteForError(r.data.error)); return; }
+    setStep('email'); setCode(''); setPassword('');
+    setNote(t('密码已重置，请用新密码登录。'));
+  };
+
   /** 邮箱 + 密码直接登录（注册时设过密码的账号）。 */
   const loginWithPassword = async () => {
     setBusy(true); setNote('');
@@ -523,12 +546,12 @@ export function LoginForm({ onDone, mode = '', profile = null }) {
   return html`<div class="cloud">
       ${step === 'email' ? html`
         <p class="cloud__note">${mode === 'register' ? t('输入邮箱获取一次性验证码，验证后即完成注册。')
-          : mode === 'login' ? t('用邮箱和密码登录；忘记密码可以改用验证码。')
+          : mode === 'login' ? t('用邮箱和密码登录。忘记密码请点击下方重置。')
             : t('输入邮箱获取一次性验证码，注册与登录是同一个入口。')}</p>
         <label class="cloud__label">${t('邮箱')}</label>
         <input class="cloud__input" type="email" inputmode="email" value=${email} placeholder="you@example.com"
           onInput=${(e) => setEmail(e.currentTarget.value)} />
-        ${mode ? html`<label class="cloud__label">${t('密码')}${mode === 'login' ? html`<span class="cloud__opt">${t('（没有密码可留空）')}</span>` : html`<span class="cloud__opt">${t('（可选）')}</span>`}</label>
+        ${mode ? html`<label class="cloud__label">${t('密码')}${mode === 'register' ? html`<span class="cloud__opt">${t('（可选）')}</span>` : null}</label>
         <input class="cloud__input" type="password" value=${password} maxlength=${PW_MAX}
           autocomplete=${mode === 'login' ? 'current-password' : 'new-password'}
           placeholder=${mode === 'register' ? t('至少 {n} 位', { n: PW_MIN }) : '••••••'}
@@ -537,8 +560,24 @@ export function LoginForm({ onDone, mode = '', profile = null }) {
         ${widgetFailed ? html`<p class="cloud__warn">${dev ? t('人机验证组件未加载；开发模式将跳过验证') : t('人机验证组件未加载，请检查网络')}</p>` : null}
         ${mode === 'login' ? html`<div class="cloud__row">
             <${Button} variant="primary" loading=${busy} disabled=${!email || password.length < PW_MIN} onClick=${loginWithPassword}>${t('登录')}<//>
-            <${Button} variant="ghost" loading=${busy} disabled=${!email} onClick=${send}>${t('用验证码登录')}<//>
+            <${Button} variant="ghost" loading=${busy} disabled=${!email} onClick=${sendReset}>${t('忘记密码？')}<//>
           </div>` : html`<${Button} variant="primary" loading=${busy} disabled=${!email} onClick=${send}>${t('获取验证码')}<//>`}
+      ` : step === 'reset' ? html`
+        <p class="cloud__note">${t('验证码已发往 {email}，10 分钟内有效。请设置新密码。', { email })}</p>
+        <label class="cloud__label">${t('验证码')}</label>
+        <input class="cloud__input cloud__input--code" inputmode="numeric" maxlength="6" value=${code}
+          onInput=${(e) => setCode(e.currentTarget.value.replace(/\D/g, ''))} />
+        <label class="cloud__label">${t('新密码')}</label>
+        <input class="cloud__input" type="password" value=${password} maxlength=${PW_MAX} autocomplete="new-password"
+          placeholder=${t('至少 {n} 位', { n: PW_MIN })}
+          onInput=${(e) => setPassword(e.currentTarget.value)} />
+        ${pwTooShort ? html`<p class="cloud__warn">${t('密码至少 {n} 位', { n: PW_MIN })}</p>` : null}
+        <div class="cloud__row">
+          <${Button} variant="primary" loading=${busy} disabled=${code.length !== 6 || password.length < PW_MIN} onClick=${resetPassword}>${t('重置密码')}<//>
+          <${Button} variant="ghost" disabled=${busy} onClick=${() => {
+            setStep('email'); setCode(''); setPassword(''); setNote('');
+          }}>${t('返回登录')}<//>
+        </div>
       ` : html`
         <p class="cloud__note">${t('验证码已发往 {email}，10 分钟内有效。', { email })}</p>
         <label class="cloud__label">${t('验证码')}</label>

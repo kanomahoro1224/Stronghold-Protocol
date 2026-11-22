@@ -43,14 +43,20 @@ export function createMailer(opts = {}) {
      * @param {{ to: string, code: string, minutes: number, purpose?: string }} msg
      */
     async sendCode({ to, code, minutes, purpose = 'login' }) {
-      const subject = purpose === 'register' ? N_('注册验证码 · Stronghold Protocol') : N_('登录验证码 · Stronghold Protocol');
+      const isReset = purpose === 'reset';
+      const subject = purpose === 'register' ? N_('注册验证码 · Stronghold Protocol')
+        : isReset ? N_('重置密码验证码 · Stronghold Protocol')
+          : N_('登录验证码 · Stronghold Protocol');
       const text = [
         N_('你的验证码是 {code}，{minutes} 分钟内有效。').replace('{code}', code).replace('{minutes}', minutes),
-        purpose === 'register' ? N_('用于注册 / 登录 Stronghold Protocol 账号。') : N_('用于登录 Stronghold Protocol 账号。'),
+        purpose === 'register' ? N_('用于注册 / 登录 Stronghold Protocol 账号。')
+          : isReset ? N_('用于重置 Stronghold Protocol 账号密码。')
+            : N_('用于登录 Stronghold Protocol 账号。'),
         N_('如果不是你本人操作，请忽略这封邮件。'),
         '',
         `Your verification code is ${code}. It expires in ${minutes} minutes.`,
-        'If you did not request it, ignore this message.',
+        isReset ? 'Use it to reset your Stronghold Protocol password. If you did not request it, ignore this message.'
+          : 'If you did not request it, ignore this message.',
       ].join('\n');
       if (!ready) {
         log.warn?.(`[accounts] mail not configured, code for ${to}: ${dev ? code : '(hidden)'}`);

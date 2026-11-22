@@ -1,9 +1,11 @@
-// server/accounts/auth.js — e-mail verification codes, passwordless accounts and cookie sessions.
+// server/accounts/auth.js — e-mail verification codes, password login/reset and cookie sessions.
 //
 // Flow (docs/ACCOUNTS.md):
-//   1. POST /api/auth/code  { email, turnstileToken }  — Turnstile first, then a 6-digit code is mailed.
-//   2. POST /api/auth/verify { email, code }           — consumes the newest code and issues a session.
-//   3. the session is an HttpOnly cookie `sp_sid` (SameSite=Lax); every authenticated API call re-hashes it.
+//   1. POST /api/auth/code           { email, turnstileToken, mode? } — Turnstile first, then a 6-digit code is mailed.
+//   2. POST /api/auth/verify         { email, code, password? }       — consumes a login-purpose code and issues a session (register/modal).
+//   3. POST /api/auth/password       { email, password }              — password login, no code, issues a session.
+//   4. POST /api/auth/reset-password { email, code, password }        — consumes a reset-purpose code, replaces the hash, no session.
+//   5. the session is an HttpOnly cookie `sp_sid` (SameSite=Lax); every authenticated API call re-hashes it.
 //
 // Codes are stored hashed (sha256(email|code|pepper)); the pepper comes from SP_ACCOUNTS_PEPPER or a process-local
 // random value (codes then survive a restart only within the same process — acceptable: they expire in 10 min).
@@ -100,22 +102,24 @@ export function createAuth({ db, mailer, turnstile, pepper = '', log = {} }) {
     sessionTtlMs: SESSION_TTL_MS,
 
     /**
-     * Issue a code.
-     * @param {{ email: string, turnstileToken?: string, ip?: string }} input
+     * Issue a code. `mode: 'reset'` stores a reset-purpose code and checks that the account exists; reset codes
+     * can never be spent by verify() to open a session.
+     * @param {{ email: string, turnstileToken?: string, ip?: string, mode?: 'register' | 'login' | 'reset' }} input
      */
     async requestCode({ email, turnstileToken, ip, mode } = {}) {
       const normalized = normalizeEmail(email);
       if (!isEmail(normalized)) return { ok: false, status: 400, code: 'EMAIL_INVALID' };
       const ts = await turnstile.verify({ token: turnstileToken, remoteIp: ip });
       if (!ts.ok) return { ok: false, status: 403, code: 'TURNSTILE_FAILED', detail: ts.codes || [] };
-      // 标题页右侧的「登录」「注册」两个入口（用户 2026-11-15）：注册拒绝已存在的邮箱，登录拒绝没注册过的
-      // 邮箱。不带 mode（弹窗入口、旧客户端）保持原样——验证码即注册即登录。放在人机验证之后，避免免验证枚举。
-      if (mode === 'register' || mode === 'login') {
+      // 标题页右侧的「登录」「注册」「忘记密码」三个入口（用户 2026-11-15 / 2026-11-22）：注册拒绝已存在的邮箱，
+      // 登录和重置都拒绝没注册过的邮箱。不带 mode（弹窗入口、旧客户端）保持原样——验证码即注册即登录。
+      // 放在人机验证之后，避免免验证枚举。
+      if (mode === 'register' || mode === 'login' || mode === 'reset') {
         const exists = await settle(() => db.query('SELECT 1 FROM accounts WHERE email = $1 LIMIT 1', [normalized]));
         if (!exists.ok) return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
         const found = !!exists.value.rows[0];
         if (mode === 'register' && found) return { ok: false, status: 409, code: 'ACCOUNT_EXISTS' };
-        if (mode === 'login' && !found) return { ok: false, status: 404, code: 'ACCOUNT_NOT_FOUND' };
+        if ((mode === 'login' || mode === 'reset') && !found) return { ok: false, status: 404, code: 'ACCOUNT_NOT_FOUND' };
       }
       if (rateLimited(`e:${normalized}`, RATE.emailGapMs, RATE.emailHourMax)
         || (ip && rateLimited(`i:${ip}`, 0, RATE.ipHourMax))) {
@@ -123,14 +127,18 @@ export function createAuth({ db, mailer, turnstile, pepper = '', log = {} }) {
       }
       const code = String(Math.floor(100000 + Math.random() * 900000));
       const expiresAt = new Date(Date.now() + CODE_TTL_MIN_MS);
+      // 注册沿用 login purpose（verify 仍用它完成注册 / 弹窗登录）；只有忘记密码写 reset。
+      const purpose = mode === 'reset' ? 'reset' : 'login';
       const res = await settle(() => db.query(
-        `INSERT INTO email_codes (email, code_hash, purpose, expires_at) VALUES ($1, $2, 'login', $3) RETURNING id`,
-        [normalized, codeHash(normalized, code), expiresAt]));
+        `INSERT INTO email_codes (email, code_hash, purpose, expires_at) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [normalized, codeHash(normalized, code), purpose, expiresAt]));
       if (!res.ok) {
         log.warn?.('[accounts] code insert failed', res.error?.message || res.error);
         return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
       }
-      const sent = await mailer.sendCode({ to: normalized, code, minutes: Math.round(CODE_TTL_MIN_MS / 60_000) });
+      const sent = await mailer.sendCode({
+        to: normalized, code, minutes: Math.round(CODE_TTL_MIN_MS / 60_000), purpose,
+      });
       return {
         ok: true, email: normalized, expiresInMs: CODE_TTL_MIN_MS,
         sent: sent.sent,
@@ -153,7 +161,7 @@ export function createAuth({ db, mailer, turnstile, pepper = '', log = {} }) {
       if (tag != null && tag !== '' && !isTag(tag)) return { ok: false, status: 400, code: 'TAG_INVALID' };
       const res = await settle(() => db.query(
         `SELECT id, code_hash, attempts, consumed_at FROM email_codes
-          WHERE email = $1 AND expires_at > now()
+          WHERE email = $1 AND purpose = 'login' AND expires_at > now()
           ORDER BY created_at DESC LIMIT 1`, [normalized]));
       if (!res.ok) return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
       const row = res.value.rows[0];
@@ -200,6 +208,55 @@ export function createAuth({ db, mailer, turnstile, pepper = '', log = {} }) {
           String(ua || '').slice(0, 200)]));
       if (!inserted.ok) return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
       return { ok: true, token, account: publicAccount(account.value.rows[0]) };
+    },
+
+    /**
+     * 忘记密码（2026-11-22 用户要求）：只消费 purpose=reset 的验证码，覆盖 password_hash，但绝不建会话。
+     * 账号不存在时在验证码哈希通过后才回 CODE_WRONG（与验证码错误同一个对外表现），且不消费验证码，
+     * 不给未登录调用方一个提前枚举邮箱的接口。
+     * @param {{ email: string, code: string, password: string }} input
+     */
+    async resetPassword({ email, code, password } = {}) {
+      const normalized = normalizeEmail(email);
+      const value = String(code || '').trim();
+      if (!isEmail(normalized) || !/^\d{6}$/.test(value)) return { ok: false, status: 400, code: 'CODE_INVALID' };
+      if (!isPassword(password)) return { ok: false, status: 400, code: 'PASSWORD_WEAK' };
+      const res = await settle(() => db.query(
+        `SELECT id, code_hash, attempts, consumed_at FROM email_codes
+          WHERE email = $1 AND purpose = 'reset' AND expires_at > now()
+          ORDER BY created_at DESC LIMIT 1`, [normalized]));
+      if (!res.ok) return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
+      const row = res.value.rows[0];
+      if (!row) return { ok: false, status: 400, code: 'CODE_EXPIRED' };
+      if (row.consumed_at) return { ok: false, status: 409, code: 'CODE_USED' };
+      if (Number(row.attempts) >= MAX_ATTEMPTS) return { ok: false, status: 429, code: 'CODE_LOCKED' };
+      const expected = Buffer.from(row.code_hash, 'hex');
+      const actual = Buffer.from(codeHash(normalized, value), 'hex');
+      const same = expected.length === actual.length && timingSafeEqual(expected, actual);
+      if (!same) {
+        await db.query(`UPDATE email_codes SET attempts = attempts + 1 WHERE id = $1`, [row.id]).catch(() => {});
+        return { ok: false, status: 400, code: 'CODE_WRONG' };
+      }
+      // 验证码对了也先确认账号存在：不存在就按「验证码不对」返回，不透露邮箱是否注册，也不消费验证码。
+      const found = await settle(() => db.query('SELECT id FROM accounts WHERE email = $1 LIMIT 1', [normalized]));
+      if (!found.ok) return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
+      const account = found.value.rows[0];
+      if (!account) return { ok: false, status: 400, code: 'CODE_WRONG' };
+      const passHash = await hashPassword(password);
+      // 消费验证码与覆盖密码放在同一条语句：并发点击只有一个请求能成功，另一个回 CODE_USED。
+      const saved = await settle(() => db.query(
+        `WITH consumed AS (
+           UPDATE email_codes SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL RETURNING id
+         )
+         UPDATE accounts SET password_hash = $2
+          WHERE id = $3 AND EXISTS (SELECT 1 FROM consumed)
+          RETURNING id`, [row.id, passHash, account.id]));
+      if (!saved.ok) {
+        log.warn?.('[accounts] password reset failed', saved.error?.message || saved.error);
+        return { ok: false, status: 503, code: 'DB_UNAVAILABLE' };
+      }
+      if (!saved.value.rowCount) return { ok: false, status: 409, code: 'CODE_USED' };
+      return { ok: true };
     },
 
     /**

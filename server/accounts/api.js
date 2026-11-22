@@ -5,6 +5,7 @@
 //   POST /api/auth/code              { email, turnstileToken, mode? } → { ok, email, expiresInMs, sent, devCode? }
 //   POST /api/auth/verify            { email, code, password?, name?, tag? } → { ok, account } + Set-Cookie
 //   POST /api/auth/password          { email, password } → { ok, account } + Set-Cookie
+//   POST /api/auth/reset-password    { email, code, password } → { ok } — reset code only, no cookie/session
 //   POST /api/auth/logout            → { ok }
 //   GET  /api/auth/me                → { ok, account } | 401
 //   PUT  /api/profile                { name?, tag? } → { ok, account } — 只补空位
@@ -147,6 +148,15 @@ export function createAccountApi({ db, auth, turnstile, mailer, registry, log = 
         const secure = String(req.headers?.['x-forwarded-proto'] || '') === 'https';
         json(res, 200, { ok: true, account: r.account },
           { 'Set-Cookie': sessionCookie(r.token, { secure }) });
+        return true;
+      }
+
+      // 忘记密码：只认 purpose=reset 的验证码；覆盖密码，但不建会话、不下发 cookie。
+      if (path === '/api/auth/reset-password' && method === 'POST') {
+        const body = await readJson(req);
+        if (!body) { json(res, 400, { ok: false, error: 'BAD_BODY' }); return true; }
+        const r = await auth.resetPassword({ email: body.email, code: body.code, password: body.password });
+        json(res, r.ok ? 200 : r.status || 400, r);
         return true;
       }
 
