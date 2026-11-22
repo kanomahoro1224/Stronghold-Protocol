@@ -42,17 +42,25 @@ function contentSets(lobby) {
   try { return Number(lobby?.plugins?.contentInUse?.()) || 0; } catch { return 0; }
 }
 
+/** The asset index's state for `?traffic=1` (upstream healthReport semantics): null when the server has no index. */
+function assetHashesOf(health) {
+  return health.assetIndex ? { ...health.assetIndex.stats(), views: health.views ? health.views.stats() : null } : null;
+}
+
 /**
- * The ordinary GET /healthz body. Local ?traffic=1 adds a fresh traffic snapshot separately.
+ * The ordinary GET /healthz body. Local ?traffic=1 adds a fresh traffic snapshot and the asset index state separately.
  * @param {{ startedAt: number, network: import('../net.js').Network, registry: import('../net.js').SessionRegistry,
  *           lobby: import('../lobby.js').Lobby, content?: { cs: string } | null,
- *           traffic?: ReturnType<typeof import('./traffic.js').createTrafficCounter>, trusted?: any,
+ *           traffic?: ReturnType<typeof import('./traffic.js').createTrafficCounter>,
+ *           assetIndex?: ReturnType<typeof import('./assetIndex.js').createAssetIndex> | null,
+ *           views?: ReturnType<typeof import('./assetViews.js').createManifestViews> | null, trusted?: any,
  *           versions?: ReturnType<typeof import('../versions.js').createVersionSets> | null,
  *           versionHosts?: { stats: () => object } | null }} health
  *   content: the server's vanilla content (server/plugins/identity.js); versions / versionHosts: the official versions
  *   and their match hosts (DESIGN §35.23)
+ * @param {boolean} [withTraffic]
  */
-export function healthReport({ startedAt, network, registry, lobby, content = null, trusted = null, versions = null, versionHosts = null }, counters = lobby.stats(), build = buildTag()) {
+export function healthReport({ startedAt, network, registry, lobby, content = null, traffic = null, assetIndex = null, views = null, trusted = null, versions = null, versionHosts = null }, counters = lobby.stats(), build = buildTag(), withTraffic = false) {
   return {
     ok: true, version: PROTOCOL_VERSION, app: APP_VERSION, uptimeSec: Math.round((Date.now() - startedAt) / 1000),
     // the runtime the server is serving right now (public/js/ui/buildGuard.js): a page whose own build is
@@ -61,11 +69,15 @@ export function healthReport({ startedAt, network, registry, lobby, content = nu
     ...(content ? { content: { vanilla: content.cs, sets: contentSets(lobby), ...pluginCount(lobby) } } : {}),
     ...(trusted && Object.keys(trusted).length ? { plugins: trusted } : {}),
     sockets: network.connectionCount, sessions: registry.size, ...counters,
-    // the official versions (DESIGN §35.23): only when another one than 第二期下半 is enabled
+    // the official versions (DESIGN §35.23): only when another one than 第二期下半 is enabled — `loaded`: how many of the
+    // others have their data in memory now (loaded on first use, server/versions.js; DESIGN §37.325)
     ...(versions && versions.nonDefault.length
-      ? { versions: { enabled: [...versions.ids], default: versions.defaultId,
+      ? { versions: { enabled: [...versions.ids], default: versions.defaultId, loaded: versions.stats().loaded,
         hosts: versionHosts ? versionHosts.stats() : { workers: 0, matches: 0, transport: 'process' } } }
       : {}),
+    ...(withTraffic && traffic ? { traffic: traffic.snapshot() } : {}),
+    // content-hashed asset URLs (assetIndex.js / assetViews.js): off, building, or ready with how many files and URLs
+    ...(withTraffic ? { assetHashes: assetHashesOf({ assetIndex, views }) } : {}),
   };
 }
 
@@ -132,7 +144,10 @@ export function createRequestHandler({ serveStatic, health, serveApi = null, dia
     }
     const query = splitUrl(req.url || '/')?.query || '';
     if (health.traffic && wantsTraffic(query) && isLocalIp(clientAddress(req, trustProxy).ip)) {
-      sendJson(req, res, 200, { ...JSON.parse(healthBody().toString()), traffic: health.traffic.snapshot() });
+      const report = JSON.parse(healthBody().toString());
+      report.traffic = health.traffic.snapshot();
+      report.assetHashes = assetHashesOf(health);
+      sendJson(req, res, 200, report);
     } else sendJsonBody(req, res, 200, healthBody());
   }
   function failed(req, res, e) {

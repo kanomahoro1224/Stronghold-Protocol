@@ -100,7 +100,7 @@ export default {
   engine modules by relative path (`../../../constants.js`, `targeting.js`, `body.js` for huge enemies, `dir.js` for
   facing, `attack.js` `hasHp` / `isHpLoss` / `mitigate`, `buffs.js`, `simdata.js` `normalizeChess`); content modules
   (`../../tokens.js` summons, `../../items/battle.js`).
-- **Never**: Node-only modules (`node:*`, `server/sim/nodeData.js`) or anything of `server/match`, `server/net`,
+- **Never**: Node-only modules (`node:*`, `server/nodeData.js`) or anything of `server/match`, `server/net`,
   `public/` — the sim is served to browsers as-is (`/sim/`, no bundler); `Math.random`, `Date.now`, timers — use
   `battle.rng()` (`rng.int / range / chance / pick / shuffle / weighted`), `battle.after` / `battle.every`; state kept
   across battles in module variables — key it by battle (`WeakMap`) or keep it in `unit.mem`; mutating `bb`, `def`,

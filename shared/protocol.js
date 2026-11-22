@@ -584,8 +584,9 @@ export const C2S = {
   // any room phase (the loadout locks at INFO_CHECK because it changes what a unit does; a skin changes only the model)
   'room.skins': { skins: isSkinSelection },
   // 名片干员 (PR #643 split 6): the operator whose portrait fills the player's seat card in the waiting room — an
-  // operator charId ('' for none; the server keeps only a visible charId of the room's chess.json); cosmetic, any room
-  // phase. `avatar` is this branch's seat-card portrait (shared/playerCard.js).
+  // operator charId ('' for none; the server keeps only one server/lobby.js cardAllowed takes: the cross-period roster,
+  // DESIGN §37.325, or a card candidate of the room's content); cosmetic, any room phase. `avatar` is this branch's
+  // seat-card portrait (shared/playerCard.js).
   'room.card': { charId: (v) => v === '' || isCardPortraitId(v), avatar: (v) => v == null || isCardAvatarId(v), $optional: ['avatar'] },
   // 头像 P2P (WebRTC): one leg of the same room's avatar mesh. `to` is the target seat's playerId, `kind` the
   // negotiation step and `data` an opaque JSON string (SDP or one ICE candidate) that the server only forwards to that

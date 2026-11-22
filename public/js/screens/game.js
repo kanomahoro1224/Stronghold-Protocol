@@ -122,10 +122,10 @@ import { RegRoundResult, RegHelpBattle, RegYourTurn, packBanners } from '../ui/p
 import { openGuide } from '../ui/guide.js';
 import { actions, onRefreshBusy } from '../ui/gameActions.js';
 import { isHealingRange, rangeStyle } from '../ui/rangeStyle.js';
-import { FacingWheel, holdPiece, setPieceDir, syncPieceDirs, showRange, useTileScreen } from '../ui/facingWheel.js';
+import { FacingWheel, RangeStripes, holdPiece, setPieceDir, syncPieceDirs, showRange, useTileScreen } from '../ui/facingWheel.js';
 import { Underframe, underframeRect, TempRowNotice } from '../ui/underframe.js';
 import { StandInTags } from './game/standInTags.js';
-import { needsFacing, facingIntent, previewGrid, previewRecord, pieceDir, underframeActions, retreatSlot, itemDestroyable } from '../ui/facing.js';
+import { needsFacing, facingIntent, previewGrid, previewRecord, pieceDir, underframeActions, retreatSlot, itemDestroyable, rangeTiles } from '../ui/facing.js';
 import { EquipReplaceDialog, replaceRequest, replaceIntent } from '../ui/equipReplace.js';
 import { pauseAvailable, isPaused, frozenNow } from '../ui/matchStatus.js';
 import { pieceTile } from '../render/drag.js';
@@ -153,7 +153,8 @@ import '../ui/pluginFrame.js';
 import { isClientCombat, observeTarget, teammateProgress, cameraLayers, layerCamera, loneHalf, sidesOf, resumedWatch, followedScout } from '../battle/observe.js';
 import { screenStrip, playerBonds, playerLayer, detailBondOwner, toggleBond, popupView } from '../ui/watchBonds.js';
 import { data, getMode } from '../data.js';
-import { audio, resultSpeaker, resultVoiceSlot } from '../audio.js';
+import { audio, resultSpeakerOf, resultVoiceSlot } from '../audio.js';
+import { ownerSkin } from '../ui/skins.js';
 import { useDocClass, FullscreenButton, reducedMotion } from '../ui/device.js';
 import { TurnPopup, preloadTurnPopupArt, turnPopupArtReady, TURN_CUE_WAIT_MS, TURN_CUE_PLATE_WAIT_MS } from '../ui/turnPopup.js';
 import { spTurnCueKey } from '../ui/gameLogic/phases.js';
@@ -832,15 +833,19 @@ function MatchScreen() {
         // teammate used to make THEIR operator say the viewer's line (review on #73). unitsEnd names chess ids: the
         // record the own piece shows gives the operator whose voice bank speaks — a 补位 piece's stand-in (its own
         // voice, like its 选中 line) and a filled 自选 slot's operator (ownShown), else the chess record's charId
-        const charId = resultSpeaker(mine, Math.random, (id) => ownShown(id)?.assets?.voice ?? ownShown(id)?.charId ?? null);
-        if (!charId) return;
+        const who = resultSpeakerOf(mine, Math.random, (id) => ownShown(id)?.assets?.voice ?? ownShown(id)?.charId ?? null);
+        if (!who) return;
+        const charId = who.charId;
+        // …in the outfit this seat's piece wears (#733): this seat's public choice for the operator that record shows
+        const body = ownShown(who.defId)?.charId || charId;
+        const skinKey = ownerSkin(body, { ownerId: pid, myId: pid, players: st.match?.public?.players || [] });
         audio.voice(charId, resultVoiceSlot({
           perfect: !!(mine?.perfect),
           leaked: Array.isArray(mine?.leaked) ? mine.leaked.length : 0,
           killed: mine?.killed ?? msg.result.killed,
           total: mine?.total ?? msg.result.total,
           hard: diff === 'HARD' || diff === 'ABYSS',
-        }));
+        }), skinKey ? { skinKey, skinCharId: body } : {});
       } catch { /* ignore */ }
     };
     const offs = [net.on('m.field', onFieldMeta), net.on('b.snap', onSnap), net.on('b.ev', onEv)];
@@ -2013,6 +2018,9 @@ function MatchScreen() {
     loadout: detailLoadout, getChess: gd.chess, backups: gd.backups,
   }) : null;
   const cardRangeKey = cardRange ? JSON.stringify(cardRange) : '';
+  // Match the renderer's range clipping; the SVG uses the same BOARD-space tileScreen projection as deployment.
+  const cardRangeTiles = cardRange ? rangeTiles(cardRange.grid, cardRange.row, cardRange.col, cardRange.dir)
+    .filter(([row]) => row !== GEO.HAND_ROW && row !== GEO.TEMP_ROW) : [];
   useEffect(() => {
     if (!view) return undefined;
     showRange(view, cardRange?.grid, cardRange?.row, cardRange?.col, cardRange?.dir, rangeStyle(SEL_RANGE, cardRange?.healing));
@@ -2196,6 +2204,7 @@ function MatchScreen() {
       : bossPlate?.kind === 'end' ? html`<${EndPlate} key=${bossPlate.key} kind=${bossPlate.end} bossId=${pub?.bossId} hiddenBossId=${pub?.hiddenBossId}
         onDone=${() => setBossPlate(null)} />` : null}
 
+    ${cardRange && view ? html`<${RangeStripes} tiles=${cardRangeTiles} view=${view} healing=${cardRange.healing} underOnly=${true} />` : null}
     ${facing && view ? html`<${FacingWheel} key=${`${facing.uid}:${facing.row},${facing.col}`} view=${view} row=${facing.row} col=${facing.col}
       grid=${facing.grid} healing=${facing.healing} name=${facing.name} onPreview=${previewFacing} onCommit=${commitFacing} onCancel=${cancelFacing} />` : null}
 

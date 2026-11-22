@@ -8,6 +8,8 @@ with `docs/research/*.json`. Do not edit them by hand — change the build scrip
 fails while it is stale).
 `data/assets.json` is written by `tools/fetch-assets.mjs`, which keeps the current file rather than drop entries whose
 downloads failed on this machine unless `--allow-shrink` (or `--prune`) is passed (docs/ASSETS.md, DESIGN §21.25).
+`data/card-roster.json` (the 名片干员 roster of every official period) is written by `node tools/build-card-roster.mjs`,
+which `tools/build-data.mjs` runs after writing a version's default output directory ("Cross-period 名片干员 roster" below).
 
 ```
 node tools/build-data.mjs              # build (downloads missing official files into .cache/gamedata@<commit>/, the profile's pins)
@@ -17,18 +19,45 @@ node tools/build-data.mjs --no-research --out /tmp/x   # research-free build (fa
 node tools/build-data.mjs --cache <dir> --report <file> # other cache dir / report file (tests, CI)
 node tools/build-data.mjs --force      # write data/ even when integrity checks fail (debugging only)
 node tools/build-data.mjs --version act1autochess   # another official version → data/versions/<slug>/ (see "Official versions (M0)")
+node tools/build-data.mjs --gamedata-commit <sha> --out /tmp/x   # every official file from one full upstream commit (#567)
 node --test test/data.test.js          # integrity tests (+ raw-data cross-check and rebuild check when the pinned official files are cached)
 ```
 Unknown options or a missing option value are errors (exit code 2); `--refresh` and `--offline` are exclusive.
 
 - **Cache.** Official files live under `.cache/gamedata/<repo path>` (`excel/activity_table.json`,
   `levels/enemydata/enemy_database.json`, `levels/activities/act1autochess/level_*.json`, …) and are fetched from
-  `https://raw.githubusercontent.com/Kengxxiao/ArknightsGameData/master/zh_CN/gamedata/<path>` when missing.
+  `https://raw.githubusercontent.com/Kengxxiao/ArknightsGameData/master/zh_CN/gamedata/<path>` when missing; a file a
+  version profile pins to a commit (every profile pins all of its files today) lives under `.cache/gamedata@<sha>/` and
+  comes from that commit ("Official versions (M0)").
   Downloads are validated (must parse as JSON) and written atomically. With `--refresh`, a download that still fails
   after four attempts aborts the build (exit code 1), even if an older cached file exists. Generated files and the
   previous report remain untouched, including with `--force`; successfully downloaded cache entries are not rolled
   back. Retry `--refresh` to complete the refresh; cached files are not verified to share an upstream revision.
-- **Report.** A run that reaches integrity validation writes `.cache/build-data-report.json` (counts, byte sizes, warnings (each once), errors, `written`).
+- **Upstream commit (`--gamedata-commit <sha>`, GitHub #567, DESIGN §37.323).** Reads every official file of the run at
+  one full commit of Kengxxiao/ArknightsGameData: 40 hex digits (any case, kept in lower case). A branch, a tag or a short
+  SHA exits 2 with the reason, because the cache is keyed by the commit. The files are cached in `<cache>@<sha>/`
+  (`.cache/gamedata@<sha>/` by default: the directory a profile pin at the same commit uses, since the files are the same)
+  and downloaded from `https://raw.githubusercontent.com/Kengxxiao/ArknightsGameData/<sha>/zh_CN/gamedata/<path>`. It
+  replaces the version profile's `pins` (and a mirror `source`) for every file and prints a note saying so (`--quiet`
+  hides it like the counts and the warnings; the report's `replacedPins` / `replacedSource` keep it) [ASSUMED: #567
+  settles the option, not how it meets a pinned profile]; `--version` still picks the profile's adapters, tables,
+  research, expected counts and output directory (`--out` keeps `data/` untouched). `--refresh` downloads every file of
+  the commit again; `--offline` downloads nothing and, when files are missing from `<cache>@<sha>/`, fails (exit code 1)
+  naming all of them at once (while `excel/activity_table.json` is missing, the level files it names cannot be listed,
+  and the message says so). Without the option nothing changes: the profile's pins, or master for a profile without
+  pins (`test/build-data-commit.test.js` rebuilds `data/*.json` without it, and `data/versions/act3autochess-v3_1/`
+  with it set to that profile's own pin, byte for byte). Asset downloads (`tools/fetch-assets.mjs`,
+  `tools/fetch-stats-assets.mjs`, `tools/local-extract/`) never read it, and the switch between the official versions
+  does not stand in for it (the maintainer on #567).
+- **Report.** A run that reaches integrity validation writes `.cache/build-data-report.json` (counts, byte sizes, warnings (each once), errors, `written`,
+  and `gamedata`: `files[<path>]` = `{ commit, from, pin, source }` for every official file read, `from` being `option`
+  (`--gamedata-commit`), `pin` (`pin` = the profile's pins key, `default` / `character` …) or `master` (`commit` null: the
+  branch head at download time); `groups`, the same files counted per commit and origin, which the run also prints after
+  the counts as `official data: <sha> (pin default): <n> file(s); …`; `commit`, the `--gamedata-commit` value or null;
+  `replacedPins` and `replacedSource`, the profile pins and the mirror `source` the option replaced, or null; and, for a
+  profile that reads a mirror only, `references`, the Kengxxiao files at the default version's pins that the mirror's
+  empty `{}` were checked against, in the same `{ commit, from, pin, source }` form; `tools/versions/profiles.mjs`
+  `gamedataReport` / `gamedataSummary`).
   Integrity errors (see §17) make the exit code 1 **and leave the previous output untouched** (unless `--force`);
   warnings never do. Each output file is written atomically (temp file + rename).
 - **Determinism.** Same inputs ⇒ byte-identical outputs (stable key order, no timestamps, no randomness).
@@ -883,7 +912,8 @@ every file system and URL).
   group), V1_2 over two, `21b1f240` 48 MB with 6 tables and the levels plus
   `ee2cabff` 13 MB with the 2 enemy tables, V2_1 in one, `1457587e` 65 MB with the 8 tables and the 50 level files of
   both seasons). `--offline` / `--refresh` keep their per-file meaning; `--cache
-  <dir>` moves every cache (`<dir>` and `<dir>@<sha>`).
+  <dir>` moves every cache (`<dir>` and `<dir>@<sha>`). `--gamedata-commit <sha>` reads every file at one commit instead
+  of the pins (the "Upstream commit" note at the top of this file).
 - **`adapters`** (`tools/versions/adapters.mjs`, applied to the season section right after it is loaded, never for the
   default; each throws on a shape it does not know):
   - `bondActiveType` — 上半's `bondInfoDict` activates by `activeType` + `isActiveInDeck`; 下半 by `activeCondition` +
@@ -1103,8 +1133,9 @@ it under `enabled` and keeps the configured `default`. The default version is th
 
 The vanilla `/cs/<cs16>/index.json` is byte-identical (no `version`, no `bounds`, URLs under `/data/`). The build tag
 (`server/http/buildTag.js`) counts the served version directories only, so rebuilding a version the server does not offer
-is no new build. `/healthz` adds `versions: { enabled, default, hosts: { workers, matches, transport } }` only when a
-non-default version is enabled.
+is no new build. `/healthz` adds `versions: { enabled, default, loaded, hosts: { workers, matches, transport } }` only when
+a non-default version is enabled (`loaded`: how many versions other than 第二期下半 have their data in memory now, the lobby's default 规程 included — they load on
+first use; a 名片干员 of another period loads none, DESIGN §37.325).
 
 **Match hosts**: unmodded rooms of a non-default version start their matches in `server/match/host/` with `kind: 'version'` —
 one child process per version `cs`, at most `maxHosts`, counted apart from the plugin hosts (docs/design/match.md). The
@@ -1117,6 +1148,37 @@ Gameplay plugins that explicitly list a room's official version in `versions` co
 manifest and changed files, and run in the plugin pool under its existing composition/host limits. Missing `versions`
 means act2autochess only, independently of the lobby default. Official generated data and unmodded version identities
 keep their existing format.
+
+### Cross-period 名片干员 roster (`card-roster.json`, #877)
+
+DESIGN §37.325. The waiting room's seat card may show any official period's card candidate, so one file lists them all:
+`data/card-roster.json` — `{ format: 1, periods, operators }`, one operator per line (sorted by charId, a newline at
+the end: a readable diff), each `{ charId, name, appellation, rarity, golden, periods }`. `periods` are the official
+periods (registry ids, oldest first: `act1autochess@V1_1`, `act1autochess`, `act2autochess@V2_1`, `act2autochess`,
+`act3autochess@V3_1` — `shared/cardRoster.js CARD_PERIOD_ORDER`) whose data lists it; `golden` is true when any of them
+has a visible elite chess record (its E2 art), false for an operator only a 自选编队 pool lists (its E1 art, as in its
+own period's rooms).
+
+- **Source**: per period, `cardEntries(chess, backups)` (`shared/cardRoster.js`) — the visible, non-自选 chess records
+  (an elite record preferred) and `backups.diy.ownedPool` (name and rarity from `backups.diy.operators`, else
+  `backups.units`; appellation from `backups.units`) — the same candidates the room's picker lists and `room.card` accepts
+  for a room's own content. Merged by charId; a name, rarity or appellation that differs between periods, an unknown or
+  repeated period id, a missing name or a rarity outside 1–6 is an error.
+- **Build**: `node tools/build-card-roster.mjs [--check] [--data <dir>]` (`npm run build:roster`) reads `chess.json` and
+  `backups.json` of the default data and of every version's directory (`server/data.js versionDataDir`), writes atomically
+  (temp file + rename); `--check` compares only and exits 1 with "run npm run build:roster" when the file is stale.
+  `tools/build-data.mjs` calls it after writing a version's default output directory (`data/`, or `data/versions/<slug>/`
+  with `--version`; an `--out` elsewhere leaves it alone), a failure counting as an error (exit 1), so every data rebuild
+  keeps it current. `test/card-roster.test.js` regenerates it and compares byte for byte.
+- **Served and read**: a top-level data file, so `/data/card-roster.json` serves it (no route of its own) and
+  `server/data.js loadData` reads it into `getData()` with the others; `server/lobby.js` parses it once per data object
+  (`parseCardRoster`, which drops a malformed row and answers null for another format). It is presentation data
+  (`server/plugins/identity.js PRESENTATION_DATA`, like `assets.json`): outside the content hash, `/cs/` manifests,
+  plugin content sets and the version directories (not in `DATA_FILES`). A data directory without it (a test fixture)
+  falls back to each room's own candidates.
+- **Counts** (current data): 250 operators — 第二期下半 187, 第二期上半 182, 第一期下半 167, 第一期上半 166, 规程 200; 217
+  golden, 33 only in a 自选 pool; 45 059 bytes, 6 477 gzipped. Every row has its avatar and portrait in `data/assets.json`
+  (a golden row also `avatarE2` / `portraitE2`).
 
 ### Per-form equipment capacity and special recruitment
 
@@ -1152,3 +1214,11 @@ The generator keeps MAP09's official `w` cells and emits `special.duelGrass` wit
 terrain stealth buff; the official 0 restores concealment as soon as the block ends. Missing blackboard values do not imply plain ground: these
 rules come from the official tile and buff templates, recorded in
 [the field receipt](research/regulation-map09-20261112.json). No other map record changes.
+
+### Salt cannon landing data
+
+A regulation `role:cannon` device stores `level`, `distance`, `initSp`, `spCost`, `spRecovery`, `branchId` and
+its resolved landing `route`. Both layout composition and device generation read the distance from the unlocked
+EnemyCannon00 talent's `rangeId` and `range_table`. Routes come from the owning sub-scene's `extraRoutes` and
+move with the battle coordinates. [ASSUMED] Bare prefab-key runes apply once; parallel alias selectors are
+considered duplicates. Missing base stats remain null when processing attribute runes.

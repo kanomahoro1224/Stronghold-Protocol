@@ -11,7 +11,7 @@
       "@YuriRestia (GitHub PR #70, the seed of these strings)",
       "the Stronghold Protocol contributors"
     ],
-    "credits": "Game texts (data/i18n/en.json): the official EN client data (© Hypergryph / Yostar) via ArknightsAssets/ArknightsGamedata.",
+    "credits": "Game texts (data/i18n/en.json): the official EN client data (© Hypergryph / Yostar) via ArknightsAssets/ArknightsGamedata. Act3 / 规程 version English: Terra Archive (terra-archive.net), unofficial translation.",
     "complete": true
   },
   "_about": "English UI strings: Chinese msgid → English (shared/i18n.js t(); docs/I18N.md). Placeholders {name} and {n|one|other} as in the msgid; a 'context::msgid' key is a tc() variant. Seeded from GitHub PR #70 (branch en-translation) by @YuriRestia, reused with credit (NOTICE.md). Game texts are not here: data/i18n/en.json (tools/build-i18n.mjs).",
@@ -899,6 +899,12 @@
   "搜索干员": "Search Operators",
   "按博士编号自动分配": "Picked from your Doctor number",
   "选择后，同盟里的博士都会看到这张立绘": "Once chosen, every Doctor in the room sees this portrait",
+  "本房间版本 · {version}": "This room's version · {version}",
+  "其他时期 · {version}": "Other period · {version}",
+  "其他时期的干员只作名片展示，不影响本局卡池": "Operators from other periods only show on the card; the room's pool does not change",
+  "其他时期载入中…": "Loading other periods…",
+  "其他时期的干员暂时无法载入": "Operators from other periods could not be loaded",
+  "之前选的名片干员在这里不可用，名片暂时显示默认干员": "Your card operator is not available here; the card shows the default for now",
   "更换立绘": "Change Portrait",
   "更换名片干员": "Change the card operator",
   "观战席": "Spectators",
@@ -922,6 +928,7 @@
   "语言": "Language",
   "声音": "Sound",
   "当前语言的界面文字为机器翻译，可能不够准确，欢迎在 GitHub 上指正。": "The interface text in this language is machine-translated and may be inaccurate. Corrections are welcome on GitHub.",
+  "当前版本的游戏文本含非官方翻译（部分为机翻，Terra Archive），可能与正式英文有出入。": "Some game texts for this version are unofficial translations (partly machine-translated, Terra Archive) and may differ from Global.",
   "右键查看详情": "Right-click for details",
   "刷新商店": "Refresh Shop",
   "冻结 / 解冻商店": "Freeze / Unfreeze Shop",
@@ -3182,5 +3189,7 @@
   "已从云端恢复：{parts}；刷新页面后生效": "Restored from cloud: {parts}; refresh to apply",
   "云端还没有可恢复的数据；本机存档保持不变": "Nothing to restore in the cloud; local save unchanged",
   "同步失败：云端未接受合并后的存档": "Sync failed: the cloud rejected the merged save",
-  "战绩未合并：云端数据来自更新版本的客户端": "Match records not merged: the cloud data comes from a newer client"
+  "战绩未合并：云端数据来自更新版本的客户端": "Match records not merged: the cloud data comes from a newer client",
+  "操作": "Controls",
+  "向前方发射炮弹造成物理溅射伤害，可以将周围1名重量小于等于{weight}的地面敌人传送至爆炸中心": "Fires a shell forward, dealing Physical splash damage and transporting one nearby ground enemy with Weight at most {weight} to the center of the explosion"
 }
