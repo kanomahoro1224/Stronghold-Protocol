@@ -77,7 +77,7 @@ export function healthReport({ startedAt, network, registry, lobby, content = nu
       : {}),
     ...(withTraffic && traffic ? { traffic: traffic.snapshot() } : {}),
     // content-hashed asset URLs (assetIndex.js / assetViews.js): off, building, or ready with how many files and URLs
-    ...(withTraffic ? { assetHashes: assetHashesOf({ assetIndex, views }) } : {}),
+    ...(withTraffic && assetIndex ? { assetHashes: assetHashesOf({ assetIndex, views }) } : {}),
   };
 }
 
@@ -146,7 +146,8 @@ export function createRequestHandler({ serveStatic, health, serveApi = null, dia
     if (health.traffic && wantsTraffic(query) && isLocalIp(clientAddress(req, trustProxy).ip)) {
       const report = JSON.parse(healthBody().toString());
       report.traffic = health.traffic.snapshot();
-      report.assetHashes = assetHashesOf(health);
+      const assetHashes = assetHashesOf(health);
+      if (assetHashes) report.assetHashes = assetHashes;
       sendJson(req, res, 200, report);
     } else sendJsonBody(req, res, 200, healthBody());
   }

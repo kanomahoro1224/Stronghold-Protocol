@@ -86,7 +86,7 @@ COPY CHANGELOG.md LICENSE NOTICE.md THIRD-PARTY-NOTICES.md ./
 # Root-owned templates and author guides remain visible when /app/plugins is a bind mount or named volume.
 COPY --from=build /app/plugin-resources ./plugin-resources
 RUN mkdir -p /app/plugins && chown node:node /app/plugins
-# research tables: read by server/sim/nodeData.js as a fallback
+# research tables: read by server/nodeData.js as a fallback
 COPY --from=build /app/docs/research ./docs/research
 
 USER node

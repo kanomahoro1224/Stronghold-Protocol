@@ -62,7 +62,7 @@
 并保留既有 17 个代表性技能 / 盟约 / 自选比对场景。
 
 `npm run check:imports` 非严格命令返回 0，但仍报告三个原有
-`server/sim/nodeData.js` Node 内置导入边界项和三个 allowed notes，不能称严格零违规。
+`server/nodeData.js` Node 内置导入边界项和三个 allowed notes，不能称严格零违规。
 这些 Node-only 模块未进入浏览器构建。
 
 浏览器自动化、真实手机、线上 HTTPS / CDN 和 Docker 部署未实测；

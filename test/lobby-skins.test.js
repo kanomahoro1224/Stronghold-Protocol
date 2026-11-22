@@ -191,7 +191,7 @@ describe('room.skins (lobby, stub match)', () => {
     await ok(guest, { t: 'room.skins', skins: { [OTHER_PERIOD]: SKIN_OTHER_PERIOD, [OPERATOR]: SKIN, char_999_nope: SKIN } });
     const seen = await host.waitFor('room.state', (s) => seatOf(s, guest.id)?.skins?.[OTHER_PERIOD] === SKIN_OTHER_PERIOD);
     assert.deepEqual(seatOf(seen, guest.id).skins, { [OTHER_PERIOD]: SKIN_OTHER_PERIOD, [OPERATOR]: SKIN }, 'the unknown operator is still dropped');
-    assert.equal(seatOf(seen, guest.id).card, OTHER_PERIOD);
+    assert.deepEqual(seatOf(seen, guest.id).card, { charId: OTHER_PERIOD, avatar: '' });
     await ok(guest, { t: 'room.ready', ready: true });
     await ok(host, { t: 'room.start' });
     await host.waitFor('m.public', (p) => p.phase === 'INFO_CHECK');

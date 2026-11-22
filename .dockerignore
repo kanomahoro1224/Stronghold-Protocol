@@ -23,7 +23,7 @@ review
 logs
 *.log
 docs/img
-# the image needs only the research JSON tables (server/sim/nodeData.js fallback), not the notes
+# the image needs only the research JSON tables (server/nodeData.js fallback), not the notes
 docs/research/*.md
 # game art is mounted at runtime or downloaded with --build-arg FETCH_ASSETS=1, never sent from the host
 public/assets

@@ -64,7 +64,7 @@
 | 收尾 CI / CRLF / 渲染测试 | 24/24 |
 | 标题入口 / 文档 / 下载功能定向回归 | 645/645 |
 
-`npm run check:imports` 非严格命令返回 0，但仍报告原有三个 `server/sim/nodeData.js`
+`npm run check:imports` 非严格命令返回 0，但仍报告原有三个 `server/nodeData.js`
 Node 内置导入边界项及三个 allowed notes，不能称严格零违规；这些模块未进入浏览器构建。
 受限权限下的全量 `full4.log` 为 8411 通过、5 失败、34 跳过；5 项均为上游 Forge 测试夹具
 直接写入 Windows `D:\tmp` 受到沙箱阻止，因此获批后重新运行完整套件，不改断言或跳过用例。

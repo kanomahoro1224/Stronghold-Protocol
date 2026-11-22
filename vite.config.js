@@ -22,7 +22,7 @@ function browserContracts() {
       if (resolved === runtimeCdn) return { id: '/js/asset-cdn.js', external: true };
       if (resolved === runtimeWs) return { id: '/js/ws-config.js', external: true };
       if (resolved === serverData) return browserData;
-      if (resolved === absolute('server/sim/nodeData.js')) this.error('Node-only simulation data cannot enter the client bundle');
+      if (resolved === absolute('server/nodeData.js')) this.error('Node-only simulation data cannot enter the client bundle');
     },
     load(id) {
       if (id === browserData) return `

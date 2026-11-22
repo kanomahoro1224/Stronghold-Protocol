@@ -75,7 +75,7 @@ Windows、Node **26.7.0**（不是上一轮的 22.23.2）、服务逻辑处理�
 - `npm run golden` 完整 **283** 场景通过：roster 49、bonds 46、fields 22、matches 18、standins 10、diy 138，未更新基线。完整脚本化四人对局中每次重建的状态也与原始 JSON 对比，覆盖购买、移动、出售及阶段切换，但使用 FakeBattle，不当作真实浏览器对局。
 - 全量 Node 测试 **5493 项：5476 通过、2 失败、15 跳过**；两项失败均在修改前 `23d0a92` 的独立副本复现：`test/i18n.test.js` 缺少 `正在准备导入资源包…` 的英文 msgid，`test/i18n-packs.test.js` 计数 1241/1240。未修改无关翻译。
 - 发行清单测试依赖 `git ls-files`，直接在新增文件未跟踪的工作树运行会另报 `stateTransport.js` / `stateDelta.js` 未发行。使用独立临时索引登记这两个模块后，发行清单和上述全量复测通过此项；**实际索引/暂存区未改动，未提交**。以后提交时必须包含这两个新模块，不能只提交已有文件的 diff。
-- TypeScript 检查通过；任务路径 ESLint 0 errors / 6 个既有 warnings；`git diff --check` 通过。导入边界工具报告的三处 `server/sim/nodeData.js` Node 内置导入也与独立 HEAD 副本一致，未当作本次通过零告警的证据。
+- TypeScript 检查通过；任务路径 ESLint 0 errors / 6 个既有 warnings；`git diff --check` 通过。导入边界工具报告的三处 `server/nodeData.js` Node 内置导入也与独立 HEAD 副本一致，未当作本次通过零告警的证据。
 - 未启用浏览器自动化，未部署 Docker/线上，未做长时稳态或 Linux 完整对局压测。原有 `config/announcements.json` 修改、本机同步脚本和资源 ZIP 保留。
 
 ### 2026-10-09 压缩后字节与 CPU 专项复测

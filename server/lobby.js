@@ -324,7 +324,6 @@ const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
  *             ops?: Readonly<Record<string, { potential: number, cultivate: number }>> | null,
  *             notOwned?: readonly string[] | null, diy?: Readonly<Record<string, DiyLoadout>> | null,
  *             skins?: Readonly<Record<string, string>> | null,
- *             card?: string | null,
  *             content?: 'ready' | 'failed' | null, contentGen?: number, loadoutCs?: string | null, notOwnedCs?: string | null,
  *             diyCs?: string | null, consentCs?: string | null }} Seat
  *   content: a room with gameplay plugins — whether the player's page loaded and checked its content (header "Gameplay
@@ -2679,7 +2678,9 @@ export class Lobby {
     // Compare the seat's card, not only the session's: a content set that took the card off the seat leaves the session's
     // copy intact (setPlugins), so sending the same card back must re-add it and broadcast.
     const previous = seat ? seat.card : session.card;
-    session.card = card;
+    // The session keeps one frozen `{ charId, avatar }` even when both fields are empty (`clean`); a cleared card leaves
+    // no `card` key on the seat / room.state / queued seat (null), and humanSeat turns the empty object into a null seat.
+    session.card = clean;
     if (seat) seat.card = card;
     // the branch's matchmaking queue: a queued seat carries the card too, so the match it starts shows it
     const queuedSeat = this.queueByPlayer.get(session.playerId)?.players.find((p) => p.playerId === session.playerId);
