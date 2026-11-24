@@ -1333,10 +1333,17 @@ function buildEffects(ctx) {
         ? { displayThresholds: descInfos.bondPhaseCountList } : {}),
       ...(effectDescParams.length ? { effectDescParams } : {}),
     } : {};
+    // The official bond phase table (§37.341): the numeral over a 规程 bond disc. Every BOND entry has one, also those
+    // whose descParamInfos is empty (远见 投资人 绝技 调和 …). 盟约 seasons have no effectDescParamDataDict: nothing is added.
+    const phase = e.effectType === 'BOND' && descInfos ? {
+      phaseType: typeof descInfos.phaseType === 'string' && descInfos.phaseType ? descInfos.phaseType : 'NONE',
+      phaseCounts: (Array.isArray(descInfos.bondPhaseCountList) ? descInfos.bondPhaseCountList : []).map(Number).filter(Number.isFinite),
+    } : {};
     out[effectId] = {
       effectId, effectType: e.effectType, name: e.effectName || null,
       desc: stripRich(e.effectDesc), descRaw: richRaw(e.effectDesc),
       ...bondExtra,
+      ...phase,
       counterType: e.effectCounterType || 'NONE', continuedRound: e.continuedRound ?? -1,
       decoIconId: e.effectDecoIconId || null, enemyPrice: e.enemyPrice || 0,
       buffs, params: effectParams(buffs),
@@ -1405,6 +1412,16 @@ function buildBonds(ctx, chess, effects) {
         layerMilestones.push({ layer: lb.layer2, mode: 'first', effect: x.key });
       }
       if (x.key === 'bond_layer_char_garrison_bonus' && lb.layer > 0) layerMilestones.push({ layer: lb.layer, mode: 'reach', effect: x.key });
+      // first-reach powers of the other versions (§37.343): 远见's all-chess −1 (第一期 100 layers, 第二期上半 150) and
+      // 远见-only −1 (第二期上半 80), 规程 远见's per-tier −1 (layer_list "80,150", a string in bbStr) and 奇迹's same-tier
+      // shop slot (规程 100). Data only: the sim reads the buffs (bonds/addon/meta.js), not these rows.
+      if ((x.key === 'bond_layer_char_goods_price_discount' || x.key === 'bond_layer_char_goods_price_bond_discount' || x.key === 'bond_layer_shop_same_tier') && lb.layer > 0) {
+        layerMilestones.push({ layer: lb.layer, mode: 'first', effect: x.key });
+      }
+      if (x.key === 'bond_goods_disc_tier2') {
+        const tiers = String(x.bbStr.layer_list ?? lb.layer_list ?? '').split(',').map((s) => Number(s.trim())).filter((v) => Number.isFinite(v) && v > 0);
+        for (const layer of tiers.sort((a, b) => a - b)) layerMilestones.push({ layer, mode: 'first', effect: x.key });
+      }
     }
 
     const members = (b.chessIdList || []).filter((id) => chess[id] && !chess[id].isGolden).sort(naturalCmp);
@@ -1428,6 +1445,8 @@ function buildBonds(ctx, chess, effects) {
       activeType: b.activeType, isActiveInDeck: !!b.isActiveInDeck,
       noStack: !!b.noStack, weight: b.weight, maxInactiveBondCount: b.maxInactiveBondCount,
       layerMilestones,
+      // 规程: the phase table of the bond's own effect (buildEffects; §37.341). A strategy's replacement effect carries its own.
+      ...(eff && typeof eff.phaseType === 'string' ? { phaseType: eff.phaseType, phaseCounts: eff.phaseCounts } : {}),
       desc: dp.desc, descRaw: dp.descRaw,
       effectId: b.effectId, effectName: eff?.name || null, effectDesc: eff?.desc || null, effectDescRaw: eff?.descRaw || null,
       // Positional {i:fmt} placeholders of effectDesc = bb[baseParams[i]] + bb[perStackParams[i]] * layers.
