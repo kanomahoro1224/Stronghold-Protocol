@@ -19,7 +19,7 @@
 //                                                               shop: onBuy — a free pick / grant never uses it up)
 //   band_cost_coin_reach_cnt_gain_chess_from_pool      潘格尼尼 once coin_cnt funds spent in total: 1 chess of pool (elite 拉特兰 ≥ T4)
 //   round_start_bond_check_gain_layer                  余       round start of `round`: exactly factioncount active bonds → +count1, else each active +count2
-//                                                               — never to a bond without layers (noStack; the owner's decision of 2026-10-08)
+//                                                               — skips noStack in every version (规程 common rule; covenant 余 decision 2026-10-08)
 //   up_shop_add_special_goods {count,choice,pool}      凯瑟琳   every level-up: pick 1 of `count` items of pool (free)
 //   coin_carry_over {capital,interest,max}             坎诺特   leftover ≥ capital at round start → +min(max, ⌊left/capital⌋×interest) income
 //   round_start_all_player_change_enemy_2              鸭爵     global: every alive player's battle from `round` (own + teammates;
@@ -220,10 +220,20 @@ K.up_shop_next_refresh_must_present_bond_char = (ps) => ({
     const p = ps[0];
     if (!list(p.lvlist).map(Number).includes(ev.level)) return;
     ctx.incCounter('band:pepe:special', 1);
+    // The official text grants the charge at the upgrade ("至2、4和6级后，获得1次特殊刷新"), and the official
+    // shop ctrl lights its refresh button from the pending charge (`_specToggle` ← C# `ShopData.specialRefresh`,
+    // i.e. our `specialRefreshArmed` / `isSpecRefresh`), so the button shows the special state on the upgrade
+    // itself; only the roll waits for the next manual refresh. Without this arm the button stayed normal until
+    // the refresh had already spent the charge.
+    if (typeof ctx.armSpecialRefresh === 'function') ctx.armSpecialRefresh();
   },
   onRefresh(ctx) {
     if (ctx.counter('band:pepe:special') <= 0) return;
     ctx.incCounter('band:pepe:special', -1);
+    // The slot rewrite below is this roll's special refresh. rollShop already advanced refreshSeq, so
+    // mark it after the normal reroll and the client picks whole_card_refresh_special (do not re-roll
+    // or charge again here).
+    if (typeof ctx.markSpecialRefresh === 'function') ctx.markSpecialRefresh();
     const bond = ps[0].bond;
     const slots = ctx.shopSlots();
     for (const i of chessSlots(ctx)) {
@@ -271,11 +281,9 @@ K.band_cost_coin_reach_cnt_gain_chess_from_pool = (ps) => ({
 });
 
 /**
- * 余 【文火慢炖】 「第8回合开始时，若仅激活了1个盟约，使其增加36层；否则使所有已激活盟约增加12层」. The owner's decision of 2026-10-08
- * overrides PRTS here (下半/PRTS盟约记录: layers of a bond that shows none 「仍然对其生效」): a bond without layers — bonds.json
- * `noStack`: 绝技, 独行, 调和, 协防干员 — gets none. The count stays the sentence's (every active bond), so one active bond
- * that is such a bond means nothing is added, and with two active bonds a layered one still gets count2. Only this
- * strategy: 协防's 「使所有已激活的盟约层数」 (bonds/addon/meta.js) and 华法琳's 【重点监护】 keep adding to every bond they name.
+ * 余 【文火慢炖】 「第8回合开始时，若仅激活了1个盟约，使其增加36层；否则使所有已激活盟约增加12层」.
+ * noStack bonds remain in the active-bond count, but receive no layers (规程 common rule; covenant 余 decision 2026-10-08).
+ * With one active noStack bond nothing is added; with two active bonds a stacking one still gets count2.
  */
 K.round_start_bond_check_gain_layer = (ps) => ({
   onRoundStart(ctx) {

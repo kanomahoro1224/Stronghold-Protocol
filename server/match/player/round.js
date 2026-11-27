@@ -39,9 +39,10 @@ export class PlayerRound {
   }
 
   /**
-   * Prep deadline (Match.endPrep, after the <休整期结束时> onPrepEnd effects): the temp pieces due at this prep are
-   * resolved and the queued reward offers due at it lapse; what overflowed or was offered after Ready or during
-   * onPrepEnd stays for the next prep, which `prepsEnded` now names.
+   * Prep deadline (Match.endPrep, after the <休整期结束时> onPrepEnd effects): the queued reward offers due at this
+   * prep lapse; the temp pieces due at it were already resolved before those effects (Match.endPrep, §37.356), so the
+   * resolveTemp here finds nothing new — what overflowed or was offered after Ready or during onPrepEnd stays for the
+   * next prep, which `prepsEnded` now names.
    */
   endPrep() {
     this.resolveTemp();
@@ -134,6 +135,10 @@ export class PlayerRound {
     this._fillHandFromTemp();
     // the states the last recompute stored: the change since then is reported once (_reportActiveBonds)
     const before = this.bonds;
+    // Drop obsolete hidden counts, including pending reports and the temporary ledger, before rebuilding views.
+    for (const id of this.gd.bondIds) if (this.gd.regulationLayers && this.gd.bond(id)?.noStack) {
+      for (const ledger of [this.layers, this.pendingLayerGains, this.tempLayers]) if (ledger) delete ledger[id];
+    }
     this.bonds = computeBonds(this.gd, this);
     syncCommand(this);
     this.dirty();
@@ -170,7 +175,7 @@ export class PlayerRound {
    * in-battle gains of this round's finished normal battle (bondsMeta.bondsWithGains). The 联防 field fights with them too
    * (battleInput `reached`); no other rule reads them.
    */
-  bondsView() { return bondsWithGains(this.bonds, this.pendingLayerGains); }
+  bondsView() { return bondsWithGains(this.bonds, this.pendingLayerGains, this.gd); }
 
   /**
    * `reached`: the bonds carry the layers this round's own combat reached (bondsView: the pending in-battle gains, capped

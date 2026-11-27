@@ -206,7 +206,8 @@ reroll banner's bottom margin follow the measured header / footer geometry (hist
 
 Picture-only outfits (B6, §35.4): per the maintainer's 2026-10-18 option A, a `skins` record with pictures and no
 Spine is wearable, labelled 「仅更换头像与立绘」. Owner-specific cards / panels / results read that seat's choice;
-missing pictures and the battle model use the effective operator's defaults. #686's visibility switch and
+missing pictures and the battle model use the effective operator's defaults. The canvas shop's cards follow the shop
+owner's choice too, through `cardModelFromSlot`'s `ownerSkin` resolver (§37.240). #686's visibility switch and
 stand-in / DIY resolution remain in force. [ASSUMED] E2 picture and illustration fields count too; metadata alone
 does not. Official field separation and the exact fallback / live-update contract: [SKINS.md](../SKINS.md).
 
@@ -392,6 +393,48 @@ history and the open points: DESIGN §32.14.25.
   `&stress=<loops>,<hits per s>`); `public/dev/battle-perf.html` takes `&fx=off|lite|full|auto`
   and `tools/perfbench.mjs --fx`; `tools/vfx-skill-coverage.mjs` prints the roster's plan coverage and what the battle
   view plays of it.
+
+### The regulation shop canvas (§37.240)
+
+A regulation shop may be painted on a canvas instead of the DOM shop bar (`public/js/ui/shop/` + `public/js/render/shop/`).
+The gate is a capability, not a flag: `ui/shop/gate.js shopCapability` requires an `OFFICIAL_THEMES` id whose installed
+local group carries `prefabs.json`, `card.json` and `shop.json`, and `shopWebglGate` then requires a ready preload only: a spectator seat has no `m.private` and gets no shop at all, while a stand-in or
+DIY row renders like any other card (the model composes its record); a seat that may not buy (`ROUND_START`, 已准备, `SP_DRAFT`,
+a pending personal choice or plugin offer) still mounts the canvas, but `ShopCanvas` publishes `locked: !editable`: the cards take the prefab's
+`disable_matte` and `aria-disabled`, and a tap opens the detail instead of arming (the panel is not folded into `state_disable`);
+a promotion or special reward keeps the canvas and
+draws every `offer.slots` card at price 0 in the same row instead (a 6-slot offer grows the row, a 2/3-slot offer keeps
+the last positions, the item slot is hidden; 稍后 returns to the normal row, and the in-canvas control then names the
+pending offer — 选择{title} (选择晋升奖励 / 选择定向投放 / 选择见者有份 / 选择寻呼模块 / 选择松果 / 选择特殊招募 /
+选择装备补给): the seven known names are six glyphs at most in zh, while any other title (a plugin's or a custom
+strategy's) names the offer too, and the prefab's `bestFit` shrinks the face to the pill as the other
+languages' templates do (en drops the verb). The hotspot's aria-label carries the offer's title in both states
+(including 稍后), and no separate header strip is drawn on the canvas. Card marks (skill badge,
+替补 / 自选, owned-copy pips, 可晋升) are a DOM overlay inside the card hotspot, in the DOM shop's own wording and
+colours: they follow the card box every frame, keep their `title` tooltips, enter the card's accessible name, and
+grow to the right so the four languages fit. Positions are the owner's PSD percentages of the visible card box
+(156 × 200 design units) converted to the overlay's own box — the card prefab's root, 157 × 207 — with
+`x' = (0.5 + x·156)/157` and `y' = y·200/207`, and 设置 → 外观 has three switches (`shopMarkSkill`, `shopMarkStandIn`,
+`shopMarkProgress` — 可晋升 and the owned-copy pips share the last — all on by default). The marks never take the two
+taps or the right-click detail away. A folded shop folds the reward control away with refresh/freeze; 设置 → 操作 → 折叠商店时保留奖励按钮
+(default off) keeps a copy of the same prefab pill on the folded tab while an offer is pending, and clicking it
+unfolds and shows the reward row.
+No config value takes part; choosing a theme without the documents is the rollback, and `ShopBar` is unchanged.
+`ui/prefab/shopDocs.js` reads the three documents from that group (an imported official pack's documents come from
+its stored bytes — the page's `connect-src 'self'` forbids fetching a blob) and `ui/shop/adapter/model.js` turns
+`m.private` into the render model; the canvas only paints it. The row clock is the server's
+`shop.refreshSeq`: the slots clip plays when it changes (not on the first frame, nor on a purchase, freeze, price or level
+change); a push without the field (an older server) falls back to a client counter over `shopSignature`. A failed mount, update or
+WebGL context falls back to `ShopBar` once: `ShopCanvas` reports the failure and stops pushing. The runtime and the theme's
+`@font-face` sheet are preloaded only for a seat that can own a shop (`seatHasShop = !!priv && alive`): a spectator seat and an
+eliminated seat install nothing, and the sheet is removed when the seat or the match ends (a later mount installs it again);
+the canvas itself still mounts by `showShop`'s phase condition. The operator cards'
+portraits follow the shop owner's outfit through the model's `ownerSkin` resolver, the same selection the DOM card's
+`OperatorImage` reads (§37.240). Fonts come from the manifest's `fonts` group — an optional local-extract group like
+`ui/cursor` (a full extraction attempts it; a missing install or a pinned-byte mismatch only warns, and an absent key
+is not stale) — only the families the documents draw are awaited, and a missing face falls back like the DOM shop
+bar's text (a packaged host drops the group and draws with the system stack). Mobile / touch and desktop Firefox have
+no dedicated check and are not a support promise.
 
 ---
 
@@ -1322,6 +1365,11 @@ Covenant rendering and controls retain the mixed hand and visible temporary row.
 
 已激活（且未禁用）的盟约圆盘在每一档都画全亮的一圈外环和点亮的中央盘，圆盘本身不表示档位。规程用 `bondBoardIcon/1_1`（没有缺口的整圈，§37.340，维护者 2026-11-22）：依据是官服规程截图（PR #923 评论里的第 11 回合），盟约栏里灵巧Ⅱ、精准Ⅰ、不屈Ⅱ、绝技Ⅰ的中央盘和外环完全相同，外环都是完整的一圈；圆盘上方的罗马数字和盟约卡片的「阶段」标签是官方阶段等级（§37.341，见上文），不一定等于档位：激活的调和、协防干员、独行和不足 80 层的远见都不显示，1 档的迅捷满 40 层显示Ⅱ（灵巧只有一个人数门槛，截图里它的Ⅱ来自层数，满 40 层）。盟约各期用 `N_N`，N 是该盟约的第一档人数（`thresholds[0]`，最多 4），每一档都一样：官方录像里维多利亚 7 人（已过第二档 6 人）仍是三段的整圈，迅捷、奇迹是两段，调和是一圈；上方没有数字（§37.342，四期录像，例如 BV1yyC9BPEXV 1600 s、BV1X6wRzhEVU 840 s、BV1Wrw2zZE1x 850 / 950 / 1165 s）。§37.340 曾按维护者的决定让盟约各期也画 `1_1`（当时没有盟约录像），已由录像取代。盟约卡片左上角的圆盘不同：同一张规程截图里打开的不屈卡片（门槛 [2,3]，3 人，已激活）圆盘是两段的 `2_2`（正上方和正下方各一个缺口），所以卡片圆盘激活后在规程也按第一档人数画 `N_N`（限在 1–4，`[1]` 为 `1_1`），和盟约各期一样（`bondFrame` / `BondDisc` 的 `split`，卡片传 true；§37.342 复审后的修正）；盟约各期的卡片圆盘本来就是 `N_N`（BV1yyC9BPEXV 1600 s 维多利亚卡片三段）。卡片里未激活和本局禁用的圆盘照旧画进度 `N_k` 和 `1_0`（截图里没有这两种卡片）。分段外环只表示未激活时的人数进度，这时中央盘是灰的；只有人数已达到最低激活人数却未激活时例外，画全亮的 `N_N`（中央盘点亮，按 77 单位的尺寸，[ASSUMED]：很少见，官方截图里没有这种情况）。开局信息确认、本局信息和本局禁用干员分组里还没有达到任何档位，那里的圆盘不带档位（`data-tier`）；未禁用的圆盘按本版本的激活外环画（规程 `1_1`，盟约各期按第一档人数的 `N_N`，不跟卡片圆盘；盟约各期的开局信息确认没有录像核对，[ASSUMED]）。盟约版本套用规程主题（`.gm__bonds--pf`）时外环同样按盟约各期的规则画（[ASSUMED]：主题换外观，不换版本的规则）。PR #994（§37.336）曾让外环按档位分段、只点亮中央盘，已由此取代。“阵容不完整”角标绝对定位在圆盘右上方，不参与内部网格排版。
 
+盟约栏、同盟盟约速查及其卡片的 ‹ › 共用 `stripBondList` 的显示资格：`noStack` 盟约的内部层数不显示，不能单独使零人且未激活的盟约留在栏内；仍有成员或已激活时显示。可叠层盟约仍可因已有层数保留。
+
+规程的 `noStack` 盟约显示激活状态且没有层数；零人且未激活时，服务端不会因过时的内部计数保留其条目。盟约各期仍保留内部层数，界面按上文的共同筛选隐藏无成员图标。
+参见 [noStack 层数规则修正](../research/no-hidden-bond-layers-20261125.md)。
+
 `components.css` 不再包含旧版 `BondDisc` 的 SVG 圆环、渐变底板及悬停缩放规则；各页面继续按自身布局设置圆形尺寸和名称字号。
 
 盟约卡片内，在场普通干员显示绿色边框，在场精锐干员保留金色边框及在场光晕；所有不在场干员统一使用原版 `bondChar/avatar_border` 灰色边框，不影响通用头像组件的其他使用处。
@@ -1379,3 +1427,10 @@ quality/mode changes and view teardown cancel outstanding handles. No extra dash
 Fresh pieces export `tileDepthHeights` per group from MapSettings.highlandHeight for wall and bench occlusion.
 Re-extract scenes to get that optional metadata; older packs keep the existing board-height approximation. This is
 not an exact reconstruction of decorative meshes and does not change unit positions, simulation or battle ownership.
+
+### Regulation Ready with overflow
+
+The button and shortcut permit Ready with pending overflow after a confirmation that temporary operators/equipment
+will be destroyed on battle entry; summons return next prep. Funds and unused-command reminders share the same
+dialog. Muting the command reminder never suppresses the overflow warning. Source: official multiplayer Ultimate
+screenshots supplied 2026-11-27.

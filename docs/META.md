@@ -110,8 +110,10 @@ summon slots; `temp[0..4]` has 5 permanent item slots. The equipment row does no
 `_fillHandFromTemp` refills each row in arrival order when recompute frees space, clearing the deadline on arrival.
 
 [ASSUMED] Owner decision 2026-11-09: equipment fills right-to-left; normal buys/reward picks and voluntary unequip
-require a free slot in their own row. Forced overflow goes to `temp[5..]`, blocks Ready and uses the existing temp
-prep deadline. Expiry returns stock/pool copies and dispatches item `onDestroy` (`reason: 'temp'`). Each stash entry
+require a free slot in their own row. Forced overflow goes to `temp[5..]` and uses the existing temp prep deadline.
+
+Regulation permits Ready after an overflow confirmation (official screenshots, 2026-11-27). Expiry returns
+stock/pool copies without dispatching item `onDestroy`. Each stash entry
 sends its owner a private notice. `m.private.temp` contains only the five equipment slots and `stashCount` reveals
 only the hidden count. The client labels the row 装备区 and shows the stash count/rule separately from its slots.
 `g.move` accepts `{ area: 'temp', idx: 0..4 }` for items only with this switch. Boss benches retain the row −7 mapping.
@@ -732,6 +734,8 @@ Writes (validated, never throw on bad input; funds and available stock stay non-
 | `offerItems(ids, { tier, label })` | the same for items (slots of kind `'item'`, drawn as item cards) — 凯瑟琳 定向投放 style (player report #6 after 0.1.0) |
 | `triggerGarrisons(uid, eventType, { asUid })` | run another owned chess's 特质 of that eventType now (铃兰 "触发…的获得时效果"); 投资人 still multiplies SERVER_GAIN; SERVER_PRICE cannot be triggered; depth-capped |
 | `setShopSlot(i, { kind, id, price?, frozen? } \| null)` | rewrite a shop slot (special refreshes) |
+| `armSpecialRefresh()` | arm one special refresh for the next roll — 佩佩's 2/4/6 upgrade lights the refresh button at once while the roll waits; returns the charges now pending |
+| `markSpecialRefresh()` | mark this roll as a special refresh (the slots panel plays its special clip). It also spends one 佩佩 charge — whoever calls it, a plugin's handler included — so a plugin's own special refresh clears the button while `band:pepe:special` still holds a charge and the next manual refresh is special again [ASSUMED: the spend belongs in 佩佩's own onRefresh; a caller-aware split is the alternative] |
 | `addDeployCap(n)` / `setDeployCapAtLeast(n)` | deploy cap (+effects; 人事部文档 = 9) |
 | `setBondCountBonus(bondId, n)` | extra member count for a bond |
 | `setDeviceActive(alias, on)` / `setTileOverride(r, c, 'melee'\|'ranged'\|'none')` | terrain changes of this player's board (legality + battle input `deviceOverrides`) |
@@ -1498,3 +1502,13 @@ the original item. See [the match rule and footage](design/match.md#stainless-up
 联防输入 `tempLayers` 继承本人余额并冻结，不再叠加，也不重新记为收益；Boss 本身没有联防。
 下一次进入休整期时由 `onPrepStart` 转换器读取、消耗，然后清除余额，多功能补剂同样适用。
 完整 API 和来源见 [临时层数约定](design/engine.md#temporary-bond-layers)。
+
+### noStack bonds
+
+In 规程 (`config.version.family === 'regulation'`), `noStack: true` bonds have no permanent or temporary layers. Prep-side grants, battle-result
+settlement and temporary conversion skip them. Recompute drops obsolete balances from saved player state;
+pending views and helper ordering also ignore them. They still count for activation-based effects.
+Highest-layer selection considers stacking bonds only. See [official recordings](research/no-hidden-bond-layers-20261125.md).
+
+Covenant versions retain hidden permanent and temporary balances, highest-layer targeting, totals and helper
+ranking as recorded by PRTS. The existing covenant 余 strategy still skips `noStack` targets.

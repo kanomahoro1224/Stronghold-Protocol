@@ -11,7 +11,7 @@ import { REGULATION_KITS } from '../../server/sim/content/enemies/regulation.js'
 import { REGULATION_BOSS_KITS } from '../../server/sim/content/regulation-bosses.js';
 import { getData, getVersionData } from '../../server/data.js';
 import { GameData } from '../../server/match/gamedata.js';
-import { setupMatchWaves, isFlyKey } from '../../server/match/waves.js';
+import { buildBossWave, buildNormalWave, buildUniteWave, setupMatchWaves, isFlyKey } from '../../server/match/waves.js';
 import { createRng } from '../../server/sim/rng.js';
 
 const V = getVersionData('act3autochess@V3_1');
@@ -663,15 +663,186 @@ test('蕴核饲育者 children keep move_speed as a multiplier', () => {
   assert.equal(h.b.errors.length, 0);
 });
 
-test('规程 round multipliers use its own 攻坚装备 / 补给线II / 急行军 values on 下半\'s stack schedule', () => {
-  const r7 = V.config.modes.mode_multi_abyss.enemyScale['7'], d7 = getData().config.modes.mode_multi_abyss.enemyScale['7'];
-  assert.deepEqual([d7.kAtk, d7.kHp], [r7.kAtk, r7.kHp], 'same stack counts');
-  assert.ok(near(r7.atk, 1.11 ** r7.kAtk, 1e-6) && near(d7.atk, 1.1 ** d7.kAtk, 1e-6));
-  assert.ok(near(r7.hp, 1.2 ** r7.kAtk * 1.3 ** (r7.kHp - r7.kAtk), 1e-6) && near(d7.hp, 1.2 ** d7.kHp, 1e-6));
-  assert.ok(near(r7.supplyHp, 1.3 ** (r7.kHp - r7.kAtk), 1e-6));
-  assert.equal(r7.speed, 1.3);
-  assert.equal(d7.speed, 1.15);
-  assert.equal(V.config.modes.mode_multi_abyss.enemyScale['2'].speed, 1, '急行军 from round 3');
+test('规程 co-op 终极 round stats match the observed R1–R15 global effects', () => {
+  const scales = V.config.modes.mode_multi_abyss.enemyScale;
+  const hp = [1.2, 1.44, 1.44, 1.728, 2.2464, 2.69568, 3.234816, 3.881779, 4.852224, 6.307891, 7.569469,
+    9.840310, 10.233923, 12.280707, 15.964919];
+  const atkStacks = [1, 2, 2, 3, 3, 4, 5, 6, 6, 6, 7, 7, 7, 8, 8];
+  const aspd = [10, 15, 15, 15, 15, 15, 15, 15, 15, 15, 25, 25, 30, 30, 30];
+  for (const [i, expectedHp] of hp.entries()) {
+    const r = scales[i + 1];
+    assert.ok(near(r.hp, expectedHp), `R${i + 1} HP: ${r.hp}`);
+    assert.ok(near(r.atk, 1.1 ** atkStacks[i]), `R${i + 1} ATK: ${r.atk}`);
+    assert.equal(r.aspdAdd, aspd[i], `R${i + 1} ASPD`);
+    assert.equal(r.speed, i < 2 ? 1 : 1.3, `R${i + 1} 移速`);
+  }
+  assert.ok(near(scales[15].supplyHp, 1.3 ** 4 * 1.25 * 1.04));
+  const covenant = getData().config.modes.mode_multi_abyss.enemyScale[7];
+  assert.ok(near(covenant.hp, 1.2 ** 7));
+  assert.equal(covenant.aspdAdd, undefined);
+});
+
+test('规程 终极 applies the round ASPD to wave enemies and leaders and respects spawn exclusions', () => {
+  const gd = new GameData(V, 'mode_multi_abyss');
+  const rng = createRng(21);
+  const setup = setupMatchWaves(gd, rng);
+  const wave = buildNormalWave(gd, rng, setup, 13);
+  const spec = wave.spawns[0];
+  const h = fight({ defs: { enemies: V.enemies, chess: CHESS, effects: V.effects } });
+  const unit = h.spawn(spec.enemyKey, { pos: [9, 8], mods: spec.mods });
+  assert.equal(unit.s.aspd, unit.def.aspd + 30);
+  assert.ok(near(unit.s.interval, (unit.s.bat * 100) / (unit.def.aspd + 30)));
+
+  const chest = h.spawn('enemy_9038_achest', { pos: [9, 8], mods: spec.mods });
+  assert.equal(chest.s.maxHp, chest.def.maxHp);
+  assert.equal(chest.s.aspd, chest.def.aspd);
+  const token = h.spawn('enemy_1196_msfyin', { pos: [9, 8], mods: spec.mods });
+  assert.equal(token.s.maxHp, Math.round(token.def.maxHp * 1.2 ** 7));
+  assert.equal(token.s.aspd, token.def.aspd + 30);
+
+  const bossWave = buildBossWave(gd, rng, setup, 15, { bossId: 'boss_8', solo: false });
+  const leader = bossWave.spawns.find((s) => s.tag === 'boss');
+  assert.ok(leader);
+  assert.equal(leader.mods.aspdAdd, 30);
+  assert.equal(leader.mods.hpMul, undefined, 'shared leader HP is set by the match');
+});
+
+test('规程 终极: a leader whose data attack speed is 0 (铳 / 管 / 弦) keeps the round ASPD on top of its floor (§37.353)', () => {
+  // aspdFloor used to subtract the whole base, so the round's +30 (already in e.base.aspd) cancelled out
+  const keys = ['enemy_9017_achunt', 'enemy_9021_acduml', 'enemy_9022_acdumm'].filter((k) => V.enemies[k]);
+  assert.ok(keys.length >= 2, 'the skill-driven leaders exist in 规程');
+  for (const key of keys) {
+    assert.equal(V.enemies[key].stats.aspd, 0, `${key}: data attack speed 0`);
+    const plain = fight();
+    const p = plain.spawn(key, { pos: [9, 8], route: waitAt(9, 8) });
+    const boosted = fight();
+    const b = boosted.spawn(key, { pos: [9, 8], route: waitAt(9, 8), mods: { aspdAdd: 30 } });
+    assert.equal(p.s.aspd, 20, `${key}: the floor without a round bonus`);
+    assert.equal(b.s.aspd, p.s.aspd + 30, `${key}: +30 stays on top of the floor`);
+    assert.ok(near(b.s.interval, (b.s.bat * 100) / b.s.aspd), key);
+  }
+});
+
+// Preview lists (路标档案馆 seq1), folded with the 11-05 client blackboards. null supply = no HP-only effect yet.
+const PREVIEW_SCALES = {
+  // 绝境: 7, 7, —, 7, 2_2, 7, 7, —, 2_2, 2_2, 7, 2_3, 21, 21, 2
+  mode_multi_hard: {
+    atk: [1.1, 1.21, 1.21, 1.331, 1.331, 1.4641, 1.61051, 1.61051, 1.61051, 1.61051, 1.771561, 1.771561, 1.948717, 2.143589, 2.143589],
+    hp: [1.2, 1.44, 1.44, 1.728, 2.2464, 2.69568, 3.234816, 3.234816, 4.205261, 5.466839, 6.560207, 7.872248, 8.659473, 9.52542, 10.287454],
+    supply: [null, null, null, null, 1.3, 1.3, 1.3, 1.3, 1.69, 2.197, 2.197, 2.6364, 2.6364, 2.6364, 2.847312],
+    exclude: 'aceffect_enemy_7',
+  },
+  // 险境: 4, 7, —, 7, 2, 2, 12, 14, 13, 2, 13, 13, 20, —, 2
+  mode_multi_normal: {
+    atk: [0.8, 0.88, 0.88, 0.968, 0.968, 0.968, 0.968, 0.97768, 1.104778, 1.104778, 1.2484, 1.410692, 1.438905, 1.438905, 1.438905],
+    hp: [0.8, 0.96, 0.96, 1.152, 1.24416, 1.343693, 1.451188, 1.741426, 2.089711, 2.256888, 2.708266, 3.249919, 3.899902, 3.899902, 4.211895],
+    supply: [null, null, null, null, 1.08, 1.1664, 1.259712, 1.259712, 1.259712, 1.360489, 1.360489, 1.360489, 1.360489, 1.360489, 1.469328],
+    exclude: 'aceffect_enemy_4',
+  },
+  // 标准, 14 rounds: 4, 2, —, —, —, 2, —, —, —, —, —, 3, —, —
+  mode_multi_funny: {
+    atk: [0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.888, 0.888, 0.888],
+    hp: [0.8, 0.864, 0.864, 0.864, 0.864, 0.93312, 0.93312, 0.93312, 0.93312, 0.93312, 0.93312, 1.119744, 1.119744, 1.119744],
+    supply: [null, 1.08, 1.08, 1.08, 1.08, 1.1664, 1.1664, 1.1664, 1.1664, 1.1664, 1.1664, 1.1664, 1.1664, 1.1664],
+    exclude: 'aceffect_enemy_4',
+  },
+};
+
+test('规程 co-op 标准 / 险境 / 绝境 round stats match the preview lists; solo stays on the stack table', () => {
+  for (const [mode, exp] of Object.entries(PREVIEW_SCALES)) {
+    const scales = V.config.modes[mode].enemyScale;
+    assert.equal(Object.keys(scales).length, exp.hp.length, mode);
+    for (let i = 0; i < exp.hp.length; i++) {
+      const r = scales[i + 1];
+      assert.ok(near(r.atk, exp.atk[i]), `${mode} R${i + 1} ATK ${r.atk}`);
+      assert.ok(near(r.hp, exp.hp[i]), `${mode} R${i + 1} HP ${r.hp}`);
+      assert.equal(r.speed, 1, `${mode} R${i + 1} 移速`);
+      assert.equal(r.aspdAdd, 0, `${mode} R${i + 1} ASPD`);
+      assert.equal(r.excludeEffect, exp.exclude, mode);
+      if (exp.supply[i] == null) assert.equal(r.supplyHp, undefined, `${mode} R${i + 1} supply`);
+      else assert.ok(near(r.supplyHp, exp.supply[i]), `${mode} R${i + 1} supply ${r.supplyHp}`);
+    }
+  }
+  const solo1 = V.config.modes.mode_single_1.enemyScale;
+  assert.equal(solo1[1].atk, 0.7);
+  assert.equal(solo1[1].hp, 0.75);
+  assert.equal(solo1[14].atk, 0.7);
+  assert.equal(solo1[1].aspdAdd, undefined);
+  const solo20 = V.config.modes.mode_single_20.enemyScale;
+  assert.ok(near(solo20[1].atk, 1.11));
+  assert.equal(solo20[3].speed, 1.3);
+  assert.ok(near(solo20[14].atk, 2.07616));
+  assert.ok(near(solo20[14].hp, 3.583181));
+  assert.equal(solo20[14].aspdAdd, undefined);
+  assert.equal(V.config.modes.mode_multi_abyss.enemyScale[14].aspdAdd, 30);
+});
+
+test('规程 绝境: the preview scale reaches waves, 器物 and the chest follow the exclude lists, and the leader pool does not', () => {
+  const gd = new GameData(V, 'mode_multi_hard');
+  const rng = createRng(21);
+  const setup = setupMatchWaves(gd, rng);
+  // R14 is the boss round (no normal template). Its scale is what escorts and the leader's ATK use.
+  const scale = gd.enemyScale(14);
+  assert.ok(near(scale.hpMul, 9.52542));
+  assert.ok(near(scale.atkMul, 2.143589));
+  assert.equal(scale.speedMul, 1);
+  assert.equal(scale.aspdAdd, undefined, 'aspdAdd 0 is not a spawn bonus');
+  assert.ok(near(scale.supplyHpMul, 2.6364));
+  const wave = buildNormalWave(gd, rng, setup, 13);
+  const spec = wave.spawns[0];
+  assert.ok(spec, 'R13 has a spawn');
+  const r13 = gd.enemyScale(13);
+  assert.equal(spec.mods.hpMul, r13.hpMul);
+  assert.equal(spec.mods.atkMul, r13.atkMul);
+  assert.equal(spec.mods.supplyHpMul, r13.supplyHpMul);
+  assert.equal(spec.mods.aspdAdd, undefined);
+
+  const h = fight({ defs: { enemies: V.enemies, chess: CHESS, effects: V.effects } });
+  const unit = h.spawn(MECH, { pos: [9, 8], mods: scale });
+  assert.equal(unit.s.aspd, unit.def.aspd);
+  assert.ok(near(unit.base.maxHp, unit.def.maxHp * scale.hpMul));
+  assert.ok(near(unit.base.atk, unit.def.atk * scale.atkMul));
+  assert.ok(near(unit.s.moveSpeed, unit.def.moveSpeed * scale.speedMul));
+
+  const chest = h.spawn('enemy_9038_achest', { pos: [9, 6], mods: scale });
+  assert.equal(chest.base.maxHp, chest.def.maxHp, '模拟宝藏 is on the short exclude list');
+  assert.equal(chest.s.aspd, chest.def.aspd);
+
+  const mirrorKey = 'enemy_1200_msfjin';
+  assert.ok(V.enemies[mirrorKey]);
+  const mirror = h.spawn(mirrorKey, { pos: [9, 4], mods: scale });
+  const rawHits = V.enemies[mirrorKey].stats.maxHp;
+  assert.equal(mirror.base.maxHp, Math.max(1, Math.round(rawHits * scale.hpMul / scale.supplyHpMul)));
+
+  const late = gd.enemyScale(15);
+  const tokenMods = { hpMul: late.hpMul, atkMul: late.atkMul, speedMul: late.speedMul, supplyHpMul: late.supplyHpMul, roundEnemyExcludeEffect: 'aceffect_enemy_7' };
+  for (const key of ['enemy_9016_acstmr', 'enemy_9023_acdums']) {
+    const token = h.spawn(key, { pos: [2, 6], route: waitAt(2, 6, 'FLY'), mods: tokenMods });
+    const raw = V.enemies[key].stats.maxHp;
+    assert.equal(token.base.maxHp, Math.max(1, Math.round(raw * late.hpMul / late.supplyHpMul)), `${key}: 补给线VI share included`);
+  }
+
+  const bossId = Object.keys(V.config.modes.mode_multi_hard.bossWeights)[0];
+  const bossWave = buildBossWave(gd, rng, setup, 14, { bossId, solo: false });
+  const leader = bossWave.spawns.find((s) => s.tag === 'boss');
+  assert.ok(leader);
+  assert.equal(leader.mods.hpMul, undefined);
+  assert.ok(near(leader.mods.atkMul, scale.atkMul));
+  assert.equal(leader.mods.aspdAdd, undefined);
+  const boss = V.bosses[bossId];
+  const base = boss.bloodByMode?.mode_multi_hard ?? boss.bloodPoint.HARD;
+  assert.equal(gd.bossPoolHp(bossId, 4), Math.max(1, Math.round(base * gd.bossPoolShare(4))));
+  assert.notEqual(gd.bossPoolHp(bossId, 4), Math.max(1, Math.round(base * gd.bossPoolShare(4) * scale.hpMul)));
+
+  for (const key of ['enemy_9017_achunt', 'enemy_9021_acduml', 'enemy_9022_acdumm']) {
+    if (!V.enemies[key]) continue;
+    const gun = h.spawn(key, { pos: [9, 2], route: waitAt(9, 2), mods: scale });
+    assert.equal(gun.s.aspd, 20, `${key}: 绝境 adds no attack speed, so the floor stays 20`);
+  }
+
+  const leaked = buildUniteWave(gd, [{ enemyKey: MECH, mods: scale, sourcePlayerId: 'p1' }], 1, 120);
+  assert.equal(leaked.spawns[0].mods.hpMul, scale.hpMul, '联防 keeps the round mods the leaker already had');
+  assert.equal(h.b.errors.length, 0);
 });
 
 // --- round 84: the companions whose abilities come from their PRTS pages (regulation.js kitGunsho … kitDsdivi) ---------

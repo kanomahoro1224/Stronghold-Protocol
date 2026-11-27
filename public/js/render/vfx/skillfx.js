@@ -69,11 +69,15 @@
 //           a mode's loops (水遁忍者's spin), an enemy's shell (帝国炮火先兆者's 'bombardShell': the crosshair and the
 //           falling missile until its 'bombard', whose explosion stands for the shell's hits; #143);
 //       (1) FX_BINDINGS (skills.js): a kit fx standing for an official effect no plan row places (克莱门莎 S3's mark,
-//           泡泡 S2's counter on her attacker, 归溟幽灵鲨 S1's hit on the ally she swaps HP with);
+//           泡泡 S2's counter on her attacker, 归溟幽灵鲨 S1's hit on the ally she swaps HP with, 塔露拉 S3's 簇火 flown
+//           along their lanes from the kit's one fx per volley: `lanes`, _lanes; 赤刃明霄陈 S3's wave: `track`, _track);
 //       (2) pulse: a fx tagged with its skill (`extra.skill`) while the skill is on, when the plan has `pulse` entries —
 //           the owner's buff ticks for a fx on the owner, the skill's other hits for a fx away from it — plays them there;
 //       (3) the start flash: a cast-flash fx (FLASH archetypes) on the owner in the frame of its official skill start;
-//       (4) a cast-flash fx tagged with the skill on the owner while its official skill loops play;
+//       (4) a cast-flash fx tagged with the skill on the owner while its official skill loops play.
+//           A 'pulse' tagged leizi2:current is not swallowed: projectile_char_leizi2_s3's only trail is the up
+//           current (leizi2_skill_03_hit_trail_up), and binding that to all four screen currents would be wrong.
+//           The procedural rings stay (op-leizi2.js);
 //       (5) FX_COVER (skills.js): a kind the skill's official effects stand for, while the skill lasts (_lasts: on, its
 //           activation frame, COVER_AFTER_S after its end, or a binding of the owner still held) and its plan's
 //           effects are installed — the client shows the skill's own effects there and no such cue (audit R11); for an
@@ -83,7 +87,9 @@
 //       (6) a summon's arrival ('summon' archetypes; a token's arrival burst) on a unit whose official birth effect
 //           FxWiring.deploy drew in that frame (the burst only with the unit's own birth effect): it would repeat it.
 //     FX_BINDINGS entries marked `during` bind only while the skill lasts; an entry with owner 'skill' (the fx names no
-//     owner) is the unit's whose skill of that id lasts. With 官方特效 off or none of an entry's prefabs installed the
+//     owner) is the unit's whose skill of that id lasts. `slots` plays one facing; `until: 'skill'` holds that loop
+//     until the skill ends; `recall` flies a projectile from the fx point back to (tx, ty); `pass` lets a miss fall
+//     through to the later rules. With 官方特效 off or none of an entry's prefabs installed the
 //     procedural fx stays (as the 驭械术士's floating units: render/vfx/funnelfx.js).
 // [ASSUMED] (no client data says): the target-loop duration; a passive is on while deployed; held start rows of a skill
 // stop after SKILL_CAST_S; at most one trigger effect per frame; a release's projectiles leave together with the shot;
@@ -91,11 +97,25 @@
 
 import {
   planFor, skillPlan, attackFx as planAttack, slotKey, planKeys, chargeKeys, chargeStep, skillProjectile, targetsOf, buffDuration,
-  eventNum, FX_BINDINGS, bindingEffects, bindingKeys, lifeOf, COND_BUFFS, condState, BOUND_BY_SKILL, coverOf, enemyCoverOf,
-  ENEMY_FX_BINDINGS, ENEMY_FX_KINDS, OWNER_NEAR, auraTargets, enemyBindingKeys, modeLoopKeys,
+  eventNum, FX_BINDINGS, bindingEffects, bindingKeys, bindList, lifeOf, COND_BUFFS, condState, BOUND_BY_SKILL, coverOf, enemyCoverOf,
+  ENEMY_FX_BINDINGS, ENEMY_FX_KINDS, ENEMY_CAST_SHOTS, OWNER_NEAR, auraTargets, enemyBindingKeys, modeLoopKeys,
 } from './skills.js';
+import { projectileParts } from './flight.js';
+import { heatwaveLanes, LANE_BACK, LANE_EXIT, LANE_SPEED } from './lanes.js';
+import { boardToUnity } from './math.js';
 import { fxSpec } from '../fx/kinds.js';
+import { coverStealth, uncoverStealth } from './stealthcover.js';
 import { UF, ANIM } from '../../../../shared/constants.js';
+
+/**
+ * The binding a kit fx plays. `cases` (菲亚梅塔 S2's two 'aoe' moments) merge over the entry; the case whose `tag`
+ * equals `extra.skill` plays, and none leaves the fx procedural. A binding without `cases` is itself.
+ */
+function pickBind(raw, extra) {
+  if (!raw) return null;
+  if (!Array.isArray(raw.cases)) return raw;
+  return bindList(raw).find((b) => !b.tag || extra.skill === b.tag) || null;
+}
 
 /** Battle seconds a held (non-oneshot) row of a skill's single cast lasts (FxWiring's CAST_LOOP_S for attacks). */
 export const SKILL_CAST_S = 0.6;
@@ -112,6 +132,14 @@ export const COVER_AFTER_S = 1;
 export const SHELL_GRACE_S = 0.5;
 /** Tiles between an enemy shell's spot and its landing's ('bombard' comes at the same x, y as its 'bombardShell'). */
 const SHELL_SPOT = 0.05;
+/**
+ * Tiles from a `lanes` shot's drawn head within which the kit's explosion is that shot's (FX_BINDINGS `ends`: 塔露拉 S3 —
+ * the explosion is at the enemy the shot's collider, projectile_range 0.5, touched; the drawn clock runs a tick or two
+ * off the sim's) [ASSUMED].
+ */
+export const LANE_HIT_REACH = 1.25;
+/** The identity rotation: the root of a projectile's flying effect (wiring.js ID_ROT). */
+const ID_ROT = Object.freeze([0, 0, 0, 1]);
 /**
  * Tiles past a landing's `r` within which a unit's drawn position counts as inside the blast (`coverHits`: the sim hits
  * by its own positions; the views are interpolated) [ASSUMED].
@@ -345,11 +373,26 @@ export class SkillFx {
     else if (e.hold === 'cast' || e.loop) later(this.w.ofx, castS, () => h.stop());
   }
 
-  _stopLoops(U) {
-    for (const h of U.loops) h.stop();
-    U.loops = [];
-    U.loopsOn = false;
+  _stopLoops(U, linger = false) {
+    // 娜斯提 S1: the during-skill loop is also the ON_BUFF_FINISH buff (FX_BINDINGS `linger`). Skill end keeps
+    // that handle; a recast, a death or a release does not pass linger.
+    const keep = linger ? this._lingerKeys(U) : null;
+    const left = [];
+    for (const h of U.loops) {
+      if (keep && h && h.alive !== false && keep.has(lc(h.key))) { left.push(h); continue; }
+      h.stop();
+    }
+    U.loops = left;
+    U.loopsOn = left.length > 0;
     U.byFlag = false;
+  }
+
+  _lingerKeys(U) {
+    const keys = FX_BINDINGS[U?.skillId]?.linger?.keys;
+    if (!Array.isArray(keys)) return null;
+    const out = new Set();
+    for (const k of keys) { const kk = lc(k); if (kk) out.add(kk); }
+    return out.size ? out : null;
   }
 
   _startReady(U, v) {
@@ -417,7 +460,7 @@ export class SkillFx {
       if (U.timed) {
         U.passiveDone = true;
         U.passiveOn = false;
-        if (live) { this._stopLoops(U); for (const e of uniq(U.plan.end)) this._keep(U, e, this._play(e, v)); }
+        if (live) { this._stopLoops(U); this._stopOwned(U); for (const e of uniq(U.plan.end)) this._keep(U, e, this._play(e, v)); }
       }
       return live && U.passiveDraws;
     }
@@ -429,6 +472,8 @@ export class SkillFx {
       if (!live) return false;
       this._stopReady(U);
       this._stopLoops(U);          // a cast while on (onEnd re-cast) starts afresh
+      this._stopOwned(U);
+      this._stopTokenLoops(U);
       let drew = false;
       for (const e of uniq([...U.plan.start, ...U.plan.range, ...U.plan.loop])) {
         if (e.birth) continue;     // the deploy's (birthOf: FxWiring.deploy plays it)
@@ -440,6 +485,7 @@ export class SkillFx {
       // an instant skill: what its kit hits in this frame without an attack are its attack's hits (kit hits)
       if (U.plan.kind === 'instant' && perAttack(U.plan).attacks.length) this._open(U, null, true);
       U.loopsOn = true;
+      this._startTokenLoops(U);
       return drew || U.drawsStart || this._noBurst(U);
     }
     const was = U.on === true;
@@ -455,7 +501,9 @@ export class SkillFx {
     }
     // the skill's final attack (tagCasts 'end'): its rows, its hits on this frame's damage (the kit deals it before the 0)
     if (was) this._endCast(U, v);
-    this._stopLoops(U);
+    this._stopLoops(U, true);
+    this._stopOwned(U);
+    this._stopTokenLoops(U);
     for (const e of uniq(U.plan.end)) this._keep(U, e, this._play(e, v));
     return U.drawsStart;
   }
@@ -488,6 +536,10 @@ export class SkillFx {
     if (claimed || !this.windows.length || !this.active()) return false;
     let drew = false;
     for (const win of this.windows) {
+      if (win.strike) {
+        if (!heal && this._strikeHit(win, v)) drew = true;
+        continue;
+      }
       if (win.inst && win.U.attacked) continue;   // the activation made its attack: its rows are that attack's
       const a = win.a || this._instAttack(win.U, heal);
       if (!a || /Heal/.test(String(a.ability || '')) !== !!heal) continue;
@@ -696,6 +748,13 @@ export class SkillFx {
       win.draws = true;
       if (e.hold === 'skill') win.loops.push(h); else this._keep(U, e, h);
     }
+    // round 86 f6: a one-shot the skill's plan cannot place (no attack, or a buff trigger the cast stands for)
+    const shots = ENEMY_CAST_SHOTS[U.key]?.[lc(entry.prefabKey)];
+    if (shots) for (const k of shots) {
+      if (!this.w.ofx.lib.has(k)) continue;
+      const h = this._play({ key: k, loop: false }, v, { important: true });
+      if (h) win.draws = true;
+    }
     return win.draws;
   }
 
@@ -726,6 +785,7 @@ export class SkillFx {
     if (U.ewin) { for (const h of U.ewin.loops) h.stop(); U.ewin = null; }
     this._stopCond(U);
     this._stopLoops(U);
+    this._stopTokenLoops(U);
     this._stopReady(U);
     for (const hs of U.slotLoops) for (const h of hs || []) h.stop();
     U.slotLoops = [];
@@ -771,6 +831,17 @@ export class SkillFx {
     if (fx.ability && !replace) { fx.cast = fx.cast.filter((e) => e.ability !== fx.ability); fx.range = []; fx.aim = []; fx.hit = st.plan.each.hit[0].length ? [st.plan.each.hit[0]] : []; }
     // the projectile its ability fires (index v3: abilities[].projectileKey, a use's projectileKey), else the naming guess
     const projectile = fits && ranged ? fx.projectile || skillProjectile(this.w.idx, st.plan) : null;
+    // 折桠 S2 (FX_BINDINGS onAttack): the blocked blow already names the enemy. The plan has no *Attack
+    // ability, so the hit is not a row. A missing prefab adds nothing — an empty group would swallow the
+    // mode's hit and the generic spark (wiring._landed `own`). A heal is not this blow.
+    const strike = FX_BINDINGS[lc(st.plan.skillId)]?.onAttack;
+    if (strike?.onAttack && !heal && Array.isArray(strike.keys) && strike.keys.length) {
+      const key = lc(strike.keys[0]);
+      if (key && this.w.ofx.lib.has(key)) {
+        const row = { key, at: 'target', role: 'hit', loop: false };
+        fx.hit = fx.hit.length ? fx.hit.map((g) => [...g, row]) : [[row]];
+      }
+    }
     if (!replace && !fx.cast.length && !fx.hit.length && !st.U.tHit.length) return null;
     return { U: st.U, fx, replace, projectile, shot: replace ? fx.shot : null, buffs: st.U.tHit, late: forced };
   }
@@ -898,11 +969,13 @@ export class SkillFx {
       // the effects were cleared (a tier switch) or not drawn: what should run starts again below, quietly
       for (const U of this.units.values()) {
         if (!U) continue;
-        for (const h of [...U.loops, ...U.ready, ...U.slotLoops.flat().filter(Boolean), ...(U.ewin ? U.ewin.loops : [])]) h.stop();
+        for (const h of [...U.loops, ...U.ready, ...U.slotLoops.flat().filter(Boolean), ...(U.ewin ? U.ewin.loops : []), ...(U.f5loops || [])]) h.stop();
         this._stopCond(U);
-        U.loops = []; U.ready = []; U.slotLoops = []; U.loopsOn = false; U.readyOn = false; U.passiveOn = false; U.energy = 0; U.quiet = true;
+        U.loops = []; U.ready = []; U.slotLoops = []; U.f5loops = []; U.loopsOn = false; U.readyOn = false; U.passiveOn = false; U.energy = 0; U.quiet = true;
         U.ewin = null;
       }
+      // the 迷彩 cover and the token loops died with the effects: the generic 隐匿 icon comes back until they restart
+      this._dropCovers();
       for (const t of this.tloops.values()) t.h.stop();
       this.tloops.clear();
       for (const t of this.aloops.values()) t.h.stop();
@@ -961,12 +1034,15 @@ export class SkillFx {
           if (!U.passiveOn && !U.passiveDone && (!U.timed || (U.on ?? flag))) this._passive(U, v, false);
         } else {
           const on = U.on !== null ? U.on : flag;
-          if (on && !U.loopsOn) this._loopsOnly(U, v, U.on === null);
-          else if (!on && U.loopsOn && U.byFlag) this._stopLoops(U);
+          if (on && !U.loopsOn) {
+            this._loopsOnly(U, v, U.on === null);
+            this._startTokenLoops(U);
+          } else if (!on && U.loopsOn && U.byFlag) this._stopLoops(U, true);
           const ready = U.plan.ready.length > 0 && !on && !flag && v.spMax > 0 && v.sp >= v.spMax - 1e-3;
           if (ready !== U.readyOn) { if (ready) this._startReady(U, v); else this._stopReady(U); }
         }
       }
+      if (U.f5loops?.length) this._pruneTokenLoops(U);
       if (U.charge) this._charge(U, v, Array.isArray(v.energy) ? Math.max(0, Math.floor(Number(v.energy[0]) || 0)) : 0);
       if (U.plan?.cond?.length) this._cond(U, v);
       U.quiet = false;
@@ -1021,10 +1097,17 @@ export class SkillFx {
 
   /** b.ev ['fx', kind, x, y, extra]: true when the official layer stands for it (module header: bindings 1–4). */
   simFx(kind, x, y, extra) {
-    if (!this.active() || !extra || typeof extra !== 'object' || typeof kind !== 'string') return false;
+    if (!extra || typeof extra !== 'object' || typeof kind !== 'string') return false;
+    // a 指挥中心 / 结构性原理 is remembered even while 官方特效 is off: the summon or the shield already happened,
+    // and turning the layer on starts its loop (the kind is not the kit's, so the procedural cue still plays)
+    if (kind === 'summon') this._noteClosurToken(extra);
+    else if (kind === 'shield') this._mcnistTokenBuff(extra);
+    if (!this.active()) return false;
     const now = this.w.ofx.time;
     // a skill start cast with every charge stored (the kit's `charged`: 卡涅利安) — the `[eff_cond]` state (_cond)
     if (extra.charged === true && extra.id != null) { const C = this.units.get(extra.id); if (C) C.charged = true; }
+    // 机械师 S3: the charge names the 结构性原理, whose record is not skchr_mcnist_3, so the owner loop cannot see it
+    if (kind === 'charge' && this._mcnistCharge(x, y, extra)) return true;
     // (0) an enemy's area: its zone's official prefabs at the fx's point, an aura tick its talent loops stand for
     if (this._enemyFx(kind, x, y, extra)) return true;
     // a shell of a lock binding's shooter takes its lock; its landing ends it (the kit's fx, drawn as before)
@@ -1035,11 +1118,18 @@ export class SkillFx {
     }
     for (const field of ['src', 'id']) {
       const U = extra[field] != null ? this.units.get(extra[field]) : null;
-      const bind = U ? FX_BINDINGS[U.skillId]?.[kind] : null;
-      if (bind && bind.owner === field && (!bind.during || this._lasts(U))) {
+      const bind = pickBind(U ? FX_BINDINGS[U.skillId]?.[kind] : null, extra);
+      if (bind && bind.owner === field && (!bind.during || this._lasts(U)) && (!bind.tag || extra.skill === bind.tag)) {
         if (bind.launch) return this._launch(U, bind, x, y, extra);
-        if (bind.ends) this._endShell(U);
-        return bind.attack ? this._boundAttack(U, bind) : this._bound(U, bind, x, y, extra);
+        if (bind.lanes) return this._lanes(U, bind, x, y, extra);
+        if (bind.flight) return this._flight(U, bind, x, y);
+        if (bind.recall) return this._recall(U, bind, x, y, extra);
+        if (bind.ends) this._ends(U, bind.ends, x, y);
+        if (bind.strike) return this._strike(U, bind);
+        if (bind.attack) return this._boundAttack(U, bind);
+        const drew = this._bound(U, bind, x, y, extra);
+        // `pass`: a spark that is not installed does not claim the fx (流明 S1's field stays FX_COVER)
+        if (drew || !bind.pass) return drew;
       }
     }
     // a binding whose fx names no owner: the unit whose skill of that id lasts
@@ -1069,6 +1159,10 @@ export class SkillFx {
       }
     }
     if (this._covered(kind, extra)) return true;
+    // 司霆惊蛰 S3: four currents, one 'pulse' at the enemy (skill leizi2:current). No prefab stands for all four
+    // directions (index projectile_char_leizi2_s3 main is only leizi2_skill_03_hit_trail_up). Do not let rules 3–4
+    // swallow the procedural rings the way 塔露拉's volley was swallowed before it left the cast-flash set.
+    if (extra.skill === 'leizi2:current') return false;
     if (!near || !FLASH.has(a)) return false;
     // (3) the frame of the official skill start, (4) a skill-tagged flash while the official loops play
     if (U.startFrame === this.frame && (U.ewin ? U.ewin.draws : U.drawsStart)) return true;
@@ -1100,6 +1194,82 @@ export class SkillFx {
     this.w._fly(proj, src, point, 'ranged', now, { dur, followUp: true, ref });
     (U.shells ||= []).push({ ref, until: now + dur + SHELL_GRACE_S });
     return true;
+  }
+
+  /**
+   * An FX_BINDINGS `lanes` entry (塔露拉 S3's 簇火, history §37.354): the kit's one fx per volley (`dir`, `n` lanes, at the
+   * caster) flies the projectile's flying effect along each lane of the volley (render/vfx/lanes.js heatwaveLanes: from up
+   * to LANE_BACK tiles behind her to the skill's wave_exit_distance past the field's far edge) at the skill's wave_speed,
+   * on the ground plane (the client's volley node: `_heightOverHighland` 0) — the client's
+   * EmitDirectionalMapEdgeProjectileVolley; the sim moves the shots itself and sends no event per shot. Each trail is
+   * cleared at its end (_clearMainEffectWhenReached) or where the kit's explosion meets it (`ends`: _cutLane). A
+   * random_birth_delay of the skill (0 in our data) holds back each shot by a fixed share of it [ASSUMED: the client
+   * draws its own]. False when the trail is not installed (the procedural lanes stay).
+   */
+  _lanes(U, bind, x, y, extra) {
+    const proj = bind.projectile ? this.w.idx?.projectiles?.[lc(bind.projectile)] : null;
+    const parts = proj ? projectileParts(proj) : null;
+    const main = parts?.main;
+    if (!main || !this.w.ofx.lib.has(main)) return false;
+    const bb = U.srec?.bb || {};
+    const exit = Number.isFinite(Number(bb.wave_exit_distance)) ? Number(bb.wave_exit_distance) : LANE_EXIT;
+    const lanes = heatwaveLanes({ x, y, dir: extra.dir, n: extra.n }, this.w.ofx.ctx?.fieldRect?.() ?? null, { back: LANE_BACK, exit });
+    const speed = Number(bb.wave_speed) > 0 ? Number(bb.wave_speed) : LANE_SPEED;
+    const life = parts.life > 0 ? parts.life : Infinity;
+    const delay = Number(bb.random_birth_delay) > 0 ? Number(bb.random_birth_delay) : 0;
+    U.lanes = (U.lanes || []).filter((s) => !s.done && !(s.h && s.h.alive === false));
+    let drew = false;
+    lanes.forEach((L, i) => {
+      const shot = { L, dur: Math.max(0.04, Math.min(life, L.len / speed)), x: L.x0, y: L.y0, h: null, done: false, cut: false };
+      const go = () => { shot.h = this._flyLane(main, shot); if (!shot.h) shot.done = true; };
+      const wait = delay * ((i * 0.618034) % 1);
+      if (wait > 0) later(this.w.ofx, wait, go);
+      else go();
+      if (!shot.done) { drew = true; U.lanes.push(shot); }
+    });
+    return drew;
+  }
+
+  /** One lane's flight (_lanes): the trail from its start to its end in `shot.dur` battle s, straight, facing its way. */
+  _flyLane(main, shot) {
+    const L = shot.L, dur = shot.dur;
+    const yaw = Math.atan2(L.y1 - L.y0, L.x1 - L.x0);   // the Unity frame's x / y are the board's column / row
+    const head = (k, out) => {
+      shot.x = L.x0 + (L.x1 - L.x0) * k; shot.y = L.y0 + (L.y1 - L.y0) * k;
+      return boardToUnity(shot.x, shot.y, 0, out);
+    };
+    return this.w.ofx.spawn(main, { pos: head(0, [0, 0, 0]), yaw, groundZ: 0, rootRot: ID_ROT }, {
+      important: true,
+      track: (fx) => {
+        if (shot.done) return;
+        // the kit's explosion met it: it stops where its last tick put it (_stopAfterFirstHit)
+        if (shot.cut) { shot.done = true; fx.stop({ hit: true }); return; }
+        head(Math.min(1, fx.time / dur), fx.anchor);
+        fx.yaw = yaw; fx.pitch = 0; fx.mirror = false;
+        if (fx.time >= dur) { shot.done = true; fx.stop({}); }
+      },
+    });
+  }
+
+  /** An FX_BINDINGS `ends` entry: the shot of the binding `ends` names that this fx (an explosion) ends. */
+  _ends(U, ends, x, y) {
+    if (FX_BINDINGS[U.skillId]?.[ends]?.lanes) this._cutLane(U, x, y);
+    else this._endShell(U);
+  }
+
+  /**
+   * A `lanes` shot went off (the kit's explosion at (x, y)): the owner's shot in flight whose drawn head is nearest to
+   * it, within LANE_HIT_REACH tiles, stops at the next tick.
+   */
+  _cutLane(U, x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    let best = null, bd = LANE_HIT_REACH;
+    for (const s of U.lanes || []) {
+      if (s.done || s.cut || !s.h || s.h.alive === false) continue;
+      const d = Math.hypot(s.x - x, s.y - y);
+      if (d < bd) { bd = d; best = s; }
+    }
+    if (best) best.cut = true;
   }
 
   /** An FX_BINDINGS `ends` entry: the owner's oldest shell still in the air stops where it is (it went off). */
@@ -1151,24 +1321,94 @@ export class SkillFx {
    * says; a binding's own `keys` at 'target' once on the unit the fx names.
    */
   _bound(U, bind, x, y, extra) {
-    const keys = bindingEffects(this.w.idx, bind).filter((k) => this.w.ofx.lib.has(k));
-    if (!keys.length) return false;
-    if (bind.drift) return this._drift(U, bind, keys, x, y, extra);
-    if (bind.at === 'target') {
-      // once on the unit the fx names (泡泡's attacker, 归溟幽灵鲨 S1's ally), else where it happens; turned by the owner's side
-      const tv = this.w.view(extra[bind.target || 'target']) || { id: 'fx:point', x, y, z: 0 };
+    let keys;
+    if (Array.isArray(bind.slots) && bind.slots.some(Boolean)) {
+      // one facing (号角: UP `_back`, else `_front`). A missing chosen prefab plays nothing, not the other facing.
+      const chosen = lc(slotKey({ slots: bind.slots, directionType: bind.directionType || 5, key: bind.slots.find(Boolean) }, U.v?.dir));
+      if (!chosen || !this.w.ofx.lib.has(chosen)) return false;
+      keys = [chosen];
+    } else {
+      const listed = bindingEffects(this.w.idx, bind);
+      keys = listed.filter((k) => this.w.ofx.lib.has(k));
+      // hits-only (流明 S1) has no area keys. A binding whose area keys are simply not installed must not
+      // fall through to its ticks (旅骨: a missing range leaves the procedural zone, and flies no trail).
+      if (!keys.length) return listed.length ? false : this._boundHits(U, bind, x, y, extra);
+    }
+    // `each` (煌 S3's cut): one oneshot on every unit id the fx names. None of them drawn → the procedural fx stays.
+    if (typeof bind.each === 'string' && Array.isArray(extra?.[bind.each])) {
       let drew = false;
-      for (const k of keys) if (this.w.playOn(k, tv, { flipFrom: U.v || undefined })) drew = true;
+      for (const id of extra[bind.each]) {
+        const tv = this.w.view(id);
+        if (!tv) continue;
+        for (const k of keys) if (this.w.playOn(k, tv, { flipFrom: U.v || undefined, important: true })) drew = true;
+      }
+      return drew;
+    }
+    if (bind.drift) return this._drift(U, bind, keys, x, y, extra);
+    if (bind.track) return this._track(U, bind, keys, x, y, extra);
+    if (bind.at === 'target') {
+      // once on the unit the fx names (泡泡's attacker, 归溟幽灵鲨 S1's ally), else where it happens; turned by the owner's side.
+      // A held one (乌啾 S2's 迷彩, hold 'fx') follows that unit for the fx's duration. An explicit 0 stays 0
+      // (the point path below still treats a non-positive duration as holdS). No hold: still a oneshot.
+      const named = extra[bind.target || 'target'];
+      const tv = this.w.view(named) || { id: 'fx:point', x, y, z: 0 };
+      const held = !!(bind.hold && !bind.oneshot);
+      if (!held) {
+        let drew = false;
+        for (const k of keys) if (this.w.playOn(k, tv, { flipFrom: U.v || undefined })) drew = true;
+        return drew;
+      }
+      const bb = U.srec?.bb || {};
+      const raw = extra.duration ?? extra.dur ?? extra.hold;
+      const fxS = Number(raw);
+      const holdS = bind.hold === 'fx'
+        ? (raw != null && Number.isFinite(fxS) && fxS >= 0 ? fxS : bind.holdS || SKILL_CAST_S)
+        : (Number(bb[bind.hold]) > 0 ? Number(bb[bind.hold]) : bind.holdS || SKILL_CAST_S);
+      let drew = false;
+      for (const k of keys) {
+        const h = this.w.playOn(k, tv, { follow: true, loop: true, important: true, flipFrom: U.v || undefined });
+        if (!h) continue;
+        drew = true;
+        const cover = bind.coverStealth && tv.info ? bind.coverStealth : null;
+        const mark = cover ? this._coverStealth(tv, cover, h) : null;
+        later(this.w.ofx, holdS, () => { h.stop(); if (mark) this._dropCover(mark); });
+      }
       return drew;
     }
     const tv = this.w.view(extra.id);
     const at = bind.at === 'point' || !tv ? this._ground(x, y, tv) : tv;
+    // a buff whose life is the skill's (信仰搅拌机 S2's fatal guard): follow the owner until the skill's loops stop
+    if (bind.hold === 'skill') {
+      const who = tv || U.v;
+      if (!who) return false;
+      let drew = false;
+      for (const k of keys) {
+        const h = this.w.playOn(k, who, { follow: true, loop: true, important: true });
+        if (!h) continue;
+        drew = true;
+        U.loops.push(h);
+      }
+      return drew;
+    }
     if (bind.oneshot) {
       let drew = false;
       for (const k of keys) if (this.w.playOn(k, at, { important: true })) drew = true;
+      // a one-shot that also flies (流形's split: the start at the clone, then the trail from the origin)
+      if (drew && bind.fly) this._flyThrown(U, bind, x, y);
       return drew;
     }
     if (bind.hold === 'lock') return this._lockOn(U, keys, at, tv, x, y);
+    if (bind.until === 'skill') {
+      // a loop on the owner until the skill ends (号角's overload switch), not a timer
+      let drew = false;
+      for (const k of keys) {
+        const h = this.w.playOn(k, at, { follow: true, loop: true, important: true });
+        if (!h) continue;
+        drew = true;
+        U.loops.push(h);
+      }
+      return drew;
+    }
     const bb = U.srec?.bb || {};
     const fxS = Number(extra.duration ?? extra.dur ?? extra.hold);
     const holdS = bind.hold === 'fx' ? (fxS > 0 ? fxS : bind.holdS || SKILL_CAST_S)
@@ -1179,13 +1419,169 @@ export class SkillFx {
       if (!h) continue;
       drew = true;
       later(this.w.ofx, holdS, () => h.stop());
-      this.marks.push({ owner: U.id, r: Math.round(y), c: Math.round(x), until: this.w.ofx.time + holdS, h, cover: bind.cover || [] });
+      this.marks.push({ owner: U.id, r: Math.round(y), c: Math.round(x), until: this.w.ofx.time + holdS, h, cover: bind.cover || [], untilSkill: !!bind.untilSkill });
     }
     if (!drew) return false;
     // after the marks: a flight that ends in this call still leaves onReached to the area (bindsReached)
     if (bind.fly) this._flyThrown(U, bind, x, y);
     if (bind.hits) this._zoneHits(U, bind, at, holdS);
     return true;
+  }
+
+  /**
+   * A binding with no area keys of its own (流明 S1): its `hits` play at the fx for the hold. False when none of them
+   * is installed, so a `pass` binding falls through (the heal field stays FX_COVER).
+   */
+  _boundHits(U, bind, x, y, extra) {
+    if (!Array.isArray(bind.hits) || !bind.hits.length) return false;
+    const ready = bind.hits.some((k) => { const kk = lc(k); return !!kk && this.w.ofx.lib.has(kk); });
+    if (!ready) return false;
+    const bb = U.srec?.bb || {};
+    const fxS = Number(extra?.duration ?? extra?.dur ?? extra?.hold);
+    const holdS = bind.hold === 'fx' ? (fxS > 0 ? fxS : bind.holdS || SKILL_CAST_S)
+      : Number(bb[bind.hold]) > 0 ? Number(bb[bind.hold]) : bind.holdS || SKILL_CAST_S;
+    if (!(holdS > 0)) return false;
+    const tv = this.w.view(extra?.id);
+    const at = bind.at === 'point' || !tv ? this._ground(x, y, tv) : tv;
+    this._zoneHits(U, bind, at, holdS);
+    return true;
+  }
+
+  /**
+   * A moving point the kit re-sends (FX_BINDINGS `track`: 赤刃明霄陈 S3's chen3Wave). One copy of the projectile's
+   * flying effect follows the latest sample — the prefab loops, so a new spawn per 0.12 s sample would stack trails.
+   * Yaw is the board direction `extra.dr` / `extra.dc` (row / column), the same atan2 _flyLane uses. The skill's
+   * start, its end and clear() stop it (_stopOwned). False when the effect is not installed (the procedural qi stays).
+   */
+  _track(U, bind, keys, x, y, extra) {
+    const main = keys[0];
+    if (!main || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const dr = Number(extra.dr), dc = Number(extra.dc);
+    const yaw = Number.isFinite(dr) && Number.isFinite(dc) && (dr !== 0 || dc !== 0) ? Math.atan2(dr, dc) : null;
+    U.tracks = (U.tracks || []).filter((s) => !s.done && s.h && s.h.alive !== false);
+    let shot = U.tracks.find((s) => s.main === main);
+    if (!shot) {
+      shot = { main, x, y, yaw: yaw ?? 0, h: null, done: false };
+      const head = (out) => boardToUnity(shot.x, shot.y, 0, out);
+      shot.h = this.w.ofx.spawn(main, { pos: head([0, 0, 0]), yaw: shot.yaw, groundZ: 0, rootRot: ID_ROT }, {
+        important: true, loop: true,
+        track: (fx) => {
+          if (shot.done) return;
+          head(fx.anchor);
+          fx.yaw = shot.yaw;
+          fx.pitch = 0;
+          fx.mirror = false;
+        },
+      });
+      if (!shot.h) return false;
+      U.tracks.push(shot);
+    } else {
+      shot.x = x;
+      shot.y = y;
+      if (yaw != null) shot.yaw = yaw;
+    }
+    return true;
+  }
+
+  /**
+   * An FX_BINDINGS `recall` (伊内丝 S3): the projectile flies from the fx's (x, y) — the sentry — back to (tx, ty) — her.
+   * Not `_fly`, which leaves her muzzle and homes outward. The trail is the projectile's main effect; a HarpoonRenderer
+   * with `_useEndPointAsStartPos` stretches its rope from her to the head. onReached plays on her when it arrives
+   * (`_useTraceTargetWhenReach`); onHit does not (the sim already dealt the path, and the fx names no enemy). False
+   * when neither the trail nor the rope is installed, or (tx, ty) is missing (the procedural beam stays). Time is
+   * distance / the projectile's speed, clamped to 0.04–3 s [ASSUMED: the sim resolves the path in the same tick].
+   */
+  _recall(U, bind, x, y, extra) {
+    const src = U.v;
+    const proj = bind.projectile ? this.w.idx?.projectiles?.[lc(bind.projectile)] : null;
+    const tx = Number(extra?.tx), ty = Number(extra?.ty);
+    if (!src || !proj || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(tx) || !Number.isFinite(ty)) return false;
+    const parts = projectileParts(proj);
+    const main = parts.main && this.w.ofx.lib.has(parts.main) ? parts.main : null;
+    const rope = parts.rope && this.w.ofx.lib.has(parts.rope) ? parts.rope : null;
+    if (!main && !rope) return false;
+    const speed = Number(proj.movement?.speed);
+    const dist = Math.hypot(tx - x, ty - y);
+    const dur = speed > 0 && dist > 0 ? Math.min(3, Math.max(0.04, dist / speed)) : 0.04;
+    const from = boardToUnity(x, y, 0);
+    const to = boardToUnity(tx, ty, 0);
+    const ropeFromEnd = (Array.isArray(proj.behaviours) ? proj.behaviours : []).some((b) => b?.class === 'HarpoonRenderer' && Number(b.fields?._useEndPointAsStartPos) === 1);
+    const ropeStart = (ropeFromEnd ? to : from).slice();
+    const yaw = Math.atan2(to[1] - from[1], to[0] - from[0]);
+    // flight.main / flight.rope are the handles spawn() returns (render/vfx/system.js FxHandle: no anchor, no linkLines;
+    // its `effect` is null while the prefab loads). Each effect is placed by its own track, which receives the effect
+    // itself — as _flyLane and wiring._fly do (on-screen check, round 86: writing through the handles threw inside the
+    // track, which Effect.update swallows, so the label and the rope stayed at the sentry and never reached her)
+    const flight = { done: false, main: null, rope: null };
+    const placeAt = (k, out) => {
+      out[0] = from[0] + (to[0] - from[0]) * k;
+      out[1] = from[1] + (to[1] - from[1]) * k;
+      out[2] = from[2] + (to[2] - from[2]) * k;
+      return out;
+    };
+    const place = (fx, k, isRope) => {
+      placeAt(k, fx.anchor);
+      fx.yaw = yaw; fx.pitch = 0; fx.mirror = false;
+      if (isRope && typeof fx.linkLines === 'function') fx.linkLines(ropeStart, fx.anchor);
+    };
+    const finish = () => {
+      if (flight.done) return;
+      flight.done = true;
+      for (const h of [flight.main, flight.rope]) if (h && h.alive !== false) h.stop({});
+      for (const k of proj.onReached || []) {
+        const key = lc(k);
+        if (key && this.w.ofx.lib.has(key)) this.w.playOn(key, src, { important: true });
+      }
+    };
+    const trackOf = (isRope) => (fx) => {
+      if (flight.done) return;
+      const k = dur > 0 ? Math.min(1, fx.time / dur) : 1;
+      place(fx, k, isRope);
+      if (fx.time >= dur) finish();
+    };
+    const born = (key, isRope) => this.w.ofx.spawn(key, { pos: placeAt(0, [0, 0, 0]), yaw, groundZ: 0, rootRot: ID_ROT }, { important: true, track: trackOf(isRope) });
+    if (main) flight.main = born(main, false);
+    if (rope) flight.rope = born(rope, true);
+    // the rope's end points before its first tick, when its prefab was already loaded (a world-space line draws
+    // nothing until they are set); a handle without an effect yet is linked by its first track call
+    const ropeFx = flight.rope ? flight.rope.effect ?? flight.rope : null;
+    if (ropeFx && typeof ropeFx.linkLines === 'function') place(ropeFx, 0, true);
+    return !!(flight.main || flight.rope);
+  }
+
+  /**
+   * Stop what this skill owns besides its plan loops: a `track` trail, and looping marks marked `untilSkill`
+   * (赤刃明霄陈 S2's respawn buffs — their hold is only a cap). A bleed that starts as the skill ends is not one of these.
+   */
+  _stopOwned(U) {
+    if (!U) return;
+    for (const s of U.tracks || []) {
+      s.done = true;
+      if (s.h && s.h.alive !== false) s.h.stop({});
+    }
+    U.tracks = [];
+    const now = this.w.ofx.time;
+    for (const m of this.marks) {
+      if (m.owner !== U.id || !m.untilSkill) continue;
+      m.until = now;
+      if (m.h && m.h.alive !== false) m.h.stop();
+    }
+    if (this.marks.length) this.marks = this.marks.filter((m) => m.until > now);
+  }
+
+  /**
+   * A projectile onHit key this skill's binding plays itself (FX_BINDINGS `claimHit`: 斩业星熊 S2's shield hit, which
+   * is also projectile_chr_hsgma2_s2's onHit). wiring._arrive skips it so the straight shot does not play it again.
+   */
+  ownsHit(src, key) {
+    const U = src ? this.of(src) : null;
+    if (!U?.skillId || !this.active()) return false;
+    const k = lc(key);
+    if (!k) return false;
+    for (const b of Object.values(FX_BINDINGS[U.skillId] || {})) {
+      if (b.claimHit && (b.keys || []).some((x) => lc(x) === k)) return true;
+    }
+    return false;
   }
 
   /**
@@ -1222,8 +1618,44 @@ export class SkillFx {
   }
 
   /**
+   * An FX_BINDINGS `flight` entry (乌尔比安 S3's anchor): the fx is the projectile's throw, not a lasting area.
+   * The trail flies from the caster to the fx's point; the landing plays the projectile's own onHit and onReached
+   * (wiring._arrive — bindsReached skips a `flight` binding, so they are not swallowed). False when the trail is
+   * not installed (the procedural fx stays). Not used when an attack of the skill already flies the same projectile.
+   */
+  _flight(U, bind, x, y) {
+    const proj = bind.projectile ? this.w.idx?.projectiles?.[lc(bind.projectile)] : null;
+    const main = proj ? lc(proj.main) : '';
+    if (!proj || !main || !this.w.ofx.lib.has(main) || !U.v || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    this._flyThrown(U, bind, x, y);
+    return true;
+  }
+
+  /**
+   * An FX_BINDINGS `strike` entry (锏 S2): the fx opens a kit-hit window. Each later unclaimed HP damage of this
+   * frame on an enemy plays `keys` on that enemy (_strikeHit). True when those prefabs are installed — the
+   * procedural fx is skipped — even before a hit lands. [ASSUMED] the kit's damages of that frame are the hits.
+   */
+  _strike(U, bind) {
+    const keys = (bind.keys || []).map(lc).filter((k) => k && this.w.ofx.lib.has(k));
+    if (!keys.length || !U.v) return false;
+    this._mark();
+    this.windows.push({ U, strike: keys, frame: this.frame });
+    return true;
+  }
+
+  /** One unclaimed HP hit of a `strike` window: `keys` on the enemy, once per damage. */
+  _strikeHit(win, t) {
+    const own = win.U?.v;
+    if (!own || !t || t === own || t.destroyed || !!t.isEnemy === !!own.isEnemy) return false;
+    let drew = false;
+    for (const k of win.strike) if (this.w.playOn(k, t, { flipFrom: own })) drew = true;
+    return drew;
+  }
+
+  /**
    * Fly a binding's projectile from the caster to the fx's tile (FX_BINDINGS `fly`: 旅骨's 炼金单元,
-   * 承曦格雷伊's ball). The kit emits the zone and no 'atk', so wiring.attack never starts the trail.
+   * 承曦格雷伊's ball; also `flight`). The kit emits the area and no 'atk', so wiring.attack never starts the trail.
    * Time is distance / the projectile's speed, clamped to 0.04–3 s [ASSUMED: the sim lands the unit at once
    * and does not wait on this flight]. `followUp` keeps the ground point out of the expected-hit table.
    */
@@ -1334,6 +1766,8 @@ export class SkillFx {
     const binds = U ? FX_BINDINGS[U.skillId] : null;
     if (!binds) return false;
     for (const b of Object.values(binds)) {
+      // a `flight` binding leaves onReached to the landing (_flight); swallowing it would drop the burst
+      if (b.flight) continue;
       if (b.at === 'point' && b.projectile && this.w.idx?.projectiles?.[lc(b.projectile)] === proj && (!b.during || this._lasts(U))) return true;
     }
     return false;
@@ -1363,7 +1797,7 @@ export class SkillFx {
     const rows = [];
     for (const key of cands) {
       const bind = ENEMY_FX_BINDINGS[key][kind];
-      if (bind.xkind && extra.kind !== bind.xkind) continue;
+      if (!xkindOk(bind, extra)) continue;
       const owner = this._enemyOwner(key, bind, x, y, extra);
       if (!owner) continue;
       rows.push({ key, bind, owner, rank: this._fxRank(bind, owner, extra) });
@@ -1371,9 +1805,18 @@ export class SkillFx {
     rows.sort((a, b) => a.rank - b.rank);
     for (const { key, bind, owner } of rows) {
       if (bind.endMode) { this._modeEnd(owner); return false; }   // (its procedural cue stays)
+      // keysByKind: one fx kind, several official clips (裂管之音's 合奏 and its on-damage pulse). A kind with no
+      // list does not claim the fx.
+      let byKind = null;
+      if (bind.keysByKind) {
+        byKind = bind.keysByKind[lc(extra.kind)] || null;
+        if (!byKind || !byKind.length) continue;
+      }
       const drew = bind.modeLoops ? this._modeWin(owner, key, bind)
         : bind.talent ? this._aura(owner, key, bind, x, y, extra)
-        : this._zone(bind, x, y, extra, bind.owner === 'shell' ? owner : null);
+        : bind.fly ? this._enemyFly(bind, x, y, extra)
+        : bind.at === 'target' ? this._onTarget(bind, extra)
+        : this._zone(bind, x, y, extra, bind.owner === 'shell' ? owner : null, byKind);
       if (!drew) continue;
       // the kit's own moment stood for an attack-rooted skill of a window: that was its one attack — the enemy's next
       // attacks in the window are its own (0.3.1: the 'cast' of 鼠王's 【沙狱】 holds the window for the debuff's 15 s, and
@@ -1445,8 +1888,8 @@ export class SkillFx {
    * stay until its landing, at most SHELL_GRACE_S past the hold; `shell` here: the entry the landing's 'shell' owner
    * found (_shellLanded).
    */
-  _zone(bind, x, y, extra, shell = null) {
-    const keys = bindingEffects(this.w.idx, bind).filter((k) => this.w.ofx.lib.has(k));
+  _zone(bind, x, y, extra, shell = null, only = null) {
+    const keys = (only || bindingEffects(this.w.idx, bind)).filter((k) => this.w.ofx.lib.has(k));
     if (!keys.length) return false;
     const at = this._ground(x, y);
     const fxS = Number(bind.holdKey ? extra[bind.holdKey] : extra.duration ?? extra.dur ?? extra.hold);
@@ -1596,6 +2039,11 @@ export class SkillFx {
 
   /** Battle reset: forget every unit (the effects themselves are cleared by OfficialFx.clear). */
   clear() {
+    for (const U of this.units.values()) {
+      this._stopOwned(U);
+      for (const h of U?.f5loops || []) h.stop?.();
+    }
+    this._dropCovers();
     this.units.clear();
     this.tloops.clear();
     this.marks = [];
@@ -1614,5 +2062,224 @@ export class SkillFx {
     this.modeWins.clear();
     for (const s of this.shells) for (const h of s.hs) h.stop();
     this.shells = [];
+    if (this.f6Hold) { for (const t of this.f6Hold.values()) t.h.stop(); this.f6Hold.clear(); }
   }
+
+  /**
+   * Round 86 f6. A binding with `fly: 'fromTo'` (阿利斯泰尔's store sword): the projectile flies from `extra.from`
+   * (else the fx's point — the sword is removed in the same tick) to `extra.to`. A sword that names `extra.id` and no
+   * from/to is someone else's (仇白) and is not claimed. False when the trail is not installed or the target is gone,
+   * so the procedural fx stays. The arrival plays the projectile's onHit (_fly → _arrive); the trail is not also
+   * stuck at the sword.
+   */
+  _enemyFly(bind, x, y, extra) {
+    if (extra.id != null || extra.from == null || extra.to == null) return false;
+    const proj = bind.projectile ? this.w.idx?.projectiles?.[lc(bind.projectile)] : null;
+    const main = proj ? projectileParts(proj).main : null;
+    if (!proj || !main || !this.w.ofx.lib.has(main)) return false;
+    const tgt = this.w.view(extra.to);
+    if (!tgt || !Number.isFinite(tgt.x) || !Number.isFinite(tgt.y)) return false;
+    const from = this.w.view(extra.from);
+    const src = from && from.alive !== false ? from : { id: extra.from, x, y, z: 0, alive: true };
+    const speed = Number(proj.movement?.speed);
+    const dist = Math.hypot(tgt.x - src.x, tgt.y - src.y);
+    const dur = Math.min(3, Math.max(0.04, speed > 0 && dist > 0 ? dist / speed : 0.35));
+    this.w._fly(proj, src, tgt, 'ranged', this.w.ofx.time, { dur });
+    return true;
+  }
+
+  /**
+   * Round 86 f6. A binding with `at: 'target'` (炎佑's burn): the prefabs follow `extra.target` for the fx's `dur`
+   * (else `holdS`). A looping one already on that unit is kept and its stop is pushed out, so the 1 s ticks join.
+   * False when the target is not on the field or none of the prefabs is installed.
+   */
+  _onTarget(bind, extra) {
+    const tv = this.w.view(extra.target ?? extra.to);
+    if (!tv || tv.alive === false) return false;
+    const keys = bindingEffects(this.w.idx, bind).filter((k) => this.w.ofx.lib.has(k));
+    if (!keys.length) return false;
+    const fxS = Number(extra.duration ?? extra.dur ?? extra.hold);
+    const holdS = bind.hold === 'fx' && fxS > 0 ? fxS : bind.holdS || 1;
+    let drew = false;
+    for (const k of keys) {
+      const loop = !bind.once && this.w.idx?.prefabs?.[k]?.looping !== false;
+      const h = loop ? this._heldOn(k, tv, holdS) : this.w.playOn(k, tv, { follow: true, important: true });
+      if (h) drew = true;
+    }
+    return drew;
+  }
+
+  /** A looping on-target effect, one per unit and key; a later tick extends it instead of stacking another. */
+  _heldOn(key, v, holdS) {
+    const id = `${idOf(v)}|${key}`;
+    if (!this.f6Hold) this.f6Hold = new Map();
+    const prev = this.f6Hold.get(id);
+    if (prev && prev.h.alive) {
+      prev.gen += 1;
+      const gen = prev.gen;
+      later(this.w.ofx, holdS, () => { if (prev.gen === gen) { prev.h.stop(); this.f6Hold.delete(id); } });
+      return prev.h;
+    }
+    const h = this.w.playOn(key, v, { follow: true, loop: true, important: true });
+    if (!h) return null;
+    const rec = { h, gen: 1 };
+    this.f6Hold.set(id, rec);
+    later(this.w.ofx, holdS, () => { if (rec.gen === 1) { h.stop(); this.f6Hold.delete(id); } });
+    return h;
+  }
+
+  // ---- round 86 f5: 迷彩 cover, token loops, 机械师 S3 charge ----------------------------------------------
+
+  /** Hide the generic 隐匿 icon while `h` plays on `view` for status `key` (stealthcover.js). */
+  _coverStealth(view, key, h) {
+    const mark = { view, key, h, live: true };
+    coverStealth(view, key);
+    (this.stealthCovers ||= []).push(mark);
+    return mark;
+  }
+
+  _dropCover(mark) {
+    if (!mark || !mark.live) return;
+    mark.live = false;
+    uncoverStealth(mark.view, mark.key);
+  }
+
+  _dropCovers() {
+    for (const m of this.stealthCovers || []) {
+      if (m.live) { m.live = false; uncoverStealth(m.view, m.key); }
+      m.h?.stop?.();
+    }
+    this.stealthCovers = [];
+  }
+
+  /**
+   * 可露希尔's 指挥中心 (op-closur.js 'summon': id = the token, src = her, token = its defId). The binding's
+   * kind is `tokenRange`, not `summon`, so this does not swallow the procedural arrival. The range loop
+   * plays on the token while her skill of that id is on.
+   */
+  _noteClosurToken(extra) {
+    if (extra.src == null || extra.id == null) return;
+    let U = this.units.get(extra.src);
+    if (!U) {
+      const sv = this.w.view(extra.src);
+      if (sv) U = this.of(sv);
+    }
+    const b = U && FX_BINDINGS[U.skillId]?.tokenRange;
+    if (!b?.token) return;
+    const tv = this.w.view(extra.id);
+    const def = extra.token || tv?.info?.defId || tv?.info?.spine;
+    if (def !== b.token) return;
+    (U.f5tokens ||= new Set()).add(extra.id);
+    if (this.active() && this._on(U)) this._playTokenLoop(U, b, extra.id);
+  }
+
+  _pruneTokenLoops(U) {
+    const next = [];
+    for (const h of U.f5loops || []) {
+      if (!h || h.alive === false) continue;
+      const tv = this.w.view(h._f5id);
+      if (!tv || tv.alive === false) { h.stop?.(); continue; }
+      next.push(h);
+    }
+    U.f5loops = next;
+  }
+
+  _playTokenLoop(U, b, id) {
+    this._pruneTokenLoops(U);
+    const tv = this.w.view(id);
+    if (!tv || tv.alive === false) return;
+    const key = lc(b?.keys?.[0]);
+    if (!key || !this.w.ofx.lib.has(key)) return;
+    if ((U.f5loops || []).some((h) => h._f5id === id && h.key === key && h.alive !== false)) return;
+    const h = this.w.playOn(key, tv, { follow: true, loop: true, important: true });
+    if (!h) return;
+    h._f5id = id;
+    (U.f5loops ||= []).push(h);
+  }
+
+  _startTokenLoops(U) {
+    const range = FX_BINDINGS[U.skillId]?.tokenRange;
+    const buff = FX_BINDINGS[U.skillId]?.tokenBuff;
+    const b = range || buff;
+    if (!b) return;
+    for (const id of U.f5tokens || []) this._playTokenLoop(U, b, id);
+  }
+
+  _stopTokenLoops(U) {
+    for (const h of U?.f5loops || []) h.stop?.();
+    if (U) U.f5loops = [];
+  }
+
+  /**
+   * 机械师 S2: grantBarrier's 'shield' names the holder. The 结构性原理's copy of mcnist_skill_02_buff_01
+   * (CreateBuffToToken) starts while S2 is on. Kind is `tokenBuff`, not `shield`, so the procedural
+   * barrier stays. [ASSUMED] the first unit in the map whose S2 is on owns a token that just got a shield.
+   */
+  _mcnistTokenBuff(extra) {
+    if (extra.id == null) return;
+    const tv = this.w.view(extra.id);
+    const def = tv?.info?.defId || tv?.info?.spine;
+    if (def !== 'token_10069_mcnist_mcgraf') return;
+    for (const U of this.units.values()) {
+      if (!U || U.skillId !== 'skchr_mcnist_2') continue;
+      const b = FX_BINDINGS[U.skillId]?.tokenBuff;
+      if (!b || b.token !== def) continue;
+      (U.f5tokens ||= new Set()).add(extra.id);
+      if (this.active() && this._on(U)) this._playTokenLoop(U, b, extra.id);
+      break;
+    }
+  }
+
+  /**
+   * 机械师 S3 chargeGraf (op-mcnist.js): the fx id is the token, which the same call then retreats, so the
+   * flight is scheduled from a snapshot (wiring.view is null once it is destroyed). Index delayToStart is
+   * 0.25 s; the kit waits 0.2 s before the damage — the visual uses the index. Facing from the trail names
+   * [ASSUMED: no selector node in the uses]. True only when the trail prefab is installed.
+   */
+  _mcnistCharge(x, y, extra) {
+    const b = FX_BINDINGS.skchr_mcnist_3?.charge;
+    if (!b || extra.kind) return false;
+    const src = this.w.view(extra.id);
+    const def = src?.info?.defId || src?.info?.spine;
+    if (!src || def !== b.token) return false;
+    const dir = String(src.dir || '').toUpperCase();
+    const right = (src.visFacing ?? src.facing ?? 1) >= 0;
+    let pk = b.facing?.LEFT;
+    if (dir === 'RIGHT') pk = b.facing.RIGHT;
+    else if (dir === 'LEFT') pk = b.facing.LEFT;
+    else if (dir === 'UP') pk = right ? b.facing.UP_RIGHT : b.facing.UP;
+    else if (dir === 'DOWN') pk = right ? b.facing.DOWN_RIGHT : b.facing.DOWN;
+    const proj = pk ? this.w.idx?.projectiles?.[lc(pk)] : null;
+    const main = proj && lc(proj.main);
+    if (!main || !this.w.ofx.lib.has(main)) return false;
+    const tx = Number(extra.tx), ty = Number(extra.ty);
+    if (!Number.isFinite(tx) || !Number.isFinite(ty)) return false;
+    const sx = Number.isFinite(src.x) ? src.x : x;
+    const sy = Number.isFinite(src.y) ? src.y : y;
+    const speed = Number(proj.movement?.speed) || 20;
+    const delay = Number(proj.movement?.delayToStart) || 0;
+    const dist = Math.hypot(tx - sx, ty - sy);
+    const dur = Math.min(3, Math.max(0.04, speed > 0 ? dist / speed : 0.04));
+    const origin = {
+      id: src.id ?? src.info?.id, x: sx, y: sy, z: src.z || 0, alive: true,
+      visFacing: src.visFacing, facing: src.facing, dir: src.dir, info: src.info,
+    };
+    const point = { id: `mcnist:${extra.id}:${this.frame}`, x: tx, y: ty, z: 0, alive: true };
+    const go = () => {
+      if (!this.active()) return;
+      this.w._fly(proj, origin, point, 'ranged', this.w.ofx.time, { dur, followUp: true });
+    };
+    if (delay > 0) later(this.w.ofx, delay, go);
+    else go();
+    return true;
+  }
+}
+
+/** Whether `extra.kind` is a binding's `xkind` (one string, or a list — round 86 f6's 余音 clips). */
+function xkindOk(bind, extra) {
+  if (!bind.xkind) return true;
+  const k = lc(extra?.kind);
+  if (!k) return false;
+  const list = Array.isArray(bind.xkind) ? bind.xkind : [bind.xkind];
+  return list.some((x) => lc(x) === k);
 }

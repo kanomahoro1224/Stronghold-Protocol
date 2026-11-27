@@ -17,8 +17,9 @@ export const FX_KINDS = Object.freeze({
   frostNova: { a: 'blast', c: 0x9fe6ff, smoke: 0x1c2630 }, sunBurst: { a: 'blast', c: 0xffe28a }, meltdown: { a: 'blast', c: 0xff5a2a, r: 1.5, heavy: true },
   iceSpike: { a: 'blast', c: 0xbfeeff, smoke: 0x1c2630 }, rockfall: { a: 'blast', c: 0xc8a878, smoke: 0x4a3f33 }, rockslide: { a: 'blast', c: 0xc8a878, smoke: 0x4a3f33 },
   finale: { a: 'blast', c: 0xffd45a, r: 1.5 }, swordStorm: { a: 'blast', c: 0xdfe8ff }, swordRain: { a: 'blast', c: 0xdfe8ff }, liberate: { a: 'blast', c: 0xffffff },
-  // 赤刃明霄陈 S3 赤霄·天喟 的龙剑气: a travelling blade, drawn from the sim's per-interval `chen3Wave` events (its own
-  // position + the previous point + direction); `pt` because it is not at the caster (it roams and passes by her tile)
+  // 赤刃明霄陈 S3 赤霄·天喟 的龙剑气: the sim's per-interval `chen3Wave` events (position, previous point, direction).
+  // With 官方特效 the binding (skills.js skchr_chen3_3 `track`) follows them with projectile_chr_chen3_s3's trail and
+  // this archetype is skipped. `pt` / `qi` are the procedural blade when that trail is not installed.
   chen3Wave: { a: 'qi', c: 0xdfe8ff, pt: true },
   quadShot: { a: 'volley', c: 0xfff2d0 }, featherArrow: { a: 'counter', c: 0xfff2d0 },
   burst: { a: 'element', c: 0xd0a0ff },
@@ -44,6 +45,10 @@ export const FX_KINDS = Object.freeze({
   // a dollkeeper knocked out as its <替身> (sim professions.js): only its model form goes back to the 本体 for the
   // redeploy — the 替身's death clip already shows the knock-out, nothing is drawn
   dollEnd: { a: 'none', c: 0xd8b0ff },
+  // 乌啾 S2 cosmetic signals (ver-turdus.js). Nothing procedural: 官方特效 off stays as it was
+  // (a new 'buff' or 'spark' kind would draw a marker the client did not draw before).
+  turdusCamou: { a: 'none' },
+  turdusHot: { a: 'none' },
   ulpiaReturn: { a: 'blink', c: 0x9ff0dc }, manifoldSplit: { a: 'blink', c: 0xd8b0ff },
   // displacement
   pull: { a: 'move', c: 0x9fd4ff }, push: { a: 'move', c: 0xffd9a0 }, displace: { a: 'move', c: 0xd0c0a0 }, lure: { a: 'move', c: 0xffb3ec },
@@ -51,7 +56,12 @@ export const FX_KINDS = Object.freeze({
   // pulses
   sonic: { a: 'wave', c: 0xc9a2ff, r: 1.5 }, pulse: { a: 'wave', c: 0x9ff0dc }, sermon: { a: 'wave', c: 0xffe28a, r: 1.5 }, ripple: { a: 'wave', c: 0x5fe0ff },
   tornadoPulse: { a: 'wave', c: 0xd8e8ff }, wake: { a: 'wave', c: 0x5fe0ff }, wolfShadow: { a: 'wave', c: 0x8fa0b0 }, wolfShadowLost: { a: 'vanish', c: 0x8fa0b0 },
-  redistribute: { a: 'wave', c: 0x62f08a }, dilemma: { a: 'wave', c: 0xc9a2ff }, heatwave: { a: 'wave', c: 0xff6a2a, r: 1.5 },
+  redistribute: { a: 'wave', c: 0x62f08a }, dilemma: { a: 'wave', c: 0xc9a2ff },
+  // 塔露拉 S3 日冕重烈's 簇火 (op-oxi.js volley): one event per volley at the caster with `dir` and `n` lanes — the lanes
+  // across the field (render/vfx/lanes.js), not the shared `wave` rings: those are a cast flash an official skill start
+  // or loop stands for (skillfx.js FLASH), which swallowed the only volley cue (history §37.354). With 官方特效 the
+  // official projectile flies along each lane (skills.js FX_BINDINGS skchr_oxi_3); `pt`: the lanes start at her tile
+  heatwave: { a: 'lanes', c: 0xff6a2a, r: 1.5, pt: true },
   domain: { a: 'domain', c: 0x8a5cd0 },
   // marks
   taunt: { a: 'mark', c: 0xff9c33 }, palsy: { a: 'mark', c: 0xc77dff }, emergency: { a: 'mark', c: 0xff5a4a }, fear: { a: 'mark', c: 0x9b7bff },
@@ -75,6 +85,8 @@ export const FX_KINDS = Object.freeze({
   // 限伤 (sim/attack/health.js leaderHitCancelled): a leader's hit of ≥ 300000 dealt nothing — the official shows no number and
   // no effect [ASSUMED], so nothing is drawn (`a: 'none'`)
   hitCap: { a: 'none', c: 0xffffff },
+  // cosmetic official-hit event (round 86): the client plays the skill's own hit prefab. With 官方特效 off, nothing is drawn.
+  fxHit: { a: 'none', c: 0xffffff },
   // 自选 operator kits (0.2.0): 逻各斯, 真言, 维伊 (O3); 早露, 提丰, 娜仁图亚 (O7); 嵯峨's 重伤 (O8)
   bulletClear: { a: 'wave', c: 0xd8b0ff }, logosLexicon: { a: 'mark', c: 0xc9a2ff }, logosExecute: { a: 'strike', c: 0xb07dff },
   mantraArc: { a: 'bolt', c: 0xc77dff }, mantraGrant: { a: 'mark', c: 0xc77dff }, mantraGate: { a: 'reticle', c: 0xc77dff },
@@ -87,6 +99,11 @@ export const FX_KINDS = Object.freeze({
   strike: { a: 'strike', c: 0xffe6a8 }, volley: { a: 'volley', c: 0xfff2d0 }, column: { a: 'pillar', c: 0x9ff0dc }, obelisk: { a: 'pillar', c: 0xc9a2ff },
   duskDragon: { a: 'blast', c: 0x9dff6a, r: 1.5 }, shadowWeave: { a: 'vanish', c: 0x8f7bff }, reweave: { a: 'summon', c: 0x8f7bff },
   slash: { a: 'counter', c: 0xfff0d0 }, devour: { a: 'vanish', c: 0xff4b3e }, undying: { a: 'shield', c: 0xffd45a },
+  // 浊心斯卡蒂 S1's transfer flash is the official pair (skills.js skchr_skadi2_1). Explicit `none`: the name matches
+  // the /ward/ guess and would otherwise draw a shield when 官方特效 is off.
+  skadiWard: { a: 'none' },
+  // 百炼嘉维尔 S3's deferred HP-loss loop is the official bleed (skills.js skchr_gvial2_3). `none`: 官方特效 off adds no marker.
+  gvialBleed: { a: 'none' },
   // summon arrival bursts (content/tokens.js burst(): 沙之碑 default, 迷迭香 gear stun, 耀阳 sword, 纸偶)
   summonBurst: { a: 'blast', c: 0xe8c878, smoke: 0x4a3f33 }, summonStun: { a: 'blast', c: 0xcfe0ff, smoke: 0x2a2e36 },
   radiantSword: { a: 'pillar', c: 0xffe8a0 }, paperDoll: { a: 'blast', c: 0xc9a2ff, smoke: 0x2c2436 },

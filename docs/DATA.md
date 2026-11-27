@@ -109,7 +109,7 @@ Top level: `{ season, seasonName, modes, economy, lpCapPerRound, bossOvertimeAft
 | `rounds[r]` | see below | per-round schedule |
 | `spRounds` | `[3,9,11]` | rounds whose prep opens with a 机变 draft |
 | `combatTimeLimit[r]` | `{"1":45,…,"14":null}` | = `rounds[r].combatTimeLimit`: **real** seconds of the forced-2× battle (DESIGN §4) |
-| `enemyScale[r]` | `{"atk":1.1,"hp":1.2,"speed":1,"kAtk":1,"kHp":1}` | non-boss enemy multipliers (research 01 A3): `atk = atkBase·1.1^kAtk`, `hp = hpBase·1.2^kHp·extra`, `speed` 1.15 on ABYSS from R3; `supplyHp` (only when ≠ 1, co-op 终极 R5–R15) = the share of `hp` from 补给线 / 补给线II (1.2^(kHp − kAtk) · extra), which the 14 器物 hit-count keys do not take (their `enemy_exclude`). Apply to level-0 stats after special-enemy replacement, also to bounty/special enemies and to the leaders' mid-fight summons. **Leader HP pools excluded.** |
+| `enemyScale[r]` | `{"atk":1.1,"hp":1.2,"speed":1,"kAtk":1,"kHp":1}` | Cumulative round effects on level-0 enemy stats, including bounty enemies and eligible leader summons. Modes without a measured schedule use the 下半 stack table with the season's effect values. In 规程 co-op, the per-round effect IDs are folded using the client's blackboards: 同盟终极 is the 2026-11-25 recording (history §37.353); [ASSUMED] 同盟标准 / 险境 / 绝境 are the 路标档案馆 spawn preview (https://www.lubiao.wiki/tools/garrison-spawn-preview, data script https://www.lubiao.wiki/_nuxt/DQTTtovG.js). A round that adds nothing keeps the previous cumulative scale. Solo 规程 stays on the stack table. `aspdAdd` is additive and `excludeEffect` references the common exclusion list. `supplyHp` is the share of `hp` removed for hit-count 器物 and any leader tokens excluded by the season's HP-only effects. Leaders keep their separately configured shared HP pool. |
 | `bossHpScale` | `{"bloodPointKey":"bloodPointAbyss","unaffectedByEnemyScale":true}` | which `bloodPoint` column the mode reads; the pool rule's keys live in the global `bossHpScale` below — one set here would override it for this mode (`gamedata.js bossPoolShareOf`) |
 | `upgradePrices` | `[5,8,11,12,13]` | base price L1→2 … L5→6 (−1 per round start, floor 0, reset after upgrade) |
 | `maxShopLevel` | `6` | |
@@ -960,7 +960,9 @@ every file system and URL).
   V2_1 runs all four (`'default'`) [ASSUMED]: its 机变 events and shop rows are byte-identical to today's, its bounty
   cards have today's ids and draft data (one text differs, 悬赏·折射II `enemyeffect_15_7`: 卫队 / 卫士, 04-14), and the
   stock (2026-03-29) and the official drafts (the end of March 2026) name only operators and items V2_1 has.
-  规程 (`act3autochess@V3_1`) leaves `stock` null and names the module `act3autochess-v3_1` for the three draft tables
+  规程 (`act3autochess@V3_1`) gives its own `stock` object — six per-item equipment caps read off the community pool
+  test BV1QV1czHE9o (1:20–1:34: 简易通讯机 5; 蜂鸣器, 动能单手弩, 汲取者之喙, 驱逐者警棍 6; 寻呼模块 7) and no operator
+  exceptions (0:45–0:55), §37.357 — and names the module `act3autochess-v3_1` for the three draft tables
   (`tools/versions/tables/act3autochess-v3_1.mjs`; the readings are `test/fixtures/official-regulation-drafts.json`,
   15 co-op 终极 matches in BV13LWM6BEvY). A boss card is offered only when that version's own R9 groups name it.
   The bounty cards' own `draft` / `draftPool` classification still runs for 上半 [ASSUMED]: `HIDDEN_BOUNTY_IDS` and the

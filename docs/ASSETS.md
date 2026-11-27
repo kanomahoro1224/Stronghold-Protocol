@@ -238,6 +238,7 @@ The research JSONs in `docs/research/` (03, 05, 07) define **which** ids are nee
 | Enemy Spine (PC build, premultiplied alpha) | isHarryh/Ark-Models `models_enemies/{key}/`, file names from `models_data.json` | `spine/enemy/{enemyId}/{stem}.*` |
 | Enemy Spine that no dump carries (灼热源石虫 / 炽焰源石虫) | the local client only (`tools/local-extract/extract.py ENEMY_SPINES`, optional); never downloaded and never required: an overlay of the web alias (`enemies[id].spineLocal`) | `local/spine/enemy/{enemyId}/{stem}.*` (listed in `data/local-assets.json`) |
 | Original token Spine overlays (40 summons: most 自选 summons, 凯瑟琳's 爬行号·防护单元, 凛御银灰's 风雪之眼, 香槟炸弹) | local-client extraction (`tools/local-extract/extract.py TOKEN_SPINES`, optional); the original overlay is preferred, with any listed web model retained as fallback | `local/spine/token/{tokenId}/{stem}.*` (listed in `data/local-assets.json`) |
+| Pinned official in-match font faces (the canvas shop's Chinese faces: SourceHanSansCN-Bold / -Heavy, NotoSansHans-Medium; DESIGN §37.240) | the local client only (`tools/local-extract/fonts.py`): an optional local-extract group like `ui/cursor` — a full extraction attempts it, but a missing install's `Arknights_Data`, a face whose bytes fail the pinned SHA-256 or no listed face only warns and exits 0, and an absent `fonts` key is not a stale extraction. `--only font` (also `fonts`) runs the job over every pinned face; `--only font/<face>` (also `fonts/<face>`) writes that face alone, and an unknown face name exits 2. The group is rebuilt from every pinned face whose local bytes match the pinned size and SHA-256: a verified local face is kept and listed even when its source is missing or the run named another face, a local file with different bytes is never overwritten and is not listed, and non-pinned faces such as Novecento never enter it; a lone `--only font` is non-zero only when it neither wrote nor listed a face (with no `Arknights_Data` the job does not run at all). Never downloaded and never packaged (the staged release manifest drops the group, `dropStagedFonts`) | `local/fonts/{file}.otf\|ttf` (listed in `data/local-assets.json` group `fonts`, with `bytes` / `sha256` / `family` / `weight` / `kind: Font`) |
 | Official trap models: 射击台 and 阻隔工事 (`trap_1105_accrate` = renderer `crate`, #663) | `arts/maps/common/trap/trap_110.ab`, `tools/local-extract/extract.py --only mesh/trap_110`; only `trap_1106_achplat` and `trap_1105_accrate`, their materials and textures. Crate: 636 vertices / 344 triangles, own UVs, 1024² DXT1 texture; battle prefab scale 0.01, X rotation −90°. Texture copies use lossy WebP quality 95. Without the crate mesh or texture the 3D board keeps `s_common_box_01` + atlas (procedural box if that mesh is absent); 2D keeps its atlas crops | `local/mesh/trap_110/{trap_1106_achplat,trap_1105_accrate}.obj`, `TX_*.png` / `.webp`, `materials.json`, `prefab.json` (listed in `data/local-assets.json`) |
 | Official battlefield scenes (one per battlefield: meshes, lightmaps, albedo textures; DESIGN §15, DESIGN §30.21) | the scene bundles `scenes/activities/<season>/level_<stage>/…` (`tools/local-extract/extract.py --only scene`, optional). The client carries them only while the season runs; off season `tools/local-extract/fetch_scenes.py` downloads the bundles of the in-season version `26-04-13-12-31-42_e9b560` from the official CDN into `.cache/official-scenes/` (33 bundles, 22,801,308 bytes compressed on the Android list, md5-checked), and the materials / textures still come from the local client's theme bundles. The 0.2.5 full release zip includes the extracted files under `public/assets/local/scene/` when the maintainer extracted them before packaging; a lite zip and a source install may fetch and extract them (`node tools/setup.mjs --scenes`). The repository never stores the bundles or the extracted files. Normal, metallic-gloss and emission copies are lossless WebP (emission only when the material's `_EMISSION` keyword is on; lossy 4:2:0 was turning saturated lights grey); albedo and lightmaps stay lossy quality 95; `env` stays PNG. An extract whose manifest `scene` record is older than this version, including the previous lossless normal/gloss extract, is stale, and setup asks once. Answering yes on that version-only prompt runs `extract.py --only scene`, the same as a first extract; answering no is remembered. A partial set (some battlefields missing) still does not start that extract from a typed yes. Without a scene the 3D board draws its procedural metal tiles | `local/scene/{stageId}/scene.json`, `scene.bin`, `lm{i}.*`; `local/scene/tex/{texture}.*` (listed in `data/local-assets.json`) |
 | Official battle effects (特效: the particle systems, meshes and textures of hits, projectiles, casts, status loops and skills; DESIGN §33) | the local client only (`tools/local-extract/extract.py --only fx --fx-set used`, opt-in: a plain extraction leaves them out); WebP quality 90 by default, optional `--fx-texture-format png` for lossless textures (§35.96); never downloaded; inclusion in full release zips follows `tools/package.mjs FULL_ZIP_FX` (currently on) | `local/fx/index.json`, `local/fx/textures.json`, `local/fx/prefabs/{key}.json`, `local/fx/tex/{key}.webp` or `.png` (and `tex/half/`), `local/fx/mesh/{key}.json` (listed in their own `data/local-fx.json`, not in `data/local-assets.json`) |
@@ -373,7 +374,7 @@ Hub rows copied into `images`: `chess_frame_hub` → `chess_frame_normal`, `ches
 
 `character` is optional. `ac_n_iron` is `{ "image": "sprites/char_2.webp" }` (the unfolded `group_bg/char` portrait, 127×157). Two sprites are named `char`; `sprites/char.webp` is the other texture, not the portrait. `ac_n_initial` is the UI Spine `trap_1096_acshopup` with `anims.idle` `Idle` and no voice map. `ac_s_closur` is `ac_s_closur_spine` with `anims.voice` from `skinVoiceAnimDict`, clip stems lowercased (`cn_001`), and only when that animation is on the skeleton. Data version 79.2.0. `ac_s_closur`'s board character is `trap_2000_acclsr`; the pack includes the UI Spine shipped in the theme bundle, and does not extract that trap when no bundle is named for it.
 
-### Official outfits and the picture gallery (§37.331)
+### Official outfits and the picture gallery (§37.331, §37.351)
 
 Two opt-in jobs of `tools/local-extract/extract.py` (`tools/local-extract/skins.py`, ported from PR #776 by @xcdoge).
 Like `fx` and `theme`, a plain extraction leaves them out and `expected_local_groups` does not list them, so no
@@ -411,6 +412,19 @@ model this client lacks is left out (logged), not worn as pictures only; a missi
 `name` / `group` are `displaySkin.skinName` / `skinGroupName` (1–64 / 0–64 characters). The outfits keep
 `displaySkin.sortId` order [ASSUMED], at most 64 per operator (docs/PLUGINS.md §9).
 
+**Summons.** The same job writes the summon (token) outfits the selected outfits bring: the official
+`charSkins[*].tokenSkinMap` of an outfit the run selected gives `tokens[<tokenId>].skins[<the owner's skin id>]` in the
+same part's `skins.json`, with the model from the `tokenSkinId` prefab of `skinpack/<tokenId>.ab` (a `token_*` pack
+whose file name is the token id; Front / Back by node name), the 180×180 avatar from `spritepack/ui_char_avatar_*.ab`
+(a client without that Sprite leaves the `avatar` out and the summon's own is the fallback), and no voice slot; the
+record's `name` / `group` are the owner outfit's. An appearance is written only for an owner outfit the run selected
+(`--only skins/<charId>` includes that operator's summons, and `--limit N` counts operator outfits only), one summon
+takes at most 64 (the first 64 in official order, warned). Two of the official appearances belong to units that have
+no model by design: `token_10039_ulpia_block_epoque#48` is the 「[从不混淆的方向](https://prts.wiki/w/%E4%BB%8E%E4%B8%8D%E6%B7%B7%E6%B7%86%E7%9A%84%E6%96%B9%E5%90%91)」 that 乌尔比安's 「必须开辟的通路」 leaves on the original tile, and `token_10055_phatm2_mndclv_sightseer#4` is 酒神's 「[迷狂牢笼](https://prts.wiki/w/%E8%BF%B7%E7%8B%82%E7%89%A2%E7%AC%BC)」 from 「空剧场」. Their prefab has no
+SkeletonData, so the run skips them by name; that is expected, not a missing extraction. 11 of the 59
+summons are not among the 60 `token_*` entries of `data/assets.json`, so the parts ask for `assets.add`; the other 48
+are `assets.override`. docs/SKINS.md "Summons follow their owner's outfit (token skins)"; DESIGN §37.351.
+
 Both jobs write under `--out` when it is given, else under `out/local-extract/`: a scratch folder git ignores, which
 the server neither serves nor hashes (everything under `public/assets/` is served to every player and hashed in the
 background by `server/http/assetIndex.js`). They stage their files in a hidden `.staging-*` folder beside the
@@ -419,9 +433,10 @@ run left is removed by the next run.
 
 The output is `<out>/skins/local-skins/`, by default `out/local-extract/skins/local-skins/`: the source folder of a
 cosmetic plugin. Its `plugin.json` (manifest 2, `scope: ["personal"]`) asks for `assets.override` when the operators
-are the installation's and `assets.add` for any other; its overlay is the file `skins.json`
-(`chars[<charId>].skins[<skinId>]`), not inline: the manifest reader takes an inline `assets` text that ends like `.ext`
-for a file path, and official outfit names do (日晒 SS.SP, the series i.t). An outfit's folder is the
+and summons are the installation's and `assets.add` for any other; its overlay is the file `skins.json`
+(`chars[<charId>].skins[<skinId>]` and `tokens[<tokenId>].skins[<owner skin id>]`), not inline: the manifest reader takes
+an inline `assets` text that ends like `.ext` for a file path, and official outfit names do (日晒 SS.SP, the series i.t).
+An outfit's folder is the
 part of its id after `@` with `@` `#` `+` turned into `_` (plugin file names, docs/PLUGINS.md §5); a second outfit of
 one name gets `_2`. A later run keeps the folder an earlier run gave each outfit (a new outfit takes a free name), so
 two outfits of one plugin-safe name (`a#1`, `a+1`) never swap folders when the official order changes. One plugin holds at most 512 MB, 5000 files and 2000 folders, so an outfit that would take a part
@@ -489,7 +504,12 @@ also runs this job. The six earlier-only enemy models are part of the regular lo
 contract. FX discovery reads every version's roster. `--fx-add-only` crawls units absent from the existing index,
 adds their missing effect prefabs and keeps the existing units/skills/projectiles/prefabs; it never prunes the set.
 It can retain legacy projectile records beside current records (`rolesVersion: 1` marks newly extracted projectile
-role metadata); the runtime continues to read legacy behaviours. When working in a shared asset tree, stage the FX
+role metadata); the runtime continues to read legacy behaviours. `--fx-units <id1,id2>` (round 85) crawls units the
+index already has again: their unit, skill and skin records are replaced, a projectile joins when the set lacks it,
+and only the effect prefabs the set lacks are exported — how an index extracted before an extractor change gets the
+change for a few units (`--fx-units char_4247_oxi`: 塔露拉 S3's projectile, which buff templates fire, history
+§37.354). Both additive runs keep the set's generic keys and, run on a hand-staged bundle tree without its own
+`hot_update_list.json`, the set's client label (docs/design/vfx-format.md §33.1). When working in a shared asset tree, stage the FX
 output with copies of the manifest-selected FX index, texture index and `data/local-fx.json`, then publish absent
 files. If shared indexes must also stay untouched, give the merged indexes new names (for example
 `index-<sha256-prefix>.json` and `textures-<sha256-prefix>.json`) and point the worktree's `data/local-fx.json`

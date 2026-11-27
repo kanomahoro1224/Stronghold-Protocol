@@ -273,7 +273,7 @@ export const UNMAPPED = Object.freeze({
   'hit-no-attack': "hits of a non-attack ability: no 'atk' event names its targets",
   'channel-hit': "a channel's damage ticks: the sim sends them without a source",
   path: 'a line / path effect: its points come from the game',
-  bound: 'created on the target of the ability: a kit fx binding places it there (FX_BINDINGS `at: \'target\'`)',
+  bound: 'a kit fx binding places it (FX_BINDINGS `at: \'target\'`, or `claim`: the binding lists the key)',
   tiles: 'tile effects on tiles the client is not told',
   other: 'the extractor could not place it in time',
 });
@@ -676,7 +676,20 @@ export function skillPlan(idx, unitKey, skillId, opts = {}) {
       plan[role] = plan[role].filter((e) => !bound.has(e.key) || (plan.unmapped.push({ key: e.key, role: e.role, reason: 'bound', from: e.from }), false));
     }
   }
+  // an enemy binding or cast shot that plays this unit+skill's unmapped key (round 86 f6: keyed by unit, so another
+  // unit's copy of the same prefabKey is left alone). The row stays in `unmapped` with reason 'bound'.
+  const played = enemyPlayedKeys(unitKey, id);
+  if (played.size) for (const u of plan.unmapped) if (played.has(lc(u.key)) && u.reason !== 'no-prefab') u.reason = 'bound';
+  // a binding that claims its keys / hits / slots plays that unmapped row (a channel hit, a tick, a condition, a token
+  // effect). Other skills' bindings are left as they were: a tick a `hits` list already plays stays 'tick' until that
+  // binding claims it.
+  const claimed = claimedKeys(id);
+  if (claimed.size) for (const u of plan.unmapped) {
+    if (u.reason !== 'no-prefab' && u.reason !== 'bound' && claimed.has(lc(u.key))) u.reason = 'bound';
+  }
   if (isObj(opts.rec)) tagCasts(plan, skill);
+  // A prefab an FX_BINDINGS entry of this skill lists in `keys` / `hits` is played by that binding.
+  // place() may still have filed it as conditional / tick / tiles / after-end / hit-no-attack (round 86).
   return plan;
 }
 
@@ -1318,7 +1331,8 @@ export function chargeKeys(plan) {
  * which no plan row places, by skill id → fx kind. render/vfx/skillfx.js plays the binding and the field view skips the
  * procedural fx (it is drawn when none of the binding's prefabs is installed). A binding:
  *   owner       the extra field naming the skill's owner ('id' | 'src'), or 'skill': the fx names no owner (焰影苇草's
- *               fire strikes from its carrier) — the unit whose skill of that id lasts
+ *               fire strikes from its carrier) — the unit whose skill of that id lasts. 'token': the fx's id is a
+ *               token, so the owner loop cannot see the skill; the binding is read by its handler (机械师 S3 charge)
  *   projectile  the skill projectile whose reached effects (onReached, else onHit) play where the fx happens
  *   keys        else these prefabs (an official effect our projectile records do not list as reached: a projectile's
  *               main effect, a skill row the kit's moment stands for; a one-shot of the skill's own: its `at` 'target')
@@ -1329,7 +1343,8 @@ export function chargeKeys(plan) {
  *               `extra.id` names (the fx's point without one)
  *   hold        how long a looping reached effect stays: a blackboard key of our skill record (seconds), 'fx' — the
  *               fx's own `duration` / `dur` / `hold` (the kit's area or lock time) —, 'lock' — a lock mark's: on the
- *               enemy, at its last spot once it is gone, until its shell lands (SkillFx._lockOn) —, else `holdS`
+ *               enemy, at its last spot once it is gone, until its shell lands (SkillFx._lockOn) —, 'skill' — follow
+ *               the owner until the skill's own loops stop (a buff whose life is the skill's) —, else `holdS`
  *   cover       fx kinds of the same owner at that tile that the reached effect draws (skipped while it plays)
  *   during      only while the skill lasts (SkillFx._lasts: on, its activation frame, COVER_AFTER_S after its end, or a
  *               binding of its owner still held — a lasting area's strikes); another fx of that kind is the kit's own
@@ -1338,6 +1353,13 @@ export function chargeKeys(plan) {
  *               projectile's main effect; its onHit plays once when the flight lands (wiring._arrive); onReached stays
  *               with the area (bindsReached). Not set on a skill whose attacks already fly the same projectile — the
  *               trail would play twice
+ *   flight      the fx is the throw itself, not a lasting area (乌尔比安 S3's anchor): fly the projectile from the
+ *               caster to the fx's point (SkillFx._flight). The landing plays the projectile's own onHit and onReached
+ *               (_arrive); bindsReached does not swallow them. Not set when an attack of the skill already flies it
+ *   strike      the fx opens a kit-hit window for this frame (SkillFx._strike): each later unclaimed HP damage on an
+ *               enemy plays `keys` on that enemy. For a hit list of an ability the plan does not call an attack
+ *               (锏 S2, AnimatedActionToTargetAbility). The procedural fx is skipped when those prefabs are installed.
+ *               [ASSUMED] the kit's damages of that frame are the ability's hits
  *   hits        oneshot prefabs of the area's tick (ON_BUFF_TRIGGER), played at the tile once per makeZone pulse for
  *               the zone's time (SkillFx._zoneHits). Not part of `keys`: those loop for the hold. The client plays
  *               them on each enemy in the area; the sim sends no per-enemy fx, so the tile stands for the pulse
@@ -1352,7 +1374,49 @@ export function chargeKeys(plan) {
  *               it now — its cast rows on the owner for its facing, `projectile`'s flying effect straight from the
  *               muzzle to the fx's point over the kit's flight time `extra.t` (SkillFx._launch)
  *   ends        the fx kind of a launch binding this fx ends: the owner's oldest shell in the air stops where it is
- *               (the kit's explosion, which may come before the end point), then this binding plays
+ *               (the kit's explosion, which may come before the end point), then this binding plays; of a `lanes`
+ *               binding: the owner's shot whose head is nearest to the fx's point (within LANE_HIT_REACH) stops there
+ * or a volley of shots the kit moves itself, one fx per volley (history §37.354):
+ *   lanes       the fx (`dir`, `n` at the caster: 塔露拉 S3's 'heatwave') flies `projectile`'s flying effect along each
+ *               lane of render/vfx/lanes.js — straight over the ground at the skill's wave_speed, from up to LANE_BACK
+ *               tiles behind her to wave_exit_distance past the field's far edge (SkillFx._lanes)
+ *   tag         only a fx whose `extra.skill` is this (the kit's skill tag): another fx of that kind and owner (an
+ *               item's or a bond's) is not the skill's
+ *   cases       one fx kind stands for several moments (菲亚梅塔 S2: the shell's landing and each mark's burst are both
+ *               'aoe'). Each case merges over this binding; the one whose `tag` equals `extra.skill` plays, and none
+ *               leaves the fx procedural (skillfx.js pickBind)
+ *   each        `keys` play once on every unit id in `extra[each]` (煌 S3's cut names the enemies; the fx stays at her
+ *               feet). The sim sends no per-target event of its own
+ *   slots       four facing prefabs (0 UP, 1 RIGHT, 2 DOWN, 3 LEFT; directionType 5, the deploy facing — slotKey).
+ *               One is played; a missing chosen prefab plays nothing (not another facing). 号角's overload: UP `_back`,
+ *               else `_front` (dirFamilies)
+ *   until       'skill': that prefab loops on the owner and stops with the skill (U.loops), not on a timer
+ *   recall      the projectile flies from the fx's (x, y) back to (tx, ty) (伊内丝 S3's label): its trail and a
+ *               HarpoonRenderer rope (SkillFx._recall). Not `_fly` (that leaves her muzzle). onReached plays on her
+ *               when it arrives; onHit does not (the sim already dealt the path)
+ *   pass        a binding that drew nothing does not claim the fx (the later rules still run — 流明 S1's heal field
+ *               stays FX_COVER when its tick spark is not installed)
+ *   claim       this binding's keys / hits / slots (its cases' too) are rows the plan still lists (tick, conditional,
+ *               hit-no-attack, channel hit, token): skillPlan retags those unmapped rows to `bound` (the coverage sweep).
+ *               Bindings without `claim` are not retagged. A binding that sets both `keys` and `projectile` still plays
+ *               `keys`; the projectile id is preloaded so a skill with no attack is not reported as an idle shot
+ *   track       the kit re-sends this moving point (赤刃明霄陈 S3's chen3Wave): one copy of `keys` (the projectile's
+ *               flying effect) follows the latest point, yaw from `extra.dr` / `extra.dc`, until the skill ends.
+ *               Not a new projectile per sample — the prefab loops. `projectile` is named so bindingKeys preloads
+ *               its main and the idle-projectile audit sees the shot as played
+ *   untilSkill  a looping effect also stops when the skill ends (the hold is only a cap)
+ *   claimHit    these `keys` are also the skill projectile's onHit, and the kit plays them: wiring._arrive does
+ *               not play that onHit again (SkillFx.ownsHit)
+ *   onAttack    these `keys` join each blow's hit group while the skill is on (SkillFx.attackFx). Not `attack`
+ *               (that names a plan attack node). The mode's own hits still play. A missing prefab adds nothing
+ *   linger      the skill's loop of these `keys` is the effect an ON_BUFF_FINISH buff keeps: skill end does not
+ *               stop that handle; a recast, a death or a release does (SkillFx._stopLoops)
+ *   coverStealth a status key ('camou'): while this binding's loop actually plays on its target, the generic
+ *               隐匿 icon is hidden for that status (render/vfx/stealthcover.js). Not while a 'stealth' status remains
+ *   token       a token defId this binding's loop follows (可露希尔's 指挥中心, 机械师's 结构性原理). The kind is
+ *               not a kit fx kind, so the procedural summon or shield stays
+ *   projectiles projectile ids a binding flies itself, when no plan attack does. bindingKeys preloads each main
+ *               and its onHit / onReached. `facing` maps a direction to one of them (机械师 S3)
  * The R11 entries (0.3.0 official-effects audit, history §32.14.44) bind a kit area or strike to the official prefab
  * the client plays there: the areas are the skill projectiles' reached effects (the projectile stays where it lands —
  * AuraHitBehaviour — for the area's life), the strikes their hit effects.
@@ -1362,6 +1426,11 @@ const binding = (o) => Object.freeze({
   ...(o.cover ? { cover: Object.freeze(o.cover) } : {}),
   ...(o.keys ? { keys: Object.freeze(o.keys) } : {}),
   ...(o.hits ? { hits: Object.freeze(o.hits) } : {}),
+  ...(Array.isArray(o.cases) ? { cases: Object.freeze(o.cases.map((c) => Object.freeze({
+    ...c,
+    ...(c.keys ? { keys: Object.freeze(c.keys) } : {}),
+  }))) } : {}),
+  ...(o.slots ? { slots: Object.freeze(o.slots) } : {}),
 });
 export const FX_BINDINGS = Object.freeze({
   // Existing kit event supplies the elimination position (no invented projectile collision or ally trigger).
@@ -1441,6 +1510,19 @@ export const FX_BINDINGS = Object.freeze({
     bombardShell: binding({ owner: 'id', launch: 'ExtraBomb', projectile: 'projectile_chr_jesca2_s3_bomb', during: true }),
     bombard: binding({ owner: 'id', keys: ['jesca2_skill_03_hit_02'], at: 'point', oneshot: true, ends: 'bombardShell' }),
   }),
+  // 塔露拉 S3 日冕重烈 (kits/ops/op-oxi.js volley / explode; history §37.354, player report 「塔露拉3技能没有特效」): the kit
+  // sends one 'heatwave' per volley (id = her, at her tile, `dir`, `n` lanes) and moves the 簇火 itself. The client's
+  // buff template oxi_s_3_wave (ON_BUFF_TRIGGER of the skill's oxi_s_3_wave_normal / _overload buffs) fires them:
+  // EmitDirectionalMapEdgeProjectileVolley of projectile_chr_oxi_s_3_heatwave (SimpleProjectile, AdvancedMovement at
+  // wave_speed, main oxi_skill_03_trail_01, cleared when it reaches its end) — `lanes` flies that trail along each lane.
+  // A shot that meets an enemy explodes there ('blast', id = her, at the enemy): the projectile's ProjectileActionBehaviour
+  // CreateEffectOnProjectile oxi_skill_03_hit_01 on the collision target (index.json lists it under `effects`), and the
+  // shot stops (_stopAfterFirstHit). No `during`: the shots in flight outlive the skill and her (the kit's
+  // _useProjectileContextWhenSourceInvalid); `tag`: an item's or a bond's 'blast' of hers stays its own
+  skchr_oxi_3: Object.freeze({
+    heatwave: binding({ owner: 'id', lanes: true, projectile: 'projectile_chr_oxi_s_3_heatwave', tag: 'oxi:heatwave' }),
+    blast: binding({ owner: 'id', keys: ['oxi_skill_03_hit_01'], at: 'point', oneshot: true, ends: 'heatwave', tag: 'oxi:heatwave' }),
+  }),
   // 泡泡 S2 (chess_char_2_08-bubble.js): she makes no attack; every damage instance she takes strikes back at its source
   // ('counter': id = her, target = the attacker). The client's bubble_s_2 does it at ON_TAKE_DAMAGE — DamageViaAttr and
   // CreateEffect on MODIFIER_SOURCE with the blackboard's `effect` bubble_skill_02_hit (index.json's use 'hit' by name,
@@ -1474,11 +1556,311 @@ export const FX_BINDINGS = Object.freeze({
   // 琴柳 S3 (the thrown flag's 'zone' on its tile, id = her, dur; its strike 'aoe' there FLAG_FLIGHT s later): the skill's
   // DamageFlag group (AbilityParallelGroup of ProjectileToTileAbility) puts Debuff's projectile_chr_sleach_s3 on the tile —
   // the flag sleach_skill_03_flag_01 and, on the tile as it starts, sleach_skill_03_range_loop_01 / _02 (looping) — and
-  // Damage's projectile_chr_sleach_s3_2, whose sleach_skill_03_range_start_01 / _02 (one-shots) are the strike
+  // Damage's projectile_chr_sleach_s3_2, whose sleach_skill_03_range_start_01 / _02 (one-shots) are the strike.
+  // TalentToAlly's projectile_chr_sleach_t1 (AttachToTarget, no flight, onReached the looping sleach_buff_01, spawn
+  // GROUND, life from the blackboard) is that same tile for the skill. s3_2 has no main / onHit / onReached — the strike
+  // keys are toTargetOnStart — so the binding names the projectile id (bindingKeys) and still plays `keys`.
+  // projectile_chr_sleach_t1_2 (TalentToEnemy, AuraHit) lists no effect key: nothing to play
   skchr_sleach_3: Object.freeze({
-    zone: binding({ owner: 'id', keys: ['sleach_skill_03_flag_01', 'sleach_skill_03_range_loop_01', 'sleach_skill_03_range_loop_02'], at: 'point', hold: 'fx', holdS: 10, during: true, cover: ['zone'] }),
-    aoe: binding({ owner: 'id', keys: ['sleach_skill_03_range_start_01', 'sleach_skill_03_range_start_02'], at: 'point', holdS: 7.5, during: true }),
+    zone: binding({ owner: 'id', keys: ['sleach_skill_03_flag_01', 'sleach_skill_03_range_loop_01', 'sleach_skill_03_range_loop_02', 'sleach_buff_01'], at: 'point', hold: 'fx', holdS: 10, during: true, cover: ['zone'] }),
+    aoe: binding({ owner: 'id', keys: ['sleach_skill_03_range_start_01', 'sleach_skill_03_range_start_02'], projectile: 'projectile_chr_sleach_s3_2', at: 'point', holdS: 7.5, during: true }),
   }),
+  // ---- round 86 f4 begin ----
+  // 锏 S2 无声的嘲笑 (chess_char_6_19-blkkgt.js onStart: one 'slash', id = her, then dealDamage on each victim, twice,
+  // or three times when blocked). index.json skchr_blkkgt_2: AnimatedActionToTargetAbility is not an attack, so its
+  // UberEffectEmitter._hitEffects blkkgt_skill_02_hit_1 (oneshot, spawn HIT_POINT, duration 7) never plays. `strike`
+  // plays it on each later unclaimed HP hit of this frame. The cast rows blkkgt_skill_02_start_01..06 already play
+  // when the skill turns on. S3's 'slash' stays skchr_blkkgt_3 (attack: 'Damage').
+  skchr_blkkgt_2: Object.freeze({
+    slash: binding({ owner: 'id', keys: ['blkkgt_skill_02_hit_1'], strike: true, during: true }),
+  }),
+  // 阿斯卡纶 S2 恩赐 (op-ascln.js death: 'aoe' at the knocked-out ground enemy, id = her, skill 'ascln:endowment').
+  // index.json skchr_ascln_2 Aura template ascln_s_2[enemy], ON_OWNER_KILLED CreateEffect ascln_skill_02_death_01
+  // (oneshot, spawn GROUND_CENTER, duration 6.5). The circle debuff ascln_buff_01 is CreateBuffInCircleRange on the
+  // living targets; this aoe names no target list, so that looping buff is not played here.
+  skchr_ascln_2: Object.freeze({
+    aoe: binding({ owner: 'id', keys: ['ascln_skill_02_death_01'], at: 'point', oneshot: true, during: true, tag: 'ascln:endowment' }),
+  }),
+  // 乌尔比安 S3 必须开辟的通路 (chess_char_5_05-ulpia.js onStart: 'anchor' at the landing tile, id = him). index.json
+  // skchr_ulpia_3 ability AOEAttack is ProjectileToTileWithExtraActionsAbility, not an attack, so
+  // projectile_chr_ulpia_s3 never flies (AdvancedMovement speed 15, main ulpia_skill_03_trail_01, onReached
+  // ulpia_skill_03_range_01 oneshot duration 8, spawn GROUND). `flight` flies it and the landing plays range_01.
+  // The cast row ulpia_skill_03_range_02 is another prefab and already plays at the skill start. S1's 'anchor' is
+  // skchr_ulpia_1.
+  skchr_ulpia_3: Object.freeze({
+    anchor: binding({ owner: 'id', projectile: 'projectile_chr_ulpia_s3', flight: true, during: true }),
+  }),
+  // 信仰搅拌机 S2 八臂电锯侠 (chess_char_4_01-rmixer.js fatal: 'shield', id = her, n = bullets spent, skill
+  // 'rmixer:s2'). index.json skchr_rmixer_2 template rmixer_sk2, ON_BEFORE_TRY_SET_HP_ZERO CreateEffect
+  // rmixer_skill_02_start_02 on the owner (looping, spawn HIT, duration null — the skill buff). hold 'skill' keeps
+  // it until the skill's loops stop. The talent's 'shield' carries no skill tag and is not this effect.
+  skchr_rmixer_2: Object.freeze({
+    shield: binding({ owner: 'id', keys: ['rmixer_skill_02_start_02'], hold: 'skill', during: true, tag: 'rmixer:s2' }),
+  }),
+  // Miss.Christine S2 狂饮之宴 (ver-christ.js onStart, cosmetic fx round 86: 'zone' at the anchor tile, id = her,
+  // dur = the spirit's window, skill 'christ:spirit'). index.json skchr_christ_2's only ability is
+  // ProjectileToTileAbility of projectile_chr_christ_s2 (Paracurve speed 8, main christ_skill_02_trail_01, onReached
+  // christ_skill_02_range looping spawn GROUND, onHit christ_skill_02_hit_02). Not an attack, so nothing flew it.
+  // `fly` holds the range for the zone and flies the trail; the hit plays when the flight lands.
+  skchr_christ_2: Object.freeze({
+    zone: binding({ owner: 'id', projectile: 'projectile_chr_christ_s2', at: 'point', hold: 'fx', holdS: 20, during: true, cover: ['zone'], fly: true, tag: 'christ:spirit' }),
+  }),
+  // ---- round 86 f4 end ----
+  // ---- round 86 f1 begin ----
+  // 煌 S3 沸腾爆裂 (op-huang.js onTick): each cut is an 'aoe' at her feet, skill 'huang:cut', `targets` the enemies it
+  // hits. The client's ChannelingMeleeAttack (triggerDelta 1) plays huang_attack_01_hit (one-shot, spawn HIT) on them.
+  // The finish burst is 'huang:burst' and is not this hit
+  skchr_huang_3: Object.freeze({
+    aoe: binding({ owner: 'id', keys: ['huang_attack_01_hit'], each: 'targets', oneshot: true, tag: 'huang:cut', during: true, claim: true }),
+  }),
+  // 断崖 S2 浮游刃启动 (chess_char_3_02-ayer.js onAttack, only while the skill is active): 'strike', id = the enemy,
+  // src = her, skill 'ayer_2'. HitBlockee's AnimatedActionToTargetAbility plays ayer_skill_02_hit_02 (one-shot, spawn HIT)
+  skchr_ayer_2: Object.freeze({
+    strike: binding({ owner: 'src', keys: ['ayer_skill_02_hit_02'], at: 'target', target: 'id', tag: 'ayer_2', during: true, claim: true }),
+  }),
+  // 菲亚梅塔 S2 “你须愧悔” (op-phenxi.js fireShell): the shell's landing is 'aoe' skill 'phenxi:s2' — projectile_chr_phenxi_s2
+  // has no main; its onReached is phenxi_skill_02_hit (one-shot, spawn GROUND). Each 灼痕 is a 'zone' skill 'phenxi:mark'
+  // for MARK_DELAY 0.8 s — projectile_chr_phenxi_s2_2's onReached phenxi_skill_02_hit_buff (loop) — then an 'aoe' of the
+  // same tag, its onStop phenxi_skill_02_hit_02. No `during`: the last mark can land after COVER_AFTER_S. No `cover` of
+  // 'aoe': the zone would swallow the mark's burst. S3's 'aoe' is skill 'phenxi:s3' and matches no case
+  skchr_phenxi_2: Object.freeze({
+    aoe: binding({
+      owner: 'id', at: 'point', oneshot: true, claim: true,
+      cases: [
+        { tag: 'phenxi:s2', keys: ['phenxi_skill_02_hit'], projectile: 'projectile_chr_phenxi_s2' },
+        { tag: 'phenxi:mark', keys: ['phenxi_skill_02_hit_02'] },
+      ],
+    }),
+    zone: binding({ owner: 'id', keys: ['phenxi_skill_02_hit_buff'], projectile: 'projectile_chr_phenxi_s2_2', at: 'point', hold: 'fx', holdS: 0.8, tag: 'phenxi:mark', claim: true }),
+  }),
+  // 莫斯提马 S2 荒时之锁 (chess_char_4_02-mostma.js onTick): every 1 s she deals arts to each enemy in range and emits
+  // 'fxHit' (cosmetic, a: 'none') on that enemy. ChannelingMeleeAttack's mostma_skill_02_hit (one-shot, spawn HIT) is that
+  // tick. The 'zone' at her feet stays the skill's range rows (FX_COVER)
+  skchr_mostma_2: Object.freeze({
+    fxHit: binding({ owner: 'id', keys: ['mostma_skill_02_hit'], at: 'target', tag: 'mostma:s2', during: true, claim: true }),
+  }),
+  // 老鲤 S2 驱凶辟邪 (op-lmlee.js damaged): each counted ally damage on the paper mark emits 'fxHit' on that enemy.
+  // RunePaper's lmlee_s_2[paper] plays lmlee_skill_02_debuff_hit (one-shot, spawn HIT) at ON_TAKE_DAMAGE. The 'mark' at
+  // the cast and the 'explode' at the burst are other moments. No `during`: the paper outlives the instant cast
+  skchr_lmlee_2: Object.freeze({
+    fxHit: binding({ owner: 'id', keys: ['lmlee_skill_02_debuff_hit'], at: 'target', tag: 'lmlee:paper', claim: true }),
+  }),
+  // 死芒 S2 折朽 (op-necras.js every): each arts tick on a linked enemy emits 'fxHit' there. The sleep buff's
+  // ON_BUFF_TRIGGER plays necras_skill_02_hit_01 (one-shot, spawn HIT) — the same prefab as projectile_chr_necras_s2's
+  // onHit, which her noAttack S2 does not fly. The 'sleep' at the link has no skill tag and is not this tick
+  skchr_necras_2: Object.freeze({
+    fxHit: binding({ owner: 'id', keys: ['necras_skill_02_hit_01'], at: 'target', tag: 'necras:s2', during: true, claim: true }),
+  }),
+  // 流形 skill 3 (data tokens: sktok_mlyss_wtrman_3 on every version). A split is 'split' (缪尔赛思's kit: id = the clone,
+  // src = the origin) or 'manifoldSplit' (tokens.js: the same, plus `from`). SpawnTokenS3 plays
+  // token_10030_mlyss_wtrman_split_start_01 once at the clone (one-shot, spawn FOOT, 6.5 s) and flies
+  // projectile_chr_mlyss_wtrman (main the looping trail, Paracurve speed 4, cleared on reach). Her S3 refresh of a living
+  // 流形 is 'fxHit' on that token, skill 'mlyss:refresh': refresh_01 (one-shot, spawn FOOT) at ON_BUFF_START of
+  // buffsToExistToken. c3_to_c0 is the override buff's finish and has no removal signal here
+  sktok_mlyss_wtrman_3: Object.freeze({
+    split: binding({ owner: 'src', keys: ['token_10030_mlyss_wtrman_split_start_01'], projectile: 'projectile_chr_mlyss_wtrman', at: 'point', oneshot: true, fly: true, claim: true }),
+    manifoldSplit: binding({ owner: 'src', keys: ['token_10030_mlyss_wtrman_split_start_01'], projectile: 'projectile_chr_mlyss_wtrman', at: 'point', oneshot: true, fly: true, claim: true }),
+    fxHit: binding({ owner: 'id', keys: ['token_10030_mlyss_wtrman_refresh_01'], at: 'point', oneshot: true, tag: 'mlyss:refresh', claim: true }),
+  }),
+  // ---- round 86 f1 end ----
+  // ---- round 86 f3 begin ----
+  // 余 S2 厚礼上宾: yu_s_2[try_tp] ON_BUFF_TRIGGER CreateEffect on the teleported enemy
+  // (index.json skills.skchr_yu_2). Kit teleport (chess_char_6_03-yu.js): id = the enemy, src = 余.
+  // One shot; the official 0.13 s delay is not modelled.
+  skchr_yu_2: Object.freeze({
+    teleport: binding({ owner: 'src', keys: ['yu_skill2_teleport_02'], at: 'target', target: 'id', during: true, claim: true }),
+  }),
+  // 号角 S2/S3 overload_switch_effect: UP → _back, else _front (dirFamilies, directionType 5).
+  // Loop on her, follow, until the skill ends (U.loops). Kit overload (chess_char_5_08-horn.js), id = her, once.
+  skchr_horn_2: Object.freeze({
+    overload: binding({
+      owner: 'id', during: true, until: 'skill', directionType: 5, claim: true,
+      slots: ['horn_skill_02_buff_03_back', 'horn_skill_02_buff_03_front', 'horn_skill_02_buff_03_front', 'horn_skill_02_buff_03_front'],
+    }),
+  }),
+  skchr_horn_3: Object.freeze({
+    overload: binding({
+      owner: 'id', during: true, until: 'skill', directionType: 5, claim: true,
+      slots: ['horn_skill_03_buff_02_03_back', 'horn_skill_03_buff_02_03_front', 'horn_skill_03_buff_02_03_front', 'horn_skill_03_buff_02_03_front'],
+    }),
+  }),
+  // 流明 S1: lumen_s_1[heal] ON_BUFF_TRIGGER CreateEffect at the field. Kit healField (chess_char_6_14-lumen.js).
+  // Hits only — lumen_skill_01_range stays the plan / FX_COVER field. `pass`: a missing spark does not claim the fx.
+  skchr_lumen_1: Object.freeze({
+    healField: binding({ owner: 'id', hits: ['lumen_skill_01_hit'], at: 'point', hold: 'projectile_life_time', holdS: 4, during: true, pass: true, claim: true }),
+  }),
+  // 斥罪 S2: judge_s_2[aoe] tick, both on her (HIT and SPECIAL_0 — the view, not a ground point).
+  // Kit aoe skill 'judge:atonement' (op-judge.js), once a second.
+  skchr_judge_2: Object.freeze({
+    aoe: binding({
+      owner: 'id', oneshot: true, during: true, tag: 'judge:atonement', claim: true,
+      keys: ['judge_skill_02_weapon_hit_01', 'judge_skill_02_hit_01'],
+    }),
+  }),
+  // 伊内丝 S3: projectile_chr_ines_guard_back flies from the sentry (x, y) back to her (tx, ty).
+  // Kit beam (chess_char_4_04-ines.js). _recall, not _fly. No per-enemy onHit.
+  skchr_ines_3: Object.freeze({
+    beam: binding({ owner: 'id', projectile: 'projectile_chr_ines_guard_back', recall: true, during: true, claim: true }),
+  }),
+  // 望 S3: projectile_chr_wang_stone3 has no main and immediatelyReach. Hit / trigger oneshots at the explode point.
+  // Tag wang_3, owner src (望). No `during` (a 棋子 fires while the skill is equipped). Not flown. The looping tile
+  // marks (wang_passive_01_buff / _buff_02) stay unmapped: the projectile clears them on its one hit, and the summon
+  // is not paired with this explode.
+  skchr_wang_3: Object.freeze({
+    explode: binding({
+      owner: 'src', at: 'point', oneshot: true, tag: 'wang_3', claim: true,
+      keys: ['token_wang_skill_03_hit', 'token_wang_skill_03_hit_02'],
+    }),
+  }),
+  // 望 S2 连星: the live explode is hers (src), tag wang_2. The 棋子 view's skillId is null today (three sktok skills,
+  // no tokens.json record), so this is the binding that plays. The tile stands for the victims [ASSUMED]: the fx names none.
+  skchr_wang_2: Object.freeze({
+    explode: binding({ owner: 'src', keys: ['token_wang_skill_02_hit_02'], at: 'point', oneshot: true, tag: 'wang_2', claim: true }),
+  }),
+  // 棋子 连星 hit, for the sweep and a future token record. owner 'id' so a 跟子 (id = 望) does not match this skill.
+  // At runtime src matches skchr_wang_2 first, so this does not double. The line shape (token_wang_skill_02_hit, is_col /
+  // is_row) is not played: the fx does not say which.
+  sktok_wang_2: Object.freeze({
+    explode: binding({ owner: 'id', keys: ['token_wang_skill_02_hit_02'], at: 'point', oneshot: true, tag: 'wang_2', claim: true }),
+  }),
+  // ---- round 86 f3 end ----
+  // ---- round 86 f2 begin ----
+  // 浊心斯卡蒂 S1 同归殊途之吟 (chess_char_6_04-skadi2.js hpDamage → reserveTransfer): the aura template
+  // skadi2_s_1[protect] plays both CreateEffects on the ally who takes damage (index skchr_skadi2_1, Aura,
+  // ON_TAKE_DAMAGE, oneshot, spawn HIT and MUZZLE). The kit emits one cosmetic 'skadiWard' (a: 'none') at that
+  // ally. The 海嗣's sktok_skadi2_1 is the same pair on an inert token that never casts; inCover already includes
+  // its range, so this host event is the transfer for both auras.
+  skchr_skadi2_1: Object.freeze({
+    skadiWard: binding({ claim: true, owner: 'id', keys: ['skadi2_skill_01_hit', 'skadi2_skill_01_hit_02'], at: 'target', target: 'target', oneshot: true, during: true, tag: 'skadi2:transfer' }),
+  }),
+  // 焰影苇草 S3 生命火种 (chess_char_6_08-reed2.js kill of a 灼痕 enemy): UberEffectEmitter hit reed2_debuff_boom_01
+  // of ActiveBuffAbility (not an attack — hit-no-attack), oneshot, spawn 5. The kit's 'scorchBurst' is that explosion.
+  skchr_reed2_3: Object.freeze({
+    scorchBurst: binding({ claim: true, owner: 'id', keys: ['reed2_debuff_boom_01'], at: 'point', oneshot: true, during: true }),
+  }),
+  // 百炼嘉维尔 S3 丛林之魂 (chess_char_4_23-gvial2.js onEnd, only when the deferred debt is paid as 流失): index
+  // ON_BUFF_FINISH CreateBuff gvial2_skill_3_bleed, looping. The use's life key is "duration"; data/chess.json bb has
+  // no duration key — the loss lasts final_duration (20). The kit's cosmetic 'gvialBleed' carries that as `duration`
+  // (hold 'fx'). a: 'none', so 官方特效 off adds no marker.
+  skchr_gvial2_3: Object.freeze({
+    gvialBleed: binding({ claim: true, owner: 'id', keys: ['gvial2_skill_3_bleed'], hold: 'fx', holdS: 20, during: true, tag: 'gvial2:bleed' }),
+  }),
+  // 淬羽赫默 S3 无畏者协议 (op-slent2.js fatal): Aura template slent2_s_3, ON_BEFORE_TRY_SET_HP_ZERO CreateBuff
+  // slent2_skill_03_buff_02 on the ally, looping (index life INFINITY = while that buff lasts). The kit's 'undying'
+  // names her in `src` and the window in `duration` (grave_duration). Other 'undying' fx have no this tag.
+  skchr_slent2_3: Object.freeze({
+    undying: binding({ claim: true, owner: 'src', keys: ['slent2_skill_03_buff_02'], hold: 'fx', holdS: 10, tag: 'slent2:grave' }),
+  }),
+  // 斩业星熊 S2 无始无明 (op-hsgma2.js shieldPulse): template hsgma2_s_2[projectile] ON_BUFF_TRIGGER CreateEffect
+  // hsgma2_skill_02_hit_04 on the enemy the shield touches, oneshot spawn MUZZLE. The kit's 'strike' is that contact.
+  // The projectile's main is the orbit trail (RotateAroundMovement). A melee blow does not fly it (skillfx.js attackFx).
+  // claimHit: if a ranged attack of this skill does fly projectile_chr_hsgma2_s2, wiring._arrive does not play this onHit again.
+  skchr_hsgma2_2: Object.freeze({
+    strike: binding({ claim: true, owner: 'id', keys: ['hsgma2_skill_02_hit_04'], at: 'point', oneshot: true, during: true, tag: 'hsgma2:shield', claimHit: true }),
+  }),
+  // 赤刃明霄陈 S2 赤霄·绝影-驰 (op-chen3.js landS2 'blink' tag chen3:respawn): both respawn buffs are one
+  // ON_OWNER_LOCATE CreateBuff of chen3_s2[respawn_buff] (index skchr_chen3_2 RespawnBuff), looping, life LIMITED
+  // key duration. backups.json forms give the skill duration 6 and no bb.duration; the kit then sets timeLeft to that
+  // duration. untilSkill stops them when the skill ends; holdS 6 is the cap.
+  skchr_chen3_2: Object.freeze({
+    blink: binding({ claim: true, owner: 'id', keys: ['chen3_skill_02_buff_01', 'chen3_skill_02_f_buff_02'], untilSkill: true, holdS: 6, during: true, tag: 'chen3:respawn' }),
+  }),
+  // 赤刃明霄陈 S3 赤霄·天喟 (op-chen3.js chen3Wave every 0.12 s, and 'slash' tag chen3:wave on a hit): the skill lists
+  // projectile_chr_chen3_s3 and has no attack to fly it. Its main chen3_skill_03_trail_01 loops (AdvancedMovement
+  // speed 1.5); onHit chen3_skill_03_hit_04 is oneshot. `track` keeps one trail on the latest sample and replaces the
+  // procedural 'qi' blade. The slash binding is only the wave's hit, not S2's 'slash' tag chen3:slash.
+  skchr_chen3_3: Object.freeze({
+    chen3Wave: binding({ claim: true, owner: 'id', projectile: 'projectile_chr_chen3_s3', keys: ['chen3_skill_03_trail_01'], track: true, during: true, tag: 'chen3:wave' }),
+    slash: binding({ claim: true, owner: 'id', keys: ['chen3_skill_03_hit_04'], at: 'point', oneshot: true, during: true, tag: 'chen3:wave' }),
+  }),
+  // 怒潮凛冬 S3 无可抵挡 (op-headb2.js highlandStrike 'aoe' tag headb2:highland): Headb2S3HighlandAOE._tileEffectKey
+  // headb2_highground, oneshot spawn 26. The hammer's 'aoe' is tag headb2:hammer and is not this tile effect.
+  skchr_headb2_3: Object.freeze({
+    aoe: binding({ claim: true, owner: 'id', keys: ['headb2_highground'], at: 'point', oneshot: true, during: true, tag: 'headb2:highland' }),
+  }),
+  // ---- round 86 f2 end ----
+  // ---- round 86 f5 begin ----
+  // 折桠 S2 (chess_char_2_17-branch.js hitAllBlocked; index UberEffectEmitter._hitEffects node SpAttack,
+  // ability AnimatedActionToTargetAbility — not *Attack, so place() leaves it hit-no-attack). The 'atk'
+  // already names the blocked enemy. SkillFx.attackFx appends this key onto each blow's hit group while
+  // the skill is on. The onStart 'resolve' aoe is the 战栗, not this hit.
+  skchr_branch_2: Object.freeze({
+    onAttack: binding({ owner: 'id', keys: ['branch_skill_02_hit_01'], onAttack: true }),
+  }),
+  // 乌啾 S2 (ver-turdus.js continueChain). Status 'camou' is shared (伪装服 / 忍冬) and heal events
+  // name only the patient, so the kit emits cosmetic fx (round 86) of kinds the procedural table draws
+  // as nothing (FX_KINDS a:'none'): turdusCamou (duration = bonus_duration) and turdusHot.
+  // Index: turdus_s2[try_camouflage] ON_BUFF_TRIGGER CreateBuff on targets, LIMITED bonus_duration —
+  // prefab turdus_skill_02_buff_01 loops, spawn HIT; turdus_s2[continues_heal] ON_BUFF_TRIGGER
+  // CreateEffect tick 1 — turdus_skill_02_hit_01 oneshot, spawn HIT. The skill is instant, so no
+  // `during`. coverStealth 'camou' hides the generic 隐匿 icon only while that loop actually plays.
+  skchr_turdus_2: Object.freeze({
+    turdusCamou: binding({ owner: 'id', keys: ['turdus_skill_02_buff_01'], at: 'target', target: 'target', hold: 'fx', holdS: 10, tag: 'turdus:camou', coverStealth: 'camou' }),
+    turdusHot: binding({ owner: 'id', keys: ['turdus_skill_02_hit_01'], at: 'target', target: 'target', oneshot: true, tag: 'turdus:hot' }),
+  }),
+  // 娜斯提 S1: PassiveBuffAbility ExtraAbility0 already loops nasti_skill_01_common_buff_01 for the skill
+  // (INFINITY, spawn FOOT). BuffDuringSkill nasti_s1[effect_manager] ON_BUFF_FINISH CreateBuff of the same
+  // key, life INFINITY. SkillFx.skill keeps that loop handle after the skill ends (`linger`) and stops it
+  // on recast or release. A second copy is not started.
+  skchr_nasti_1: Object.freeze({
+    linger: binding({ owner: 'id', keys: ['nasti_skill_01_common_buff_01'], linger: true }),
+  }),
+  // 可露希尔 S2/S3: closur_s_2[switch] / closur_s_3[switch] ON_BUFF_START CreateBuffToToken, LIMITED
+  // duration, spawn GROUND. The summon fx (op-closur.js) names the 指挥中心 (id = the token, src = her,
+  // token = token_10066_closur_ourbase) at deploy, not at skill start. Kind is `tokenRange`, not
+  // `summon`, so simFx does not swallow the procedural arrival. SkillFx starts the loop on that token
+  // while the skill lasts.
+  skchr_closur_2: Object.freeze({
+    tokenRange: binding({ owner: 'src', keys: ['token_closur_ourbase_range_02_loop'], token: 'token_10066_closur_ourbase' }),
+  }),
+  skchr_closur_3: Object.freeze({
+    tokenRange: binding({ owner: 'src', keys: ['token_closur_ourbase_range_03_loop'], token: 'token_10066_closur_ourbase' }),
+  }),
+  // 机械师 S2: CreateBuff of mcnist_skill_02_buff_01 on her is already the skill loop. CreateBuffToToken
+  // of the same key (mcnist_s_2_mode, INFINITY, spawn FOOT) is the 结构性原理. grantBarrier's shield fx
+  // names the holder (id only). Kind is `tokenBuff`, not `shield`, so the procedural barrier stays.
+  // SkillFx starts the loop on token_10069_mcnist_mcgraf while S2 is on.
+  skchr_mcnist_2: Object.freeze({
+    tokenBuff: binding({ owner: 'id', keys: ['mcnist_skill_02_buff_01'], token: 'token_10069_mcnist_mcgraf' }),
+  }),
+  // 机械师 S3: the six projectile_chr_mcnist_s3_token* are listed on the skill but no use fires them.
+  // Kit chargeGraf (op-mcnist.js) is the flight (speed 20; index delayToStart 0.25, the kit waits 0.2).
+  // The fx id is the token, so the owner loop cannot see skchr_mcnist_3. SkillFx._mcnistCharge picks
+  // the key from dir + visFacing (trail names: left / right / up_left / up_right / down_left /
+  // down_right) [ASSUMED: the selector node is not in the uses] and flies it with wiring._fly.
+  // onReached token_mcnist_mcgraf_skill_03_hit_01 plays at arrival. The 工程学十字星 aoe is a
+  // different moment and is not these projectiles.
+  skchr_mcnist_3: Object.freeze({
+    charge: binding({
+      owner: 'token',
+      token: 'token_10069_mcnist_mcgraf',
+      projectiles: Object.freeze([
+        'projectile_chr_mcnist_s3_token',
+        'projectile_chr_mcnist_s3_token_right',
+        'projectile_chr_mcnist_s3_token_up',
+        'projectile_chr_mcnist_s3_token_up_right',
+        'projectile_chr_mcnist_s3_token_down',
+        'projectile_chr_mcnist_s3_token_down_right',
+      ]),
+      facing: Object.freeze({
+        LEFT: 'projectile_chr_mcnist_s3_token',
+        RIGHT: 'projectile_chr_mcnist_s3_token_right',
+        UP: 'projectile_chr_mcnist_s3_token_up',
+        UP_RIGHT: 'projectile_chr_mcnist_s3_token_up_right',
+        DOWN: 'projectile_chr_mcnist_s3_token_down',
+        DOWN_RIGHT: 'projectile_chr_mcnist_s3_token_down_right',
+      }),
+    }),
+  }),
+  // ---- round 86 f5 end ----
+  // ---- round 86 g11 begin ----
+  // 星熊 S3 力之锯 (chess_char_4_17-hsguma.js onTick): every 1 s she deals phys to each ground enemy on the tile in
+  // front and emits 'fxHit' on that enemy. ChannelingMeleeAttack's hsguma_skill_03_hit (one-shot, from
+  // ChannelingEffectEmitter._hitEffect) is that tick. The start loop and the buff stay the skill's own rows.
+  skchr_hsguma_3: Object.freeze({
+    fxHit: binding({ owner: 'id', keys: ['hsguma_skill_03_hit'], at: 'target', tag: 'hsguma:s3', during: true, claim: true }),
+  }),
+  // ---- round 86 g11 end ----
 });
 
 /**
@@ -1547,6 +1929,10 @@ export const FX_COVER = Object.freeze({
   skchr_rmixer_3: Object.freeze(['counter']),
   // 歌蕾蒂娅 S3: the tornado's pulls — the tornado itself is bound (FX_BINDINGS)
   skchr_glady_3: Object.freeze(['tornadoPulse']),
+  // 机械师 S3: the charge's landing 'aoe' (op-mcnist.js, id = her, skill mcnist:charge) — the flown charge trail plays its
+  // own arrival hit token_mcnist_mcgraf_skill_03_hit_01 there (FX_BINDINGS skchr_mcnist_3.charge, SkillFx._mcnistCharge);
+  // the procedural ring drew on top of it (round 86 on-screen check)
+  skchr_mcnist_3: Object.freeze(['aoe']),
   // 伺夜 S1 (a wolf more: the 'summon' on her wolf, src = her), 迷迭香 S3 (the 'summon' at her): the skills' start rows
   // (vigil_skill_01_start_01–03; rosmon_skill_03_start) — a summon born in that frame is covered by its own birth
   skchr_vigil_1: Object.freeze(['summon']),
@@ -1594,16 +1980,73 @@ export function enemyCoverOf(unitKey, prefabKey, kind) {
   return !!list && list.includes(kind);
 }
 
+/**
+ * One binding, or each `cases` entry merged over it (菲亚梅塔 S2: one 'aoe' kind, two moments). A binding without
+ * `cases` is returned as itself, so callers that read `owner` still see the entry.
+ */
+export function bindList(bind) {
+  if (!bind) return [];
+  if (!Array.isArray(bind.cases)) return [bind];
+  return bind.cases.map((c) => ({ ...bind, ...c, cases: undefined }));
+}
+
+/**
+ * Prefab keys a skill's bindings claim (FX_BINDINGS `claim`): skillPlan marks that unmapped row 'bound'. Projectile
+ * ids are not claimed — a skill with no attack is cleared by bindingKeys listing the id. `cases` are walked too.
+ */
+function claimedKeys(skillId) {
+  const out = new Set();
+  for (const raw of Object.values(FX_BINDINGS[lc(skillId)] || {})) {
+    for (const bind of bindList(raw)) {
+      if (!bind.claim) continue;
+      for (const k of bind.keys || []) if (lc(k)) out.add(lc(k));
+      for (const k of bind.hits || []) if (lc(k)) out.add(lc(k));
+      for (const k of bind.slots || []) if (lc(k)) out.add(lc(k));
+    }
+  }
+  return out;
+}
+
 /** Every key a skill's bindings can play (preloading). */
 export function bindingKeys(idx, skillId) {
   const out = new Set();
-  for (const bind of Object.values(FX_BINDINGS[lc(skillId)] || {})) {
-    for (const k of bindingEffects(idx, bind)) out.add(k);
-    // the tick oneshots and, when the binding flies the shot itself, the trail (preloading; neither is a reached effect)
-    for (const k of bind.hits || []) if (lc(k)) out.add(lc(k));
-    if ((bind.fly || bind.launch) && bind.projectile) {
-      const main = lc(idx?.projectiles?.[lc(bind.projectile)]?.main);
-      if (main) out.add(main);
+  for (const raw of Object.values(FX_BINDINGS[lc(skillId)] || {})) {
+    for (const bind of bindList(raw)) {
+      for (const k of bindingEffects(idx, bind)) out.add(k);
+      // the tick oneshots and, when the binding flies the shot itself, the trail (preloading; neither is a reached effect)
+      for (const k of bind.hits || []) if (lc(k)) out.add(lc(k));
+      for (const k of bind.slots || []) if (lc(k)) out.add(lc(k));
+      // `keys` win in bindingEffects, so a binding that also names its projectile still preloads that id (a skill with
+      // no attack is not an idle shot: 菲亚梅塔 S2, 琴柳 S3's s3_2, 流形). A binding without `keys` is unchanged.
+      if (Array.isArray(bind.keys) && lc(bind.projectile)) out.add(lc(bind.projectile));
+      // a flown, launched, laned, thrown or tracked shot: its trail (a `track` keeps one copy on the kit's samples)
+      if ((bind.fly || bind.launch || bind.lanes || bind.flight || bind.track) && bind.projectile) {
+        const p = idx?.projectiles?.[lc(bind.projectile)];
+        const main = lc(p?.main);
+        if (main) out.add(main);
+        // a throw plays its own landing (onHit / onReached); an area's `fly` leaves those to the held marks
+        if (bind.flight) for (const k of [...(p?.onReached || []), ...(p?.onHit || [])]) if (lc(k)) out.add(lc(k));
+      }
+      // a recall flies the trail and the harpoon rope; onReached is already in bindingEffects
+      if (bind.recall && bind.projectile) {
+        const proj = idx?.projectiles?.[lc(bind.projectile)];
+        const main = lc(proj?.main);
+        if (main) out.add(main);
+        for (const b of Array.isArray(proj?.behaviours) ? proj.behaviours : []) {
+          if (b?.class !== 'HarpoonRenderer') continue;
+          const rope = lc(b.fields?._mainEffect);
+          if (rope) out.add(rope);
+        }
+      }
+      // a projectile the binding flies itself (no plan attack): its trail and the hit it plays on arrival
+      for (const pk of bind.projectiles || []) {
+        const rec = idx?.projectiles?.[lc(pk)];
+        if (!rec) continue;
+        const main = lc(rec.main);
+        if (main) out.add(main);
+        for (const k of rec.onReached || []) if (lc(k)) out.add(lc(k));
+        for (const k of rec.onHit || []) if (lc(k)) out.add(lc(k));
+      }
     }
   }
   return [...out];
@@ -1646,7 +2089,19 @@ export const OWNER_NEAR = 1;
  *              (a buff it creates at its tick: a condition talents.js cannot read, here the mode's own) — for its record's
  *              blackboard value `bbKey` (talents.bb), else `holdS` s; `endMode`: the fx ends it early
  */
-const ebind = (o) => Object.freeze({ ...o, ...(o.keys ? { keys: Object.freeze(o.keys) } : {}), ...(o.parts ? { parts: Object.freeze(o.parts) } : {}) });
+const ebind = (o) => {
+  const extra = {};
+  if (o.keys) extra.keys = Object.freeze(o.keys);
+  if (o.parts) extra.parts = Object.freeze(o.parts);
+  if (Array.isArray(o.mark)) extra.mark = Object.freeze(o.mark.slice());
+  if (Array.isArray(o.xkind)) extra.xkind = Object.freeze(o.xkind.slice());
+  if (o.keysByKind && typeof o.keysByKind === 'object') {
+    const kb = {};
+    for (const [k, v] of Object.entries(o.keysByKind)) kb[k] = Object.freeze([].concat(v));
+    extra.keysByKind = Object.freeze(kb);
+  }
+  return Object.freeze({ ...o, ...extra });
+};
 const POLLUTED_DIE = Object.freeze({
   // the client's PollutedDie talent (Talent/BslimeTalent_1) fires projectile_enemy_nhpbr_polluted where the unit falls: an
   // EffectBehaviour that plays enemy_nhpbr_attack_range on its target as it starts (_effectsToTargetWhenStart, looping)
@@ -1724,6 +2179,85 @@ export const ENEMY_FX_BINDINGS = Object.freeze({
     telegraph: ebind({ xkind: 'spin', owner: 'id', modeLoops: 'RotateEffect', bbKey: 'EndRotate.rotate_duration', holdS: 60 }),
     phase: ebind({ xkind: 'spinStop', owner: 'id', endMode: true }),
   }),
+  // ---- round 86 f6 begin ----
+  // 萨卡兹悖谬暴虐兵长 AOEAttack (index units.enemy_1320_wdrrl_2.skills.aoeattack): the buff enemy_wdrrl[AOE_attack]
+  // (ON_OUTPUT_MODIFIER) plays enemy_wdrrl_skill_hit_01 (one-shot, HIT) and enemy_wdrrl_skill_hit_rangre_01 (one-shot,
+  // GROUND) on that hit. special.js kitFirstAoe emits 'explode' kind 'aoeAttack' at the struck tile, with no id, and the
+  // 'dealt' hook is not the 'cast' frame. [ASSUMED] both play once at that tile: the kit's moment is the splash, and the
+  // range prefab is a ground effect; the hit prefab's HIT anchor has no target id on the fx.
+  enemy_1320_wdrrl_2: Object.freeze({
+    explode: ebind({ xkind: 'aoeAttack', owner: 'any', keys: ['enemy_wdrrl_skill_hit_01', 'enemy_wdrrl_skill_hit_rangre_01'], once: true, mark: 'aoeattack' }),
+  }),
+  // 凋零骑士 TripleAttack (units.enemy_1513_dekght_2.skills.tripleattack): the buff enemy_dekght_2[aoe] creates
+  // dekght_2_skill_01_range (one-shot, GROUND) on its targets at ON_BUFF_TRIGGER. leaders.js kitLeaderMisc emits
+  // 'explode' kind 'blastArrow' at the tile when the arrow lands (the 'telegraph' of the same kind is the wait).
+  enemy_1513_dekght_2: Object.freeze({
+    explode: ebind({ xkind: 'blastArrow', owner: 'any', keys: ['dekght_2_skill_01_range'], once: true, mark: 'tripleattack' }),
+  }),
+  // 乌顶巨角卢鲁 skill (units.enemy_10144_xdelk_2.skills.skill): _castTargetEffects holds enemy_xdelk_buff_03 (loop, HEAD)
+  // on the charge's target from ON_CAST_START to ON_CAST_END, and _hitEffects plays enemy_xdelk_skill_hit_01 (one-shot,
+  // HIT) at ON_CAST_END. leaders.js kitElk: 'telegraph' kind 'elkCharge' at the blocker's tile for the charge (id = the
+  // elk), then 'explode' kind 'elkClash' there. The telegraph names the elk, not the blocker, so the head loop sits at
+  // the blocker's tile. [ASSUMED] that tile is the head buff's place.
+  enemy_10144_xdelk_2: Object.freeze({
+    telegraph: ebind({ xkind: 'elkCharge', owner: 'id', keys: ['enemy_xdelk_buff_03'], hold: 'fx', holdS: 5, mark: 'skill' }),
+    explode: ebind({ xkind: 'elkClash', owner: 'any', keys: ['enemy_xdelk_skill_hit_01'], once: true, mark: 'skill' }),
+  }),
+  // 盐风主教昆图斯 Doom (units.enemy_1521_dslily.skills.doom): dslily_doom[effect] creates enemy_dslily_skill_04_range
+  // (one-shot, GROUND, 8 s) on the owner at ON_BUFF_TRIGGER, life 3.2 s tick 1. bosses.js kitQuintus emits 'telegraph'
+  // kind 'speciesBurst' at the cast (id = the bishop, dur = DOOM_DELAY 4). [ASSUMED] one play of the 8 s one-shot stands
+  // for those retriggers; the skill's start rows already play from the cast window.
+  enemy_1521_dslily: Object.freeze({
+    telegraph: ebind({ xkind: 'speciesBurst', owner: 'id', keys: ['enemy_dslily_skill_04_range'], once: true, mark: 'doom' }),
+  }),
+  // “炎佑” Skill_2 (units.enemy_9012_acloon.skills.skill_2): acloon_s_2 deals AOEDamage and plays enemy_acloon_skill_hit
+  // (loop, HIT) on the targets at ON_BUFF_TRIGGER, tick 1. tokens.js yanyouKit emits 'yanyouFlame' each second with
+  // id = the dragon and target = the lock, dur 1. The hit follows that lock; the procedural jet stays when this misses.
+  enemy_9012_acloon: Object.freeze({
+    yanyouFlame: ebind({ owner: 'id', at: 'target', keys: ['enemy_acloon_skill_hit'], hold: 'fx', holdS: 1, mark: 'skill_2' }),
+  }),
+  // 阿利斯泰尔 store / storeA (units.enemy_9032_aclionk.skills.store and .storea): the skill lists
+  // projectile_enemy_vtlionk_s2 and no ability names a projectileKey. The projectile is AdvancedMovement speed 6, main
+  // enemy_vtlionk_skill_02_trail_01 (loop), onHit enemy_vtlionk_skill_02_hit_01 (one-shot, HIT). bosses.js kitLion
+  // animate emits 'sword' { from: the 王庭剑, to: the target } with no id (仇白's 'sword' carries id and is not this).
+  enemy_9032_aclionk: Object.freeze({
+    sword: ebind({
+      owner: 'any', projectile: 'projectile_enemy_vtlionk_s2', fly: 'fromTo',
+      keys: ['enemy_vtlionk_skill_02_trail_01', 'enemy_vtlionk_skill_02_hit_01'], mark: ['store', 'storea'],
+    }),
+  }),
+  // “裂管之音” / “断弦之音” (units.enemy_9023_acdums has no skills map). The missing Skill's art is the common abilities:
+  // PassionSkill's cast enemy_acdums_a_skill_start, DepassionSkill's enemy_acdums_b_skill_start, and the AOE ability's
+  // enemy_acdums_a_skill_start_2 (all one-shot, GROUND). Both form talents play enemy_acdums_switch (one-shot, FOOT) on
+  // ON_TAKE_DAMAGE. bosses.js kitEcho: 'explode' ensembleGold / ensembleDark is 合奏; echoHit's 'explode' echoPulse is
+  // the on-damage pulse. [ASSUMED] the switch prefab plays on that same hit, because both talents create it on
+  // ON_TAKE_DAMAGE and not on the form-change 'phase'.
+  enemy_9023_acdums: Object.freeze({
+    explode: ebind({
+      owner: 'near', xkind: ['ensembleGold', 'ensembleDark', 'echoPulse'], once: true,
+      keys: ['enemy_acdums_a_skill_start', 'enemy_acdums_b_skill_start', 'enemy_acdums_a_skill_start_2', 'enemy_acdums_switch'],
+      keysByKind: {
+        ensemblegold: ['enemy_acdums_a_skill_start'],
+        ensembledark: ['enemy_acdums_b_skill_start'],
+        echopulse: ['enemy_acdums_a_skill_start_2', 'enemy_acdums_switch'],
+      },
+    }),
+  }),
+  // ---- round 86 f6 end ----
+});
+
+/**
+ * One-shots an enemy skill plays on its owner when its cast window opens (round 86 f6), by unit key → prefabKey →
+ * prefab keys. Opt-in: _enemyCast reads only this table. The skill's start / range / loop rows are unchanged.
+ *   拥霜羽兽 switch — _hitEffects enemy_xdpeng_die_01 (one-shot, GROUND) at ON_CAST_END. leaders.js casts `switch`
+ *     when the egg is lost; the kit sends no fx.
+ *   矩兽 CombatAoe — enemy_dyjsfg_t[combat_damage] creates enemy_dyjsfg_skill_01 (one-shot, GROUND) on the owner at
+ *     ON_BUFF_TRIGGER (life 0.6 s, tick 0.5). regulation-bosses.js kitBeast's timed cast is that trigger and sends no
+ *     fx. [ASSUMED] one play per cast stands for the short retrigger; the prefab's own life is the clip.
+ */
+export const ENEMY_CAST_SHOTS = Object.freeze({
+  enemy_10141_xdpeng_2: Object.freeze({ switch: Object.freeze(['enemy_xdpeng_die_01']) }),
+  enemy_2124_dyjsfg: Object.freeze({ combataoe: Object.freeze(['enemy_dyjsfg_skill_01']) }),
 });
 
 /**
@@ -1765,8 +2299,37 @@ export function enemyBindingKeys(idx, unitKey) {
     if (bind.talent) { const a = auraTargets(idx, unitKey, bind.talent); for (const k of [...a.shots, ...a.loops]) out.add(k); }
     else if (bind.modeLoops) for (const k of modeLoopKeys(idx, unitKey, bind.modeLoops)) out.add(k);
     else for (const k of bindingEffects(idx, bind)) out.add(k);
+    // a flown shot's trail (bindingEffects keeps `keys` / the reached field; the trail is `main`, as bindingKeys does)
+    if (bind.fly && bind.projectile) {
+      const main = lc(idx?.projectiles?.[lc(bind.projectile)]?.main);
+      if (main) out.add(main);
+    }
+    if (bind.keysByKind) for (const list of Object.values(bind.keysByKind)) for (const k of list) if (lc(k)) out.add(lc(k));
   }
+  const shots = ENEMY_CAST_SHOTS[unitKey];
+  if (shots) for (const list of Object.values(shots)) for (const k of list) if (lc(k)) out.add(lc(k));
   return [...out];
+}
+
+/**
+ * Prefab keys a round-86 enemy binding or cast shot plays for this unit and skill (lower-case prefabKey). skillPlan
+ * marks those unmapped rows 'bound'. A binding's `mark` is one prefabKey or a list; cast shots are keyed the same way.
+ * Empty for every other unit, including one that shares the prefabKey.
+ */
+export function enemyPlayedKeys(unitKey, skillId) {
+  const id = lc(skillId);
+  const out = new Set();
+  if (!unitKey || !id) return out;
+  const shots = ENEMY_CAST_SHOTS[unitKey]?.[id];
+  if (shots) for (const k of shots) if (lc(k)) out.add(lc(k));
+  for (const bind of Object.values(ENEMY_FX_BINDINGS[unitKey] || {})) {
+    const m = bind.mark;
+    const hit = m === id || (Array.isArray(m) && m.some((x) => lc(x) === id));
+    if (!hit) continue;
+    for (const k of bindingEffects(null, bind)) if (k) out.add(k);
+    if (bind.keysByKind) for (const list of Object.values(bind.keysByKind)) for (const k of list) if (lc(k)) out.add(lc(k));
+  }
+  return out;
 }
 
 /** The loop effects of a unit's talent (its uses with role 'loop', lower case): a binding's `modeLoops`. */

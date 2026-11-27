@@ -73,7 +73,11 @@ test('forced overflow is private, notifies its owner, and refills each kind in a
   assert.equal(notices.length, 8); assert.ok(notices.every(([id]) => id === ps.playerId));
   assert.ok(notices.some(([, msg]) => msg.msgid === '装备区已满，{name}进入暂存'));
   assert.ok(notices.some(([, msg]) => msg.msgid === '手牌已满，{name}进入暂存'));
-  assert.deepEqual(ps.setReady(true), { error: ERR.TEMP_NOT_EMPTY });
+  assert.equal(v.canReady, true);
+  assert.equal(shopBlockReason('ready', { priv: v, editable: true, config: regulation.config }), null);
+  assert.deepEqual(h.m.handle(ps.playerId, { t: 'g.ready', ready: true }), { ok: true });
+  assert.deepEqual(ps.tempPieces(), [c1, i1, c2, i2], 'Ready does not dispose of overflow');
+  assert.ok(ps.setReady(false).ok);
   const due = ps.tempDue(c1);
   ps.destroy(ps.temp[4].uid); assert.equal(ps.temp[4], i1); assert.deepEqual(ps.tempPieces(), [c1, c2, i2]);
   assert.equal(ps.tempDue(c1), due); assert.equal(ps._tempDue.has(i1.uid), false);
@@ -92,12 +96,88 @@ test('stash deadline returns item stock and pool copies, runs no onDestroy (as c
   const hooks = [], dispatch = m.dispatchItem.bind(m);
   m.dispatchItem = (...args) => { if (args[3] === 'onDestroy') hooks.push(args[1].uid); return dispatch(...args); };
   assert.equal(m.itemPool.left(it.id), itemBefore - 1); assert.equal(m.pool.left(op.id), chessBefore - 1);
+  assert.ok(ps.setReady(true).ok);
+  assert.ok(ps.find(it.uid)); assert.ok(ps.find(op.uid));
   ps.endPrep();
   assert.equal(ps.find(it.uid), null); assert.equal(ps.find(op.uid), null);
   assert.equal(m.itemPool.left(it.id), itemBefore); assert.equal(m.pool.left(op.id), chessBefore);
   assert.deepEqual(hooks, []); assert.deepEqual(ps.temp, permanent);
   assert.deepEqual(audit.violations, []); checkInvariants(m);
 });
+
+test('regulation overflow allows Ready but still requires personal and command choices', t => {
+  const { ps, fill, item } = setup(t);
+  fill('item'); item(6);
+  ps.personalChoice = { id: 'pending', cards: [] };
+  assert.equal(ps.privateView().canReady, false);
+  assert.equal(ps.setReady(true).error, ERR.BAD_TARGET);
+  ps.personalChoice = null;
+  ps.commandDrafts = [{ id: 'pending', cards: [] }];
+  assert.equal(ps.privateView().canReady, false);
+  assert.equal(ps.setReady(true).error, ERR.BAD_TARGET);
+  ps.commandDrafts = [];
+  assert.equal(ps.privateView().canReady, true);
+  assert.ok(ps.setReady(true).ok); assert.ok(ps.setReady(false).ok);
+  ps.alive = false;
+  assert.equal(ps.privateView().canReady, false);
+  assert.equal(ps.setReady(true).error, ERR.ELIMINATED);
+});
+
+test('regulation overflow summons are cleared on battle entry and return next prep', t => {
+  const { ps, m, fill } = setup(t);
+  const rec = Object.values(regulation.chess).find(c => !c.isGolden && !c.isDiy && ps.gd.placeableTokens(c.chessId).length);
+  assert.ok(rec);
+  const owner = ps.acquireChess(rec.chessId, { silent: true });
+  const [row, col] = legalTileFor(m, ps, owner.id);
+  assert.ok(ps.move(owner.uid, { area: 'board', row, col }).ok);
+  // Remove the initial stack, then force its replacement into overflow.
+  ps.removeTokensOf(owner.uid); fill('chess'); ps.grantTokensFor(owner);
+  const tokens = ps.tempPieces().filter(p => p.kind === 'token' && p.ownerUid === owner.uid);
+  assert.ok(tokens.length);
+  assert.ok(ps.setReady(true).ok);
+  assert.ok(tokens.every(p => ps.find(p.uid)));
+  ps.endPrep();
+  assert.ok(tokens.every(p => !ps.find(p.uid)));
+  assert.ok(ps.find(owner.uid));
+  m.round = 2; ps.startRound(2);
+  assert.ok(ps.tempPieces().some(p => p.kind === 'token' && p.ownerUid === owner.uid));
+});
+
+test('regulation: overflow a seat readied with is gone before the <休整期结束时> effects, as at the deadline (§37.356)', t => {
+  const { ps, m, chars, fill } = setup(t);
+  fill('chess');
+  // two copies of one operator overflow into the hidden stash during this prep, before Ready: due at this prep
+  const id = chars.find(c => !ps.allChess().some(p => p.id === c) && ps.gd.mergeCount(c) === 3);
+  assert.ok(id);
+  const poolBefore = m.pool.left(id);
+  const a = ps.acquireChess(id, { silent: true }), b = ps.acquireChess(id, { silent: true });
+  assert.ok(ps.tempPieces().includes(a) && ps.tempPieces().includes(b));
+  assert.equal(m.pool.left(id), poolBefore - 2);
+  assert.ok(ps.setReady(true).ok, '规程 readies with overflow');
+  // a <休整期结束时> grant of the same operator must not merge the two confirmed-for-destruction copies into an elite
+  let granted = null, stashAtEffects = null;
+  const dispatch = m.dispatch.bind(m);
+  m.dispatch = (p, hook, ...rest) => {
+    if (p === ps && hook === 'onPrepEnd' && !granted) { stashAtEffects = ps.tempPieces().length; granted = ps.acquireChess(id, { silent: true }); }
+    return dispatch(p, hook, ...rest);
+  };
+  for (const other of m.alivePlayers()) if (other !== ps && !other.ready) { other.resolveTemp(); assert.ok(other.setReady(true).ok); }
+  m.endPrep();
+  assert.equal(stashAtEffects, 0, 'the due stash was resolved before the effects');
+  assert.equal(ps.find(a.uid), null); assert.equal(ps.find(b.uid), null);
+  assert.ok(granted && granted.id === id, 'the grant is a normal copy, no elite');
+  assert.equal(ps.allChess().filter(p => ps.gd.baseIdOf(p.id) === id).length, 1);
+  assert.equal(m.pool.left(id), poolBefore - 1, 'both doomed copies went back to the pool');
+});
+
+for (const version of ['act1autochess', 'act1autochess@V1_1', 'act2autochess', 'act2autochess@V2_1']) {
+  test(`${version} still refuses Ready with overflow`, t => {
+    const { ps, item, fill } = setup(t, getVersionData(version));
+    fill('item'); assert.ok(item(12)); assert.equal(ps.tempEmpty, false);
+    assert.equal(ps.privateView().canReady, false);
+    assert.deepEqual(ps.setReady(true), { error: ERR.TEMP_NOT_EMPTY });
+  });
+}
 
 test('overflow after Ready survives one deadline; cancelling Ready makes it due now', t => {
   const { ps, item, fill } = setup(t);

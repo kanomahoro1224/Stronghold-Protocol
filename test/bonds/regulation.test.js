@@ -250,8 +250,8 @@ describe('规程·序列Ⅰ bonds', { concurrency: 1 }, () => {
     };
     handlers.contentb_info.onBattleStart(ctx, { input, kind: 'normal' });
     assert.deepEqual(input.contentInfo.handPieces, [
-      { slot: 0, id: 'a', bonds: ['kazimierzShip'], position: 'MELEE' },
-      { slot: 2, id: 'b', bonds: ['egirShip'], position: 'RANGED' },
+      { slot: 0, id: 'a', bonds: ['kazimierzShip'], position: 'MELEE', uid: 1 },
+      { slot: 2, id: 'b', bonds: ['egirShip'], position: 'RANGED', uid: 2 },
     ]);
   });
 
@@ -845,6 +845,127 @@ describe('规程·序列Ⅰ bonds', { concurrency: 1 }, () => {
     assert.equal(next[0].findBuff('bond:egir:devour'), null, 'a 卡西米尔 switch does not copy 阿戈尔 devour stats');
   });
 
+  function ofId(h, id) {
+    return h.b.allyUnits.filter((u) => u.defId === id || u.def?.baseId === id);
+  }
+
+  test('卡西米尔_2 and 历阵锐枪芬 do not summon the same bench uid (#1005)', (t) => {
+    // Bond death listeners run before garrison listeners. Another ground 卡西米尔 falls first, so the bond
+    // fields the rightmost bench chess; 芬's garrison must not field that uid again.
+    const fang = piece('reg_fang', ['kazimierzShip'], { col: 4, skill: null, uid: 1 });
+    fang.rec.garrisonIds = ['garrison_223_a', 'garrison_224_a'];
+    const mate = piece('reg_kz_mate', ['kazimierzShip'], { col: 5, skill: null, uid: 2 });
+    const bench = piece('reg_mlynar', ['kazimierzShip'], { bench: true, skill: null });
+    const h = fight(t, {
+      bonds: { kazimierzShip: bond(6, 0) },
+      pieces: [fang, mate, bench],
+      contentInfo: {
+        handPieces: [{ slot: 8, id: 'reg_mlynar', uid: 55, bonds: ['kazimierzShip'], position: 'MELEE' }],
+      },
+    });
+    h.step();
+    h.b.getPlayer('p1').input.bench = [
+      { uid: 55, kind: 'chess', chessId: 'reg_mlynar', idx: 8, bonds: ['kazimierzShip'] },
+    ];
+    h.b.kill(h.unit('reg_kz_mate'));
+    const summoned = ofId(h, 'reg_mlynar');
+    assert.equal(summoned.length, 1);
+    assert.equal(summoned[0].uid, 55);
+    assert.equal(summoned[0].alive, true);
+    assert.equal(summoned[0].tileC, 5, 'the bond switch stands on the dead operator\'s tile');
+    h.b.kill(h.unit('reg_fang'));
+    assert.equal(ofId(h, 'reg_mlynar').length, 1, '芬 does not summon uid 55 again');
+    assert.equal(h.unit('reg_fang').removed, false, 'no candidate left: the carrier stays down');
+    assert.equal(h.b.errorCount, 0, JSON.stringify(h.b.errors));
+  });
+
+  test('历阵锐枪芬 then 卡西米尔_2 skip a bench uid already on the field (#1005)', (t) => {
+    // The carrier is not a 卡西米尔 member, so the garrison switch runs alone and keeps the inventory uid.
+    // The hand pieces omit uid; the bench row is the shared state. The later bond death takes the next piece.
+    const host = piece('reg_host', [], { col: 4, skill: null, uid: 1 });
+    host.rec.garrisonIds = ['garrison_223_a', 'garrison_224_a'];
+    const mate = piece('reg_kz_mate2', ['kazimierzShip'], { col: 6, skill: null, uid: 2 });
+    const right = piece('reg_mlynar2', ['kazimierzShip'], { bench: true, skill: null });
+    const left = piece('reg_left', ['kazimierzShip'], { bench: true, skill: null });
+    const h = fight(t, {
+      bonds: { kazimierzShip: bond(6, 0) },
+      pieces: [host, mate, right, left],
+      contentInfo: {
+        handPieces: [
+          { slot: 1, id: 'reg_left', bonds: ['kazimierzShip'], position: 'MELEE' },
+          { slot: 8, id: 'reg_mlynar2', bonds: ['kazimierzShip'], position: 'MELEE' },
+        ],
+      },
+    });
+    h.step();
+    h.b.getPlayer('p1').input.bench = [
+      { uid: 11, kind: 'chess', chessId: 'reg_left', idx: 1, bonds: ['kazimierzShip'] },
+      { uid: 55, kind: 'chess', chessId: 'reg_mlynar2', idx: 8, bonds: ['kazimierzShip'] },
+    ];
+    h.b.kill(h.unit('reg_host'));
+    const first = ofId(h, 'reg_mlynar2');
+    assert.equal(first.length, 1);
+    assert.equal(first[0].uid, 55);
+    assert.equal(first[0].alive, true);
+    assert.equal(h.unit('reg_host').removed, true);
+    h.b.kill(h.unit('reg_kz_mate2'));
+    assert.equal(ofId(h, 'reg_mlynar2').length, 1, 'the bond skips the uid the garrison already fielded');
+    const next = ofId(h, 'reg_left');
+    assert.equal(next.length, 1);
+    assert.equal(next[0].uid, 11);
+    assert.equal(next[0].alive, true);
+    assert.equal(next[0].tileC, 6);
+    assert.equal(h.b.errorCount, 0, JSON.stringify(h.b.errors));
+  });
+
+  test('耀骑士临光 and 卡西米尔_2 share the bench uid (#1005)', (t) => {
+    const nearl = piece('reg_nearl', ['kazimierzShip', 'raidShip'], { col: 4, skill: null, uid: 1 });
+    nearl.rec.garrisonIds = ['garrison_58_a'];
+    const mate = piece('reg_kz_mate3', ['kazimierzShip'], { col: 5, skill: null, uid: 2 });
+    const bench = piece('reg_both', ['kazimierzShip', 'raidShip'], { bench: true, skill: null });
+    const h = fight(t, {
+      bonds: { kazimierzShip: bond(6, 0), raidShip: bond(3, 0) },
+      pieces: [nearl, mate, bench],
+      contentInfo: {
+        handPieces: [{ slot: 7, id: 'reg_both', uid: 21, bonds: ['kazimierzShip', 'raidShip'], position: 'MELEE' }],
+      },
+    });
+    h.step();
+    h.b.getPlayer('p1').input.bench = [
+      { uid: 21, kind: 'chess', chessId: 'reg_both', idx: 7, bonds: ['kazimierzShip', 'raidShip'] },
+    ];
+    h.b.kill(h.unit('reg_kz_mate3'));
+    assert.equal(ofId(h, 'reg_both').length, 1);
+    assert.equal(ofId(h, 'reg_both')[0].uid, 21);
+    h.b.kill(h.unit('reg_nearl'));
+    assert.equal(ofId(h, 'reg_both').length, 1, '临光 does not summon uid 21 again');
+    assert.equal(h.unit('reg_nearl').removed, false);
+    assert.equal(h.b.errorCount, 0, JSON.stringify(h.b.errors));
+  });
+
+  test('two bench copies of one chess are different uids', (t) => {
+    const h = fight(t, {
+      bonds: { kazimierzShip: bond(6, 0) },
+      pieces: [
+        piece('reg_kz_a', ['kazimierzShip'], { col: 4, skill: null, uid: 1 }),
+        piece('reg_kz_b', ['kazimierzShip'], { col: 5, skill: null, uid: 2 }),
+        piece('reg_copy', ['kazimierzShip'], { bench: true, skill: null }),
+      ],
+      contentInfo: {
+        handPieces: [
+          { slot: 2, id: 'reg_copy', uid: 56, bonds: ['kazimierzShip'], position: 'MELEE' },
+          { slot: 8, id: 'reg_copy', uid: 55, bonds: ['kazimierzShip'], position: 'MELEE' },
+        ],
+      },
+    });
+    h.step();
+    h.b.kill(h.unit('reg_kz_a'));
+    h.b.kill(h.unit('reg_kz_b'));
+    const copies = ofId(h, 'reg_copy').filter((u) => u.alive);
+    assert.deepEqual(copies.map((u) => u.uid).sort((a, b) => a - b), [55, 56]);
+    assert.equal(h.b.errorCount, 0, JSON.stringify(h.b.errors));
+  });
+
   test('卡西米尔_2: a toggle still active after 30s no longer adds true damage', (t) => {
     const h = fight(t, {
       bonds: { kazimierzShip: bond(6, 0) },
@@ -1066,7 +1187,7 @@ describe('规程·序列Ⅰ bonds', { concurrency: 1 }, () => {
       bondId: 'egirShip', effectId: 'bondeffect_egir_2',
       bonds: { egirShip: bond(6, 0) },
       pieces: [piece('reg_eg2', ['egirShip']), bench],
-      contentInfo: { handPieces: [{ slot: 1, id: 'reg_eg_b', bonds: ['egirShip'], position: 'RANGED' }] },
+      contentInfo: { handPieces: [{ slot: 1, id: 'reg_eg_b', uid: 41, bonds: ['egirShip'], position: 'RANGED' }] },
     });
     h2.step();
     const c = h2.unit('reg_eg2');
@@ -1074,7 +1195,9 @@ describe('规程·序列Ⅰ bonds', { concurrency: 1 }, () => {
     h2.b.dealDamage({ source: null, target: c, amount: 1e9, type: 'true' });
     assert.equal(c.alive, false);
     assert.equal(c.removed, true);
-    assert.equal(living(h2, 'reg_eg_b').length, 1);
+    const switched = living(h2, 'reg_eg_b');
+    assert.equal(switched.length, 1);
+    assert.equal(switched[0].uid, 41, '阿戈尔_2 passes the inventory uid');
   });
 
   test('阿戈尔_2 copies devoured ATK, block and HP onto the switched-in operator', (t) => {
@@ -2134,6 +2257,119 @@ describe('规程·序列Ⅰ bonds', { concurrency: 1 }, () => {
       assert.ok(summon.hp > hpBeforeRegen, `${expectedId} recovers HP from 聚合 hpRegen aura (${hpBeforeRegen} → ${summon.hp})`);
       assertLethaniaRuntime(h);
     }
+  });
+
+  test('莱塔尼亚: chorus strikes twice on every 4th attack (Sk1 spCost 3), survives overlapping flights, and note never doubles', (t) => {
+    // 1. Chorus 8-attack cadence [1, 1, 1, 2, 1, 1, 1, 2] with exact arts damage per hit
+    const h = fight(t, {
+      bonds: { lethaniaShip: bond(6, 700) },
+      pieces: [piece('reg_le_dbl_member', ['lethaniaShip'], { row: 12, col: 2, skill: null, rangeGrid: [[0, 0]] })],
+    });
+    h.step();
+    h.b.kill(tank(h, [10, 6]), null);
+    const [chorus] = lethaniaSummons(h);
+    assert.ok(chorus && chorus.defId === CHORUS, 'spawned a chorus');
+    // Sustain through 8 attacks (hpRegen offsets the 10%/s self-bleed; high ASPD speeds up the cadence)
+    h.b.addBuff(chorus, { key: 'test:sustain', persist: true, mods: { hpRegen: 2000, aspd: 400 } });
+    const target = tank(h, [10, 8.2]); // 2.2 tiles away so bolts have real flight time
+    const byAttack = new Map();
+    const order = [];
+    const hitDamages = new Map();
+    h.b.on('hit', (c) => {
+      if (c.source !== chorus || c.target !== target) return;
+      const id = c.dmg.attackId;
+      if (!byAttack.has(id)) {
+        byAttack.set(id, 0);
+        hitDamages.set(id, []);
+        order.push(id);
+      }
+      byAttack.set(id, byAttack.get(id) + 1);
+      hitDamages.get(id).push(c.dmg.amount);
+      assert.equal(c.dmg.type, 'arts');
+      assert.equal(c.dmg.isAttack, true);
+    });
+    assert.ok(h.runUntil(() => order.length >= 8 && byAttack.get(order[7]) === 2, 15),
+      `expected 8 attacks resolved; got ${order.length} (${order.map((id) => byAttack.get(id)).join(',')})`);
+    assert.deepEqual(order.slice(0, 8).map((id) => byAttack.get(id)), [1, 1, 1, 2, 1, 1, 1, 2],
+      'chorus deals 2 hits on the 4th and 8th attacks');
+    for (const id of [order[3], order[7]]) {
+      for (const amt of hitDamages.get(id)) close(amt, chorus.s.atk, 'each hit of the double strike uses full ATK');
+    }
+
+    // 2. Overlapping flights: next ordinary attack launched before the 4th attack's bolt lands must not cancel its double hit
+    const hFast = fight(t, {
+      bonds: { lethaniaShip: bond(6, 700) },
+      pieces: [piece('reg_le_dbl_fast', ['lethaniaShip'], { row: 12, col: 2, skill: null, rangeGrid: [[0, 0]] })],
+    });
+    hFast.step();
+    hFast.b.kill(tank(hFast, [10, 6]), null);
+    const [fastChorus] = lethaniaSummons(hFast);
+    assert.ok(fastChorus && fastChorus.defId === CHORUS);
+    hFast.b.addBuff(fastChorus, { key: 'test:sustain', persist: true, mods: { hpRegen: 2000 } });
+    const farTarget = tank(hFast, [10, 8.35]);
+    const fastHits = new Map();
+    const fastOrder = [];
+    hFast.b.on('hit', (c) => {
+      if (c.source !== fastChorus || c.target !== farTarget) return;
+      const id = c.dmg.attackId;
+      if (!fastHits.has(id)) { fastHits.set(id, 0); fastOrder.push(id); }
+      fastHits.set(id, fastHits.get(id) + 1);
+    });
+    // Force 5 rapid attacks on the same tick so attack #5 fires while attack #4's projectile is still in flight
+    for (let i = 0; i < 5; i++) hFast.b.forceAttack(fastChorus, [farTarget]);
+    assert.ok(hFast.runUntil(() => fastOrder.length >= 5, 3), 'all 5 overlapping projectiles land');
+    assert.deepEqual(fastOrder.slice(0, 5).map((id) => fastHits.get(id)), [1, 1, 1, 2, 1],
+      'in-flight 4th attack still double-strikes after 5th attack starts');
+
+    // 3. Fragile target killed by hit 1 of the 4th attack stops cleanly without a second hit, and SP still resets
+    const hKill = fight(t, {
+      bonds: { lethaniaShip: bond(6, 700) },
+      pieces: [piece('reg_le_dbl_kill', ['lethaniaShip'], { row: 12, col: 2, skill: null, rangeGrid: [[0, 0]] })],
+    });
+    hKill.step();
+    hKill.b.kill(tank(hKill, [10, 6]), null);
+    const [killChorus] = lethaniaSummons(hKill);
+    assert.ok(killChorus && killChorus.defId === CHORUS);
+    hKill.b.addBuff(killChorus, { key: 'test:sustain', persist: true, mods: { hpRegen: 2000 } });
+    killChorus.atkCd = 99; // isolate from autonomous ticks while projectiles are in flight
+    const dummy = tank(hKill, [10, 7]);
+    for (let i = 0; i < 3; i++) hKill.b.forceAttack(killChorus, [dummy]);
+    assert.equal(killChorus.mem.chorusAtkSp, 3, '3 ordinary attacks charge SP to 3');
+    const fragile = tank(hKill, [10, 6.5]);
+    fragile.hp = 1;
+    let fragileHits = 0;
+    hKill.b.on('hit', (c) => { if (c.source === killChorus && c.target === fragile) fragileHits++; });
+    hKill.b.forceAttack(killChorus, [fragile]);
+    assert.equal(killChorus.mem.chorusAtkSp, 0, 'SP resets as soon as the 4th attack launches');
+    assert.ok(hKill.runUntil(() => !fragile.alive, 2));
+    assert.equal(fragileHits, 1, 'second hit is skipped once the first hit kills the target');
+    assert.equal(killChorus.mem.chorusAtkSp, 0, 'SP stays at 0 after the target dies on hit 1');
+
+    // 4. NOTE has no Sk1 and never triggers a double strike
+    const hNote = fight(t, {
+      bonds: { lethaniaShip: bond(3, 0) },
+      pieces: [piece('reg_le_note_single', ['lethaniaShip'], { row: 12, col: 2, skill: null, rangeGrid: [[0, 0]] })],
+    });
+    hNote.step();
+    hNote.b.kill(tank(hNote, [10, 6]), null);
+    const [note] = lethaniaSummons(hNote);
+    assert.ok(note && note.defId === NOTE);
+    hNote.b.addBuff(note, { key: 'test:sustain', persist: true, mods: { hpRegen: 2000 } });
+    const noteTarget = tank(hNote, [10, 6.2]);
+    const noteHits = new Map();
+    const noteOrder = [];
+    hNote.b.on('hit', (c) => {
+      if (c.source !== note || c.target !== noteTarget) return;
+      const id = c.dmg.attackId;
+      if (!noteHits.has(id)) { noteHits.set(id, 0); noteOrder.push(id); }
+      noteHits.set(id, noteHits.get(id) + 1);
+    });
+    for (let i = 0; i < 5; i++) hNote.b.forceAttack(note, [noteTarget]);
+    hNote.step();
+    assert.deepEqual(noteOrder.slice(0, 5).map((id) => noteHits.get(id)), [1, 1, 1, 1, 1],
+      'note always deals single hits');
+    assert.equal(h.b.errorCount, 0, JSON.stringify(h.b.errors));
+    assertLethaniaRuntime(h);
   });
 
   test('聚合: stacked heals, element recovery, shelter is the strongest not the sum', (t) => {
